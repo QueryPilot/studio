@@ -43,6 +43,11 @@ import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
 import { FunctionFilterDropdown } from "./FunctionFilterDropdown";
+import {
+  RedisDbFilterDropdown,
+  type RedisDatabaseInfo,
+} from "./RedisDbFilterDropdown";
+import { useRedisDbFilterStore } from "@/stores/useRedisDbFilterStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import {
   isMySQLCompatible,
@@ -289,7 +294,6 @@ export const ConnectionSection = forwardRef<
   });
 
   // Get Redis databases info from keyspace
-  type RedisDatabaseInfo = { db: number; keys: number; expires: number };
   const {
     data: redisDatabases = [],
     isLoading: isLoadingKeys,
@@ -326,6 +330,57 @@ export const ConnectionSection = forwardRef<
     enabled: isKeyValueDb && status === "connected",
     staleTime: 30_000,
   });
+
+  // Get max configured databases from Redis CONFIG
+  const { data: redisMaxDbs = 16 } = useQuery({
+    queryKey: ["redis-max-databases", connectionId],
+    queryFn: async () => {
+      return await invoke<number>("redis_max_databases", {
+        connId: connectionId,
+      });
+    },
+    enabled: isKeyValueDb && status === "connected",
+    staleTime: 300_000, // 5 min — rarely changes
+  });
+
+  // Build full database list (db0 through dbN) with key counts
+  const allRedisDatabases: RedisDatabaseInfo[] = useMemo(() => {
+    const keyMap = new Map(redisDatabases.map((d) => [d.db, d]));
+    return Array.from({ length: redisMaxDbs }, (_, i) => ({
+      db: i,
+      keys: keyMap.get(i)?.keys ?? 0,
+      expires: keyMap.get(i)?.expires ?? 0,
+    }));
+  }, [redisDatabases, redisMaxDbs]);
+
+  // Filter preferences
+  const savedVisibleDbs = useRedisDbFilterStore((s) =>
+    s.getVisibleDbs(connectionId)
+  );
+  const setVisibleDbs = useRedisDbFilterStore((s) => s.setVisibleDbs);
+
+  const visibleDbSet = useMemo(() => {
+    if (savedVisibleDbs !== null) {
+      return new Set(savedVisibleDbs);
+    }
+    // Default: show databases with keys > 0, or db0 if none have keys
+    const withKeys = redisDatabases.filter((d) => d.keys > 0).map((d) => d.db);
+    return new Set(withKeys.length > 0 ? withKeys : [0]);
+  }, [savedVisibleDbs, redisDatabases]);
+
+  const handleVisibleDbsChange = useCallback(
+    (dbs: Set<number>) => {
+      setVisibleDbs(connectionId, Array.from(dbs));
+    },
+    [connectionId, setVisibleDbs]
+  );
+
+  const filteredRedisDatabases = useMemo(() => {
+    return allRedisDatabases.filter((d) => visibleDbSet.has(d.db));
+  }, [allRedisDatabases, visibleDbSet]);
+
+  // Detect cluster mode — hide filter for cluster (only db0 supported)
+  const isClusterMode = profile.options.mode === "cluster";
 
   // Store actions
   const {
@@ -1811,6 +1866,24 @@ export const ConnectionSection = forwardRef<
             </div>
           )}
 
+          {/* Redis database filter dropdown (non-cluster key-value only) */}
+          {isKeyValueDb && !isClusterMode && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+              className="shrink-0 -mt-1"
+            >
+              <RedisDbFilterDropdown
+                databases={allRedisDatabases}
+                visibleDbs={visibleDbSet}
+                onVisibleDbsChange={handleVisibleDbsChange}
+                totalDbs={redisMaxDbs}
+                isLoading={isLoadingKeys}
+              />
+            </div>
+          )}
+
           {/* Safe mode indicator */}
           {(() => {
             const safeMode: SafeMode = profile.safe_mode ?? "full_access";
@@ -2573,7 +2646,7 @@ export const ConnectionSection = forwardRef<
                   <Skeleton className="h-4 w-3/4" />
                 </div>
               ) : (
-                redisDatabases.map((dbInfo) => {
+                filteredRedisDatabases.map((dbInfo) => {
                   const isActive = isRedisDatabaseActive(dbInfo.db);
                   const dbLabel = `db${dbInfo.db}`;
                   const selectCommand = buildRedisSelectCommand(dbInfo.db);
