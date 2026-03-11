@@ -236,11 +236,16 @@ export const InspectorTreeView = memo(function InspectorTreeView({
     setSubtreeEdit(null);
   }, []);
 
-  // For multi-doc inline edit (badges)
-  const handleBadgeStartEdit = useCallback((_field: string, _currentValue: string) => {
-    // Multi-doc inline edit input is not yet wired — badges set up state
-    // but the actual inline input for multi-doc mode is future scope.
-  }, []);
+  // For multi-doc badge click — commit the clicked badge value for all selected rows
+  const handleBadgeStartEdit = useCallback((field: string, rawValue: string) => {
+    if (!onCellEdit) return;
+    let parsed: unknown = rawValue;
+    if (rawValue === "null") parsed = null;
+    else if (rawValue === "undefined") parsed = undefined;
+    else if (rawValue === "true") parsed = true;
+    else if (rawValue === "false") parsed = false;
+    onCellEdit(field, parsed);
+  }, [onCellEdit]);
 
   return (
     <div className={cn("flex flex-col h-full", className)}>

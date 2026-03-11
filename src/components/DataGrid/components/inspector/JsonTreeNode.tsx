@@ -353,6 +353,8 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         {/* Collapse toggle */}
         <button
           type="button"
+          aria-label={isCollapsed ? "Expand" : "Collapse"}
+          aria-expanded={!isCollapsed}
           className="w-4 shrink-0 flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground cursor-pointer"
           onClick={toggleCollapse}
         >
@@ -419,12 +421,16 @@ export const JsonTreeNode = memo(function JsonTreeNode({
 
         {/* Edit button for object/array (visible on hover) */}
         {onEditSubtree && (
-          <IconPencil
-            className="h-3 w-3 ml-1 shrink-0 text-muted-foreground/0 group-hover/line:text-muted-foreground/50 transition-colors cursor-pointer"
+          <button
+            type="button"
+            aria-label="Edit value"
+            className="inline-flex items-center justify-center cursor-pointer"
             onClick={() => {
               onEditSubtree(path, value);
             }}
-          />
+          >
+            <IconPencil className="h-3 w-3 ml-1 shrink-0 text-muted-foreground/0 group-hover/line:text-muted-foreground/50 transition-colors" />
+          </button>
         )}
 
         {hasPendingEdit && onUndoEdit && (
