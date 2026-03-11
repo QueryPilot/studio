@@ -219,12 +219,40 @@ export const InspectorTreeView = memo(function InspectorTreeView({
 
   const handleSubtreeSave = useCallback(
     (newValue: unknown) => {
-      if (subtreeEdit) {
-        onCellEdit?.(subtreeEdit.path, newValue);
+      if (!subtreeEdit || !onCellEdit) {
+        setSubtreeEdit(null);
+        return;
       }
+
+      const { path } = subtreeEdit;
+      const dotIndex = path.indexOf(".");
+
+      if (dotIndex === -1) {
+        // Top-level field — pass through directly
+        onCellEdit(path, newValue);
+      } else {
+        // Nested path (e.g. "address.city") — reconstruct the top-level value
+        const topKey = path.slice(0, dotIndex);
+        const restPath = path.slice(dotIndex + 1);
+        const topValue = structuredClone(documents[0]?.[topKey]);
+
+        // Walk to the parent of the target and set the value
+        const segments = restPath.split(".");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deep clone mutation
+        let cursor: any = topValue;
+        for (let i = 0; i < segments.length - 1; i++) {
+          cursor = cursor?.[segments[i]!];
+        }
+        const lastSegment = segments[segments.length - 1]!;
+        if (cursor && typeof cursor === "object") {
+          cursor[lastSegment] = newValue;
+        }
+        onCellEdit(topKey, topValue);
+      }
+
       setSubtreeEdit(null);
     },
-    [subtreeEdit, onCellEdit],
+    [subtreeEdit, onCellEdit, documents],
   );
 
   const handleSubtreeCancel = useCallback(() => {
