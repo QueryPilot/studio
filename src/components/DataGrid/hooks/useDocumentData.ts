@@ -30,10 +30,12 @@ import type { CursorToken } from '@/adapters/types/mongodb';
 import {
   buildDocumentCell,
   generateColumnsFromDocuments,
-  generateColumnsForArrayItems,
+  generateColumnsForTypedValueMode,
+  generateColumnsForTableMode,
   detectDocumentValueType,
   mapDocumentValueTypeToGrid,
 } from '../utils/documentCellFactory';
+import { useNestedArrayLayout } from './useNestedArrayLayout';
 import {
   type DocumentFilter,
   applyDocumentColumnSearch,
@@ -508,6 +510,22 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     return lastSegment?.type === 'object';
   }, [currentPath]);
 
+  // Determine array display layout (table vs typed-value)
+  const isArrayLevel = useMemo(() => {
+    if (currentPath.length === 0) return false;
+    const lastSegment = currentPath[currentPath.length - 1];
+    return lastSegment?.type === 'array';
+  }, [currentPath]);
+
+  // Extract raw array items for schema analysis
+  // nestedDocuments has shape [{ __index, __value }, ...] for arrays
+  const arrayItems = useMemo(() => {
+    if (!isArrayLevel || !nestedDocuments) return undefined;
+    return nestedDocuments.map((doc: Record<string, unknown>) => doc.__value);
+  }, [isArrayLevel, nestedDocuments]);
+
+  const arrayLayout = useNestedArrayLayout(arrayItems, isArrayLevel);
+
   // Generate columns based on current level
   const columns = useMemo<GridColumnV2[]>(() => {
     // Key-value mode for single nested objects
@@ -518,11 +536,11 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       ];
     }
 
-    if (currentPath.length > 0) {
-      const lastSegment = currentPath[currentPath.length - 1];
-      if (lastSegment && lastSegment.type === 'array') {
-        return generateColumnsForArrayItems();
+    if (isArrayLevel) {
+      if (arrayLayout.mode === 'table') {
+        return generateColumnsForTableMode(arrayLayout.columns);
       }
+      return generateColumnsForTypedValueMode();
     }
 
     if (displayDocuments.length === 0) {
@@ -533,7 +551,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
     }
 
     return generateColumnsFromDocuments(displayDocuments as Record<string, unknown>[]);
-  }, [displayDocuments, currentPath, isNestedSingleObject]);
+  }, [displayDocuments, isNestedSingleObject, isArrayLevel, arrayLayout]);
 
   // Transform documents to GridRowModel (with optional client-side search filtering)
   const rows = useMemo<GridRowModel[]>(() => {
@@ -568,6 +586,57 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       });
     }
 
+    // Array table mode: each object item becomes a row with field columns
+    if (isArrayLevel && arrayLayout.mode === 'table' && filteredDocs.length > 0) {
+      return filteredDocs.map((doc) => {
+        const item = (doc as Record<string, unknown>).__value;
+        const obj = (typeof item === 'object' && item !== null && !Array.isArray(item))
+          ? item as Record<string, unknown>
+          : {};
+        const row: GridRowModel = {};
+        for (const col of columns) {
+          const value = obj[col.field];
+          const valueType = detectDocumentValueType(value);
+          row[col.field] = {
+            value: value === undefined ? undefined : value,
+            db_type: valueType,
+            value_type: mapDocumentValueTypeToGrid(valueType),
+            is_truncated: false,
+          };
+        }
+        return row;
+      });
+    }
+
+    // Array typed-value mode: Index | Type | Value
+    if (isArrayLevel && arrayLayout.mode === 'typed-value' && filteredDocs.length > 0) {
+      return filteredDocs.map((doc) => {
+        const d = doc as Record<string, unknown>;
+        const rawValue = d.__value;
+        const valueType = detectDocumentValueType(rawValue);
+        return {
+          __index: {
+            value: d.__index,
+            db_type: 'number',
+            value_type: 'Integer' as GridCellValueType,
+            is_truncated: false,
+          },
+          __type: {
+            value: valueType,
+            db_type: 'string',
+            value_type: 'Text' as GridCellValueType,
+            is_truncated: false,
+          },
+          __value: {
+            value: rawValue,
+            db_type: valueType,
+            value_type: mapDocumentValueTypeToGrid(valueType),
+            is_truncated: false,
+          },
+        } as GridRowModel;
+      });
+    }
+
     return filteredDocs.map((doc) => {
       const row: GridRowModel = {};
       for (const col of columns) {
@@ -583,7 +652,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       }
       return row;
     });
-  }, [displayDocuments, columns, filter, isNestedSingleObject]);
+  }, [displayDocuments, columns, filter, isNestedSingleObject, isArrayLevel, arrayLayout]);
 
   const nullTypeHintsByField = useMemo(() => {
     const hints = new Map<string, ReturnType<typeof detectDocumentValueType>>();
@@ -680,11 +749,21 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return valueType === 'object' || valueType === 'array';
       }
 
+      // Table mode: check raw value in the cell
+      if (isArrayLevel && arrayLayout.mode === 'table') {
+        const cellValue = row[column.field];
+        const rawValue = cellValue && typeof cellValue === 'object' && 'value' in cellValue
+          ? (cellValue as { value?: unknown }).value
+          : cellValue;
+        const cellValueType = detectDocumentValueType(rawValue);
+        return cellValueType === 'object' || cellValueType === 'array';
+      }
+
       const rawValue = getRawValueFromRow(row, column);
       const valueType = detectDocumentValueType(rawValue);
       return valueType === 'object' || valueType === 'array';
     },
-    [getRawValueFromRow, isNestedSingleObject]
+    [getRawValueFromRow, isNestedSingleObject, isArrayLevel, arrayLayout]
   );
 
   // Step into a nested object/array
@@ -711,6 +790,24 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return;
       }
 
+      // Table mode: drill into a cell's nested object/array value
+      const isArrayLevelNav = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
+      if (isArrayLevelNav && arrayLayout.mode === 'table') {
+        // In table mode, each row IS an object — drill into a nested field
+        // Push the array index segment, then the field segment
+        const rowIndex = event.rowIndex;
+        const rawFieldValue = getRawValueFromRow(rowData, column);
+        const fieldValueType = detectDocumentValueType(rawFieldValue);
+        const fieldType: PathSegment['type'] = fieldValueType === 'array' ? 'array' : 'object';
+
+        setCurrentPath((prev) => [
+          ...prev,
+          { key: rowIndex, label: `[${rowIndex}]`, type: 'object' },
+          { key: column.field, label: column.field, type: fieldType },
+        ]);
+        return;
+      }
+
       const rawValue = getRawValueFromRow(rowData, column);
       const valueType = detectDocumentValueType(rawValue);
 
@@ -726,14 +823,13 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         }
       }
 
-      const isArrayLevel = currentPath.length > 0 && currentPath[currentPath.length - 1]?.type === 'array';
-      const arrayIndex = isArrayLevel
+      const arrayIndex = isArrayLevelNav
         ? (rowData.__index as { value?: unknown } | undefined)?.value
         : undefined;
       const terminalType: PathSegment['type'] = valueType === 'array' ? 'array' : 'object';
 
       const nextSegments: PathSegment[] = [];
-      if (isArrayLevel && typeof arrayIndex === 'number') {
+      if (isArrayLevelNav && typeof arrayIndex === 'number') {
         nextSegments.push({
           key: arrayIndex,
           label: `[${arrayIndex}]`,
@@ -767,7 +863,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
         return nextPath;
       });
     },
-    [canStepInto, currentPath, getRawValueFromRow, isNestedSingleObject]
+    [canStepInto, currentPath, getRawValueFromRow, isNestedSingleObject, arrayLayout]
   );
 
   // Step out one level
