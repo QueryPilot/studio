@@ -5,8 +5,8 @@
 use async_trait::async_trait;
 use fred::clients::Client;
 use fred::interfaces::{
-    ClientLike, HashesInterface, KeysInterface, ListInterface, LuaInterface, ServerInterface,
-    SetsInterface, SortedSetsInterface, StreamsInterface,
+    ClientLike, ConfigInterface, HashesInterface, KeysInterface, ListInterface, LuaInterface,
+    ServerInterface, SetsInterface, SortedSetsInterface, StreamsInterface,
 };
 use fred::prelude::{Builder, Config, Expiration, Server, ServerConfig};
 use fred::types::config::ClusterDiscoveryPolicy;
@@ -229,6 +229,27 @@ impl RedisAdapter {
                 Ok(())
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    /// Get the maximum number of databases configured on the server.
+    /// Uses CONFIG GET databases, falls back to 16 on failure.
+    pub async fn get_max_databases(&self) -> u16 {
+        let client = self.client.read().await;
+        match client.as_ref() {
+            Some(c) => {
+                // CONFIG GET databases returns a map: {"databases": "16"}
+                let result: Result<HashMap<String, String>, _> =
+                    c.config_get("databases").await;
+                match result {
+                    Ok(map) => map
+                        .get("databases")
+                        .and_then(|v| v.parse::<u16>().ok())
+                        .unwrap_or(16),
+                    Err(_) => 16,
+                }
+            }
+            None => 16,
         }
     }
 

@@ -189,6 +189,23 @@ pub async fn redis_info(
     redis.get_server_info_raw().await.map_err(|e| e.to_string())
 }
 
+/// Get the maximum number of configured databases
+#[tauri::command]
+pub async fn redis_max_databases(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<u16, String> {
+    let adapter = manager
+        .borrow_adapter_with_retry(&conn_id, 3)
+        .await
+        .map_err(|e| e.to_string())?;
+    let redis = adapter
+        .as_redis()
+        .ok_or_else(|| "Not a Redis connection".to_string())?;
+
+    Ok(redis.get_max_databases().await)
+}
+
 /// Get key patterns for AI context — bounded scan that groups keys by prefix
 #[tauri::command]
 pub async fn redis_key_patterns(
