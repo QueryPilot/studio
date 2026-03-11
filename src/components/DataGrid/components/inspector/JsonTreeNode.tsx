@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useRef, useEffect } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import { IconPencil, IconArrowBackUp } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { toSearchableText } from "./utils";
+import { toSearchableText, rawValueForEdit, parseLiteralValue } from "./utils";
 
 // ============================================================================
 // Constants
@@ -81,21 +81,6 @@ function InlinePrimitiveEditor({
     inputRef.current?.select();
   }, []);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        committedRef.current = true;
-        onCommit(value);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        committedRef.current = true;
-        onCancel();
-      }
-    },
-    [value, onCommit, onCancel],
-  );
-
   return (
     <Input
       ref={inputRef}
@@ -109,31 +94,91 @@ function InlinePrimitiveEditor({
           onCancel();
         }
       }}
-      onKeyDown={handleKeyDown}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          committedRef.current = true;
+          onCommit((e.target as HTMLInputElement).value);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          committedRef.current = true;
+          onCancel();
+        }
+      }}
       className="h-5 text-xs font-mono px-1 py-0 inline-flex w-auto min-w-[60px] max-w-[200px]"
     />
   );
 }
 
 // ============================================================================
-// Value Rendering Helpers
+// Shared Subcomponents (eliminates copy-paste)
 // ============================================================================
 
-function rawValueForInlineEdit(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
+/** Renders a JSON field key with optional data-type tooltip. */
+function FieldKeyLabel({
+  fieldKey,
+  dataType,
+}: {
+  fieldKey: string;
+  dataType?: string;
+}) {
+  const keySpan = (
+    <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
+      &quot;{fieldKey}&quot;
+    </span>
+  );
+
+  return (
+    <>
+      {dataType ? (
+        <Tooltip>
+          <TooltipTrigger>{keySpan}</TooltipTrigger>
+          <TooltipContent side="top" className="text-xs font-mono">
+            {dataType}
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        keySpan
+      )}
+      <span
+        className={cn("font-mono text-xs mx-0.5", TYPE_COLORS.punctuation)}
+      >
+        :
+      </span>
+    </>
+  );
 }
 
-function parseInlineEdit(raw: string): unknown {
-  if (raw === "null") return null;
-  if (raw === "undefined") return undefined;
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return raw;
+/** Renders an undo button for fields with pending edits. */
+function UndoEditButton({
+  onUndo,
+}: {
+  onUndo: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center h-4 w-4 ml-0.5 rounded-sm hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUndo();
+          }}
+        >
+          <IconArrowBackUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-xs">
+        Revert edit
+      </TooltipContent>
+    </Tooltip>
+  );
 }
+
+// ============================================================================
+// Value Rendering Helper
+// ============================================================================
 
 function renderPrimitiveValue(value: unknown): {
   display: string;
@@ -206,40 +251,15 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         <span className="w-4 shrink-0" />
 
         {fieldKey !== undefined && (
-          <>
-            {dataType ? (
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
-                    &quot;{fieldKey}&quot;
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs font-mono">
-                  {dataType}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
-                &quot;{fieldKey}&quot;
-              </span>
-            )}
-            <span
-              className={cn(
-                "font-mono text-xs mx-0.5",
-                TYPE_COLORS.punctuation,
-              )}
-            >
-              :
-            </span>
-          </>
+          <FieldKeyLabel fieldKey={fieldKey} dataType={dataType} />
         )}
 
         {editing ? (
           <InlinePrimitiveEditor
-            initialValue={rawValueForInlineEdit(value)}
+            initialValue={rawValueForEdit(value)}
             onCommit={(raw) => {
               setEditing(false);
-              onEditPrimitive?.(path, parseInlineEdit(raw));
+              onEditPrimitive?.(path, parseLiteralValue(raw));
             }}
             onCancel={() => {
               setEditing(false);
@@ -272,23 +292,7 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         )}
 
         {hasPendingEdit && onUndoEdit && (
-          <Tooltip>
-            <TooltipTrigger>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center h-4 w-4 ml-0.5 rounded-sm hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUndoEdit(path);
-                }}
-              >
-                <IconArrowBackUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">
-              Revert edit
-            </TooltipContent>
-          </Tooltip>
+          <UndoEditButton onUndo={() => { onUndoEdit(path); }} />
         )}
       </div>
     );
@@ -340,6 +344,13 @@ export const JsonTreeNode = memo(function JsonTreeNode({
     setCollapsed((prev) => !prev);
   };
 
+  // Edit callbacks are only passed to direct children of the root (depth 0→1).
+  // Deeper nodes are read-only because onCellEdit expects a top-level field
+  // key and a complete replacement value — editing a nested primitive would
+  // overwrite the parent object.
+  const childEditPrimitive = depth === 0 ? onEditPrimitive : undefined;
+  const childEditSubtree = depth === 0 ? onEditSubtree : undefined;
+
   return (
     <>
       {/* Opening line: key: { / key: [ */}
@@ -364,32 +375,7 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         </button>
 
         {fieldKey !== undefined && (
-          <>
-            {dataType ? (
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
-                    &quot;{fieldKey}&quot;
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs font-mono">
-                  {dataType}
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <span className={cn("font-mono text-xs", TYPE_COLORS.key)}>
-                &quot;{fieldKey}&quot;
-              </span>
-            )}
-            <span
-              className={cn(
-                "font-mono text-xs mx-0.5",
-                TYPE_COLORS.punctuation,
-              )}
-            >
-              :
-            </span>
-          </>
+          <FieldKeyLabel fieldKey={fieldKey} dataType={dataType} />
         )}
 
         <span className={cn("font-mono text-xs", TYPE_COLORS.bracket)}>
@@ -434,23 +420,7 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         )}
 
         {hasPendingEdit && onUndoEdit && (
-          <Tooltip>
-            <TooltipTrigger>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center h-4 w-4 ml-0.5 rounded-sm hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUndoEdit(path);
-                }}
-              >
-                <IconArrowBackUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">
-              Revert edit
-            </TooltipContent>
-          </Tooltip>
+          <UndoEditButton onUndo={() => { onUndoEdit(path); }} />
         )}
       </div>
 
@@ -468,8 +438,8 @@ export const JsonTreeNode = memo(function JsonTreeNode({
                 path={childPath}
                 normalizedSearch={normalizedSearch}
                 isLast={index === entries.length - 1}
-                onEditPrimitive={onEditPrimitive}
-                onEditSubtree={onEditSubtree}
+                onEditPrimitive={childEditPrimitive}
+                onEditSubtree={childEditSubtree}
                 pendingEditPaths={pendingEditPaths}
                 onUndoEdit={onUndoEdit}
                 dataType={dataTypeMap?.get(key)}

@@ -259,6 +259,22 @@ export function formatValueForDisplay(value: unknown): string {
 }
 
 /**
+ * Parses a raw string from an inline edit input into a typed value.
+ *
+ * Only parses explicit literals: `"null"` → `null`, `"true"` → `true`,
+ * `"false"` → `false`, `"undefined"` → `undefined`.
+ * Everything else is returned as-is (string). Numeric strings stay as strings
+ * because the CRUD pipeline handles type coercion based on the column type.
+ */
+export function parseLiteralValue(raw: string): unknown {
+  if (raw === "null") return null;
+  if (raw === "undefined") return undefined;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return raw;
+}
+
+/**
  * Returns a value formatted for pre-filling inline edit inputs.
  *
  * Unlike `formatValueForDisplay`, strings are NOT wrapped in double quotes
