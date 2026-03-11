@@ -201,13 +201,17 @@ export const InspectorTreeView = memo(function InspectorTreeView({
     });
   }, [allKeys, documents, normalizedSearch]);
 
-  // Edit handlers
+  // Edit handlers — only top-level fields are editable.
+  // Nested primitives (path contains ".") can't be edited safely because
+  // onCellEdit expects a top-level field key and a complete replacement value.
+  // Editing "address.city" would call onCellEdit("address", "New York"),
+  // replacing the entire address object with a string.
   const handleEditPrimitive = useCallback(
     (path: string, value: unknown) => {
-      const topLevelKey = path.split(".")[0];
-      if (topLevelKey && onCellEdit) {
-        onCellEdit(topLevelKey, value);
-      }
+      if (!onCellEdit) return;
+      // Only allow editing top-level fields (no dots in path)
+      if (path.includes(".")) return;
+      onCellEdit(path, value);
     },
     [onCellEdit],
   );
@@ -222,9 +226,9 @@ export const InspectorTreeView = memo(function InspectorTreeView({
   const handleSubtreeSave = useCallback(
     (newValue: unknown) => {
       if (subtreeEdit && onCellEdit) {
-        const topLevelKey = subtreeEdit.path.split(".")[0];
-        if (topLevelKey) {
-          onCellEdit(topLevelKey, newValue);
+        // Only allow editing top-level fields
+        if (!subtreeEdit.path.includes(".")) {
+          onCellEdit(subtreeEdit.path, newValue);
         }
       }
       setSubtreeEdit(null);
