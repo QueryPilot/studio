@@ -82,22 +82,49 @@ export function useStagedChangesIndicator(
   // For keyvalue paradigm (Redis), key is always the PK
   const pkColumns = useMemo(() => {
     if (rowIdentityColumns && rowIdentityColumns.length > 0) {
-      const matchedColumns = rowIdentityColumns
-        .map((identityColumn) =>
-          columns.find(
-            (col) =>
-              col.name === identityColumn ||
-              col.field === identityColumn ||
-              col.title === identityColumn,
-          ),
-        )
-        .filter((column): column is GridColumnV2 => Boolean(column));
+      const deduped = new Map<string, GridColumnV2>();
 
-      if (matchedColumns.length > 0) {
-        const deduped = new Map<string, GridColumnV2>();
-        matchedColumns.forEach((column) => {
-          deduped.set(column.field, column);
-        });
+      for (const identityColumn of rowIdentityColumns) {
+        const matchedColumn = columns.find(
+          (col) =>
+            col.name === identityColumn ||
+            col.field === identityColumn ||
+            col.title === identityColumn,
+        );
+
+        if (matchedColumn) {
+          deduped.set(matchedColumn.field, matchedColumn);
+          continue;
+        }
+
+        const hasIdentityOnRows = rows.some((row) =>
+          Object.prototype.hasOwnProperty.call(row, identityColumn),
+        );
+
+        // Some paradigms keep identity fields on the row model but intentionally
+        // hide those columns in the visible grid (e.g. document array __index).
+        // Create a virtual identity column so PK mapping remains deterministic.
+        if (hasIdentityOnRows) {
+          deduped.set(identityColumn, {
+            id: identityColumn,
+            field: identityColumn,
+            name: identityColumn,
+            title: identityColumn,
+            width: 1,
+            meta: {
+              name: identityColumn,
+              db_type: "synthetic",
+              nullable: false,
+              default: null,
+              is_pk: true,
+              is_fk: false,
+              ordinal: -1,
+            },
+          });
+        }
+      }
+
+      if (deduped.size > 0) {
         return Array.from(deduped.values());
       }
     }
@@ -123,7 +150,7 @@ export function useStagedChangesIndicator(
     }
 
     return pks;
-  }, [columns, rowIdentityColumns]);
+  }, [columns, rowIdentityColumns, rows]);
 
   // Use baseRows (pre-optimistic, stable reference) for the PK map when safe.
   // Optimistic cell UPDATES don't change PKs or row count, so baseRows indices
@@ -268,7 +295,14 @@ function createPrimaryKeyStringFast(
       if (value === null || value === undefined) return "null";
       // Use JSON.stringify for objects (e.g., MongoDB ObjectId) to match createPrimaryKeyStringFromRecord
       if (typeof value === "object") return JSON.stringify(value);
-      return String(value);
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        return String(value);
+      }
+      return "[Unknown]";
     }
     return "null";
   });

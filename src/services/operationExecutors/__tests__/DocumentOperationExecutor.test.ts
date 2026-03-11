@@ -101,6 +101,25 @@ describe('DocumentOperationExecutor', () => {
       );
     });
 
+    it('should strip synthetic nested-array identity keys from update filters', async () => {
+      const commands = [
+        createCommand('data.update', 'orders', {
+          primaryKeys: { _id: 'order-123', __index: 2 },
+          column: 'items.2.productSku',
+          newValue: 'AUDIO-0012323',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.updateDocument).toHaveBeenCalledWith(
+        'orders',
+        { _id: 'order-123' },
+        { $set: { 'items.2.productSku': 'AUDIO-0012323' } }
+      );
+    });
+
     it('should execute delete command', async () => {
       const commands = [
         createCommand('data.delete', 'users', {

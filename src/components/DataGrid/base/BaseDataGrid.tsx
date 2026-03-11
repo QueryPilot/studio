@@ -3306,9 +3306,65 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const inspectorSelectedRows = useMemo((): GridRowModel[] => {
     return inspectorSelectedRowIndexes
       .slice(0, MAX_INSPECTOR_ROWS)
-      .map((idx) => effectiveDisplayRows[idx])
+      .map((idx) => {
+        const baseRow = effectiveDisplayRows[idx];
+        if (!baseRow) {
+          return undefined;
+        }
+
+        const shouldApplyStagedInspectorOverrides =
+          enableStagedChanges &&
+          (paradigm === "document" || paradigm === "keyvalue") &&
+          stagedValuesMap.size > 0;
+
+        if (!shouldApplyStagedInspectorOverrides) {
+          return baseRow;
+        }
+
+        let rowWithStagedValues: GridRowModel | null = null;
+
+        for (const column of finalColumns) {
+          const stagedValueKey = `${idx}:${column.field}`;
+          if (!stagedValuesMap.has(stagedValueKey)) {
+            continue;
+          }
+
+          const stagedValue = stagedValuesMap.get(stagedValueKey);
+          if (!rowWithStagedValues) {
+            rowWithStagedValues = { ...baseRow };
+          }
+
+          const existingCell = rowWithStagedValues[column.field];
+          if (
+            existingCell &&
+            typeof existingCell === "object" &&
+            "value" in existingCell
+          ) {
+            rowWithStagedValues[column.field] = {
+              ...existingCell,
+              value: stagedValue,
+            } as GridRowModel[string];
+          } else {
+            rowWithStagedValues[column.field] = {
+              value: stagedValue,
+              db_type: "unknown",
+              value_type: "Text",
+              is_truncated: false,
+            } as GridRowModel[string];
+          }
+        }
+
+        return rowWithStagedValues ?? baseRow;
+      })
       .filter((row): row is GridRowModel => Boolean(row));
-  }, [inspectorSelectedRowIndexes, effectiveDisplayRows]);
+  }, [
+    inspectorSelectedRowIndexes,
+    effectiveDisplayRows,
+    enableStagedChanges,
+    paradigm,
+    stagedValuesMap,
+    finalColumns,
+  ]);
 
   // Stable ref for inspector-selected row indexes so callbacks don't
   // create new function references when the selection changes.
