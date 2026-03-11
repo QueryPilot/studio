@@ -144,7 +144,7 @@ const MergedFieldBadges = memo(function MergedFieldBadges({
 
 export const InspectorTreeView = memo(function InspectorTreeView({
   documents,
-  dataTypeMap: _dataTypeMap,
+  dataTypeMap,
   onCellEdit,
   pendingEditLabels,
   onUndoCellEdit,
@@ -272,6 +272,7 @@ export const InspectorTreeView = memo(function InspectorTreeView({
                 onEditSubtree={onCellEdit ? handleEditSubtree : undefined}
                 pendingEditPaths={pendingEditLabels}
                 onUndoEdit={onUndoCellEdit}
+                dataTypeMap={dataTypeMap}
               />
             )}
           </div>
@@ -310,6 +311,7 @@ export const InspectorTreeView = memo(function InspectorTreeView({
                   onEditSubtree={onCellEdit ? handleEditSubtree : undefined}
                   pendingEditPaths={pendingEditLabels}
                   onUndoEdit={onUndoCellEdit}
+                  dataType={dataTypeMap?.get(key)}
                 />
               );
             })}
