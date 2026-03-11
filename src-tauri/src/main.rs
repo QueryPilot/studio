@@ -143,6 +143,7 @@ fn main() {
             commands::redis_exists,
             commands::redis_dbsize,
             commands::redis_info,
+            commands::redis_max_databases,
             commands::redis_hgetall,
             commands::redis_hset,
             commands::redis_lrange,

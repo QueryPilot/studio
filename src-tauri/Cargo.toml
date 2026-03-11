@@ -60,7 +60,7 @@ mongodb = "3.4"
 bson = "2.11"
 
 # Key-Value DB (Redis)
-fred = { version = "10.1", features = ["sentinel-client", "replicas", "i-scripts"] }
+fred = { version = "10.1", features = ["sentinel-client", "replicas", "i-scripts", "i-config"] }
 
 # Data types
 fallible-iterator = "0.2"
