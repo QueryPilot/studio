@@ -1065,7 +1065,7 @@ export function useDocumentData(params: UseDocumentDataParams): DocumentDataHook
       const fieldPath = currentPath.length > 0
         ? [
             ...currentPath.map((s) => s.key),
-            ...(isArrayLevel && typeof arrayIndex === 'number' ? [arrayIndex] : [column.field]),
+            ...(isArrayLevel && typeof arrayIndex === 'number' ? [arrayIndex, column.field] : [column.field]),
           ].join('.')
         : column.field;
 
