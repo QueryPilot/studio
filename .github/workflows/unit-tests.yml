@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Rust setup with caching
       - name: Setup Rust toolchain
@@ -63,7 +63,7 @@ jobs:
             libfuse2
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/
@@ -80,7 +80,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: "pnpm"
@@ -153,7 +153,7 @@ jobs:
         run: cargo llvm-cov --lib --lcov --output-path ../coverage/lcov.info
 
       - name: Upload frontend coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage/coverage-final.json
           flags: frontend
@@ -162,7 +162,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
           flags: rust
@@ -171,7 +171,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-report
           path: coverage/
@@ -207,7 +207,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
