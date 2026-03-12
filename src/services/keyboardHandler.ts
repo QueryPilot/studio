@@ -14,6 +14,16 @@ const nowMs = (): number => (
     : Date.now()
 );
 
+const isNativeTextInputElement = (element: EventTarget | null): boolean => {
+  if (!(element instanceof HTMLElement)) return false;
+  return (
+    element.tagName === "INPUT" ||
+    element.tagName === "TEXTAREA" ||
+    element.isContentEditable ||
+    Boolean(element.closest(".cm-editor"))
+  );
+};
+
 export interface KeyboardHandlerOptions {
   chordTimeoutMs?: number;
   preventDefault?: boolean;
@@ -87,11 +97,10 @@ export class KeyboardHandler {
     // Check if focus is on a native text input
     // This allows browser's native undo/redo and text editing shortcuts to work
     const target = event.target as HTMLElement | null;
-    const isNativeTextInput = target && (
-      target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.isContentEditable
-    );
+    const activeElement = document.activeElement as HTMLElement | null;
+    const isNativeTextInput =
+      isNativeTextInputElement(target) ||
+      isNativeTextInputElement(activeElement);
 
     const dispatch = keyboardEventToDispatch(event, this.platform);
     if (!dispatch) {

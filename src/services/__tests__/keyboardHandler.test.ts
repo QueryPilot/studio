@@ -138,4 +138,39 @@ describe("KeyboardHandler", () => {
 
     expect(closeQuickOpen).toHaveBeenCalledTimes(1);
   });
+
+  it("treats active .cm-editor as text-focus when keydown target is not an input", async () => {
+    const deleteRows = vi.fn();
+    const editorRoot = document.createElement("div");
+    editorRoot.className = "cm-editor";
+    editorRoot.tabIndex = -1;
+    document.body.appendChild(editorRoot);
+    editorRoot.focus();
+
+    commandService.register({
+      id: "dataGrid.action.deleteRows",
+      label: "Delete Rows",
+      handler: deleteRows,
+    });
+    keybindingService.register({
+      command: "dataGrid.action.deleteRows",
+      key: "ctrl+d",
+      when: "dataGridFocus && !editingCell && dataGridEditable",
+    });
+    contextService.setValue("dataGridFocus", true);
+    contextService.setValue("dataGridEditable", true);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "d",
+      code: "KeyD",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await Promise.resolve();
+
+    expect(deleteRows).not.toHaveBeenCalled();
+    editorRoot.remove();
+  });
 });

@@ -249,6 +249,7 @@ export const TableStructure = memo(function TableStructure({
     null,
   );
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const contextMenuRowRef = useRef<StructureGridRow | null>(null);
   const [selection, setSelection] = useState<GridSelection>({
     columns: CompactSelection.empty(),
@@ -1634,6 +1635,12 @@ export const TableStructure = memo(function TableStructure({
       // Never intercept keys while command palette is open
       if (contextService.getValue("inQuickOpen")) return;
 
+      // Only apply shortcut when this TableStructure panel owns focus
+      const activeElement = document.activeElement as HTMLElement | null;
+      if (!activeElement || !containerRef.current?.contains(activeElement)) {
+        return;
+      }
+
       // Don't intercept keys when focus is on a text input
       const target = e.target as HTMLElement | null;
       if (
@@ -1687,7 +1694,7 @@ export const TableStructure = memo(function TableStructure({
 
   return (
     <>
-      <div className="h-full flex flex-col">
+      <div ref={containerRef} className="h-full flex flex-col">
         {/* Combined toolbar: table name + actions + search */}
         <div className="flex items-center gap-2 px-0 pb-1.5 pt-0.5 bg-transparent">
           <Input

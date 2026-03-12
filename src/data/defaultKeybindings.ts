@@ -162,7 +162,8 @@ export const defaultKeybindings: Keybinding[] = [
   {
     command: 'dataGrid.action.deleteRows',
     key: 'cmd+d',
-    when: 'dataGridFocus && !editingCell && dataGridEditable && !inQuickOpen',
+    when:
+      'dataGridFocus && !editingCell && dataGridEditable && !editorTextFocus && !inQuickOpen',
   },
   {
     command: 'dataGrid.action.showContextMenu',
