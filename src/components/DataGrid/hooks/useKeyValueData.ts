@@ -810,19 +810,19 @@ export function useKeyValueData(
         : undefined;
       const isInsertedRow = Boolean(insertTempId);
 
-      if (
-        currentKey.type === "list" ||
-        currentKey.type === "set" ||
-        currentKey.type === "stream"
-      ) {
-        // Existing list/set/stream entries are not editable, but newly inserted
-        // optimistic rows should be editable so users can populate payload values.
-        if (!isInsertedRow || currentKey.type === "stream") {
-          logger.info("keyvalue-data", "createEditCommand: type not editable", {
-            type: currentKey.type,
-          });
-          return null;
-        }
+      if (currentKey.type === "stream") {
+        logger.info("keyvalue-data", "createEditCommand: type not editable", {
+          type: currentKey.type,
+        });
+        return null;
+      }
+
+      if (currentKey.type === "set" && !isInsertedRow) {
+        // Existing set members are not editable (Redis has no in-place member update).
+        logger.info("keyvalue-data", "createEditCommand: type not editable", {
+          type: currentKey.type,
+        });
+        return null;
       }
 
       if (currentKey.type === "zset" && column.field !== "score" && !isInsertedRow) {

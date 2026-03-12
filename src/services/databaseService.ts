@@ -17,6 +17,7 @@ import type {
   ForeignKeyInfo,
   TableStatistics,
 } from "@/types/tableStructure";
+import type { ObjectDefinitionType } from "@/adapters/types";
 import { ConstraintType, TableKind } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
 
@@ -93,6 +94,34 @@ export interface ConnectionHealth {
   healthy: boolean;
   rttMs?: number;
   error?: string;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const maybeMessage = (error as { message?: unknown }).message;
+    if (typeof maybeMessage === "string" && maybeMessage.trim().length > 0) {
+      return maybeMessage;
+    }
+
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== "{}") {
+        return serialized;
+      }
+    } catch {
+      // Fall through to String(error)
+    }
+  }
+
+  return String(error);
 }
 
 class DatabaseService {
@@ -1179,6 +1208,7 @@ class DatabaseService {
       }
       throw new Error(
         `Failed to get structure for table ${schema}.${table}: ${errorMsg}`,
+        { cause: error },
       );
     }
   }
@@ -1191,7 +1221,7 @@ class DatabaseService {
     _database: string,
     schema: string,
     objectName: string,
-    objectType: import("@/adapters/types").ObjectDefinitionType,
+    objectType: ObjectDefinitionType,
   ): Promise<string> {
     try {
       const definition = await IntrospectionService.getObjectDefinition(
@@ -1204,10 +1234,10 @@ class DatabaseService {
       return definition;
     } catch (error) {
       logger.error("Failed to get object definition:", error);
+      const message = getErrorMessage(error);
       throw new Error(
-        `Failed to get definition for ${objectType} ${schema}.${objectName}: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
+        `Failed to get definition for ${objectType} ${schema}.${objectName}: ${message}`,
+        { cause: error },
       );
     }
   }
@@ -1567,7 +1597,7 @@ class DatabaseService {
           "Check constraint is violated by existing rows. We add NOT VALID for new checks, or fix the data then VALIDATE CONSTRAINT.";
       }
       logger.error("Failed to create index:", error);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     }
   }
 
@@ -1900,7 +1930,7 @@ class DatabaseService {
 
     // Then clear frontend book-keeping
     const promises = Array.from(this.activeConnections.keys()).map((id) =>
-      this.disconnect(id).catch((error) => {
+      this.disconnect(id).catch((error: unknown) => {
         logger.error("database-service", "Failed to disconnect", error);
       }),
     );

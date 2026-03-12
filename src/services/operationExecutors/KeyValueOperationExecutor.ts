@@ -12,12 +12,13 @@ import type {
 } from './types';
 
 type RedisOperation = {
-  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'sadd' | 'srem' | 'zadd' | 'expire' | 'persist';
+  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'lset' | 'sadd' | 'srem' | 'zadd' | 'expire' | 'persist';
   key: string;
   value?: RedisValue;
   field?: string;
   fields?: Record<string, string>;
   members?: string[];
+  index?: number;
   zsetMembers?: ZSetMember[];
   seconds?: number;
 };
@@ -225,7 +226,7 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       primaryKeys?: Record<string, unknown>;
     },
     redisType: string
-  ): RedisOperation {
+  ): RedisOperation | null {
     // TTL update — EXPIRE or PERSIST
     if (payload.column === 'ttl') {
       const rawValue = payload.newValue;
@@ -247,6 +248,26 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           };
         }
         return { type: 'hset', key, fields: {} };
+
+      case 'list': {
+        const rawIndex = payload.primaryKeys?.index;
+        const index =
+          typeof rawIndex === 'number' ? rawIndex : Number.parseInt(String(rawIndex), 10);
+        if (!Number.isInteger(index)) {
+          logger.warn(
+            'executor.keyvalue',
+            'Skipping list update: invalid or missing list index',
+            { key, rawIndex },
+          );
+          return null;
+        }
+        return {
+          type: 'lset',
+          key,
+          index,
+          members: [String(payload.newValue ?? '')],
+        };
+      }
 
       case 'zset': {
         const member = payload.primaryKeys?.member;
@@ -326,6 +347,14 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         await this.adapter.listPush(op.key, op.members ?? [], 'right');
         break;
 
+      case 'lset':
+        await this.adapter.executeRaw('LSET', [
+          op.key,
+          String(op.index ?? 0),
+          op.members?.[0] ?? '',
+        ]);
+        break;
+
       case 'sadd':
         await this.adapter.setAdd(op.key, op.members ?? []);
         break;
@@ -362,6 +391,8 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         return `LPUSH ${op.key} <values>`;
       case 'rpush':
         return `RPUSH ${op.key} <values>`;
+      case 'lset':
+        return `LSET ${op.key} ${op.index} <value>`;
       case 'sadd':
         return `SADD ${op.key} <members>`;
       case 'srem':
@@ -398,6 +429,8 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           return `LPUSH "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'rpush':
           return `RPUSH "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
+        case 'lset':
+          return `LSET "${op.key}" ${op.index ?? 0} "${op.members?.[0] ?? ''}"`;
         case 'sadd':
           return `SADD "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'srem':
