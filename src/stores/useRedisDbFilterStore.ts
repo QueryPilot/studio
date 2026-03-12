@@ -9,12 +9,6 @@ interface RedisDbFilterState {
 
   /** Set which databases are visible for a connection */
   setVisibleDbs: (connectionId: string, dbs: number[]) => void;
-
-  /** Get visible databases for a connection, or null if no preference saved */
-  getVisibleDbs: (connectionId: string) => number[] | null;
-
-  /** Clear filter for a connection (revert to default) */
-  clearFilter: (connectionId: string) => void;
 }
 
 const storage = createJSONStorage(() =>
@@ -24,7 +18,7 @@ const storage = createJSONStorage(() =>
 export const useRedisDbFilterStore = create<RedisDbFilterState>()(
   devtools(
     persist(
-      immer((set, get) => ({
+      immer((set) => ({
         filters: {},
 
         setVisibleDbs: (connectionId, dbs) => {
@@ -34,20 +28,6 @@ export const useRedisDbFilterStore = create<RedisDbFilterState>()(
             },
             false,
             `redisDbFilter/setVisibleDbs:${connectionId}`
-          );
-        },
-
-        getVisibleDbs: (connectionId) => {
-          return get().filters[connectionId] ?? null;
-        },
-
-        clearFilter: (connectionId) => {
-          set(
-            (state) => {
-              delete state.filters[connectionId];
-            },
-            false,
-            `redisDbFilter/clearFilter:${connectionId}`
           );
         },
       })),
