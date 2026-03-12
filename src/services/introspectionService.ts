@@ -25,6 +25,7 @@ import {
   type RawCellValue,
 } from "./backend";
 import { getSqlAdapterForConnection } from "@/adapters";
+import type { ObjectDefinitionType } from "@/adapters/types";
 
 /**
  * Helper to safely get a string value from a cell
@@ -613,7 +614,7 @@ export const IntrospectionService = {
    */
   async getObjectDefinition(
     connectionId: string,
-    objectType: import("@/adapters/types").ObjectDefinitionType,
+    objectType: ObjectDefinitionType,
     schema: string,
     name: string,
   ): Promise<string> {
@@ -623,31 +624,55 @@ export const IntrospectionService = {
     const result = await BackendAPI.query(connectionId, sql);
 
     if (result.rows.length > 0) {
-      const row = result.rows[0];
-      // MySQL/MariaDB SHOW CREATE returns definition in different columns:
-      // - SHOW CREATE TABLE/VIEW: column 1 (column 0 is object name)
-      // - SHOW CREATE FUNCTION/PROCEDURE: column 2 (column 0 is name, column 1 is sql_mode)
-      // Other databases return definition in column 0 with alias like "definition"
-      // Strategy: Find the first column containing a CREATE statement, fallback to column 0
-      if (Array.isArray(row)) {
-        for (const cell of row) {
-          const value = getString(cell);
+      // Some dialect/object combinations can return multiple rows (for example,
+      // duplicate index names across tables). Collect all CREATE-like payloads.
+      const extractedDefinitions: string[] = [];
+
+      for (const row of result.rows) {
+        if (Array.isArray(row)) {
+          for (const cell of row) {
+            const value = getString(cell);
+            if (value && /^\s*(CREATE|--)/i.test(value)) {
+              extractedDefinitions.push(value);
+              break;
+            }
+          }
+        } else {
+          const value = getString(row);
           if (value && /^\s*(CREATE|--)/i.test(value)) {
-            return value;
+            extractedDefinitions.push(value);
           }
         }
+      }
+
+      if (extractedDefinitions.length > 0) {
+        return [...new Set(extractedDefinitions)].join("\n\n");
+      }
+
+      const firstRow = result.rows[0];
+      if (Array.isArray(firstRow)) {
+        const isNullOnly =
+          firstRow.length > 0 &&
+          firstRow.every((cell) => cell === null || getString(cell).trim() === "");
+        if (isNullOnly) {
+          return `-- Definition is unavailable for '${schema}.${name}'\n-- This can happen due missing privileges, encrypted modules, or database engine limitations`;
+        }
+
         // MySQL: NULL in definition column indicates missing SHOW ROUTINE or SELECT privilege
-        const objectName = getString(row[0]);
-        const hasNullDefinition = row.some(
+        const objectName = getString(firstRow[0]);
+        const hasNullDefinition = firstRow.some(
           (cell, index) => index > 0 && cell === null,
         );
-        if (objectName && hasNullDefinition && row.length > 1) {
+        if (objectName && hasNullDefinition && firstRow.length > 1) {
           return `-- This user does not have permission to view the definition of '${objectName}'\n-- Required privilege: SHOW ROUTINE (for functions/procedures) or SELECT (for views)`;
         }
-        // Fallback to column 0 if no CREATE found
-        return getString(row[0]);
+
+        // Fallback to column 0 if no CREATE-like content was found
+        return getString(firstRow[0]);
       }
-      return getString(row);
+
+      const scalarFallback = getString(firstRow);
+      return scalarFallback;
     }
     return "";
   },

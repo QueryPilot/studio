@@ -692,6 +692,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   }, [gridSelection]);
 
   const gridSelectionRef = useRef<GridSelection | undefined>(undefined);
+  const inspectorToggleSelectionGuardUntilRef = useRef<number>(0);
   const contextMenuTargetRef = useRef<ContextMenuTarget | null>(null);
 
   useContextKey("selectionEmpty", !hasSelection, {
@@ -2633,6 +2634,24 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     rowCount: effectiveDisplayRows.length,
   });
 
+  const handleToggleInspector = useCallback(() => {
+    if (!enableInspector) return;
+
+    // When quick filtering is active, opening the inspector can trigger a
+    // transient grid selection reset event from layout churn. Guard briefly
+    // so row selections survive Cmd/Ctrl+I toggles.
+    if (activeFilter && !showInspector) {
+      const selectedRowCount = collectSelectedRowIndexes(
+        gridSelectionRef.current,
+      ).size;
+      if (selectedRowCount > 0) {
+        inspectorToggleSelectionGuardUntilRef.current = Date.now() + 300;
+      }
+    }
+
+    setInspectorOpen((prev: boolean) => !prev);
+  }, [activeFilter, enableInspector, setInspectorOpen, showInspector]);
+
   useEffect(() => {
     dataGridRegistry.register({
       id: gridId,
@@ -2756,11 +2775,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       clearSelection: () => {
         handleClearSelection();
       },
-      toggleInspector: enableInspector
-        ? () => {
-            setInspectorOpen((prev: boolean) => !prev);
-          }
-        : undefined,
+      toggleInspector: enableInspector ? handleToggleInspector : undefined,
       showContextMenu: () => {
         // Find the canvas inside the grid — events must originate from INSIDE
         // the ContextMenuTrigger so they bubble UP to its onContextMenu handler.
@@ -2831,6 +2846,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     handleClearSelection,
     handleDeleteRows,
     handleDuplicateRows,
+    handleToggleInspector,
     isCellEditorActive,
     readOnly,
     effectiveQuickFilterRef,
@@ -3045,6 +3061,23 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   // --- Selection Management ---
   const handleGridSelectionChange = useCallback(
     (newSelection: GridSelection) => {
+      const previousSelection = gridSelectionRef.current;
+      const hasActiveQuickFilter = Boolean(activeFilter);
+      const isWithinInspectorToggleGuardWindow =
+        Date.now() < inspectorToggleSelectionGuardUntilRef.current;
+      if (hasActiveQuickFilter && isWithinInspectorToggleGuardWindow) {
+        const previousSelectedRows = collectSelectedRowIndexes(
+          previousSelection,
+        ).size;
+        const nextSelectedRows = collectSelectedRowIndexes(newSelection).size;
+        if (previousSelectedRows > 0 && nextSelectedRows === 0) {
+          return;
+        }
+        if (nextSelectedRows > 0) {
+          inspectorToggleSelectionGuardUntilRef.current = 0;
+        }
+      }
+
       // DEBUG: Log selection changes to trace index mismatches
       if (newSelection.current?.cell) {
         const [col, row] = newSelection.current.cell;
@@ -3080,7 +3113,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         setInspectorSelectedRow(null);
       }
     },
-    [],
+    [activeFilter],
   );
 
   // Compute selected row count efficiently from CompactSelection (O(1))
@@ -3757,7 +3790,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
                 variant="outline"
                 className="h-7 w-7"
                 onClick={() => {
-                  setInspectorOpen((prev) => !prev);
+                  handleToggleInspector();
                 }}
               >
                 {showInspector ? (

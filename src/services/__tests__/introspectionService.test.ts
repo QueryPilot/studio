@@ -87,4 +87,49 @@ describe("IntrospectionService", () => {
       IntrospectionService.getIndexUsageStats("conn-1", "public", "users"),
     ).rejects.toThrow("primary failure");
   });
+
+  it("joins multiple CREATE definitions returned across rows", async () => {
+    const adapter = {
+      getObjectDefinitionQuery: vi.fn(() => "DEF_SQL"),
+    };
+
+    (getSqlAdapterForConnection as unknown as Mock).mockResolvedValue(adapter);
+    (BackendAPI.query as unknown as Mock).mockResolvedValue({
+      rows: [
+        ["idx_users_email", "CREATE INDEX idx_users_email ON users (email)"],
+        ["idx_orders_email", "CREATE INDEX idx_orders_email ON orders (email)"],
+      ],
+    });
+
+    const definition = await IntrospectionService.getObjectDefinition(
+      "conn-1",
+      "index",
+      "public",
+      "idx_email",
+    );
+
+    expect(definition).toBe(
+      "CREATE INDEX idx_users_email ON users (email)\n\nCREATE INDEX idx_orders_email ON orders (email)",
+    );
+  });
+
+  it("returns explanatory text when definition payload is null-only", async () => {
+    const adapter = {
+      getObjectDefinitionQuery: vi.fn(() => "DEF_SQL"),
+    };
+
+    (getSqlAdapterForConnection as unknown as Mock).mockResolvedValue(adapter);
+    (BackendAPI.query as unknown as Mock).mockResolvedValue({
+      rows: [[null]],
+    });
+
+    const definition = await IntrospectionService.getObjectDefinition(
+      "conn-1",
+      "function",
+      "public",
+      "secret_fn",
+    );
+
+    expect(definition).toContain("Definition is unavailable");
+  });
 });

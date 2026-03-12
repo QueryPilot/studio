@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { Streamdown } from "streamdown";
 import {
   Dialog,
   DialogContent,
@@ -100,9 +101,9 @@ export function AppUpdateDialog() {
             <div className="px-3 py-2 text-[11px] font-medium text-muted-foreground border-b">
               Changelog
             </div>
-            <pre className="max-h-56 overflow-auto p-3 text-xs whitespace-pre-wrap break-words font-sans">
-              {releaseNotes}
-            </pre>
+            <div className="max-h-96 overflow-auto p-3 text-xs">
+              <Streamdown className="select-text">{releaseNotes}</Streamdown>
+            </div>
           </div>
 
           {pendingUpdate?.downloaded ? (
