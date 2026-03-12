@@ -51,7 +51,7 @@ help:
 	@echo "  make release                       - Stable release (AI-assisted version + changelog)"
 	@echo "  make release beta                  - Beta release (auto-bump beta number)"
 	@echo "  make relc [V=2026.1.0]             - Local build, sign, notarize & upload"
-	@echo "  make release-publish V=2026.1.0    - Publish built release to studio-app repo"
+	@echo "  make release-publish V=2026.1.0    - Publish built release to QueryPilot/QueryPilot"
 	@echo "  make version VERSION=2026.1.0      - Bump version only (no commit)"
 	@echo "  make generate-keys          - Generate Tauri updater signing keys"
 	@echo ""
@@ -358,7 +358,7 @@ release:
 beta:
 	@true
 
-# Publish built release to studio-app (after GitHub Actions completes)
+# Publish built release to QueryPilot/QueryPilot (after GitHub Actions completes)
 release-publish:
 	@if [ -z "$(V)" ]; then \
 		echo "❌ Error: Version not specified"; \
