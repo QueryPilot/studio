@@ -306,7 +306,7 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
   const cellValue = value as CellValue | null | undefined;
   const rawValue = cellValue?.value;
   const isPrimaryKey = column.meta?.is_pk ?? false;
-  const isTypeReadOnly = keyType === 'list' || keyType === 'set' || keyType === 'stream';
+  const isTypeReadOnly = keyType === 'set' || keyType === 'stream';
   const isZsetReadOnly = keyType === 'zset' && column.field !== 'score';
   const isReadOnly =
     readOnly ||
@@ -419,6 +419,36 @@ export function buildKeyValueCell(opts: KeyValueCellOptions): GridCell {
         baseFontStyle: '400 11px monospace',
       },
     };
+  }
+
+  // List values often hold JSON payloads as strings. Render as json-cell when valid.
+  if (keyType === 'list' && column.field === 'value') {
+    const strValue = String(rawValue);
+    const trimmed = strValue.trim();
+    const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('[');
+
+    if (looksLikeJson) {
+      try {
+        JSON.parse(trimmed);
+        return {
+          kind: GridCellKind.Custom,
+          data: {
+            kind: 'json-cell',
+            value: trimmed,
+            nullable: false,
+            isValid: true,
+            columnName: column.title || column.id,
+            isPrimaryKey: false,
+            dbType: 'json',
+          },
+          copyData: trimmed,
+          allowOverlay: !isReadOnly,
+          readonly: isReadOnly,
+        };
+      } catch {
+        // Fall through to text renderer for non-JSON list strings.
+      }
+    }
   }
 
   // Default: text cell for field, value, member columns

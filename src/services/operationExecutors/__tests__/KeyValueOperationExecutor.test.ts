@@ -159,6 +159,27 @@ describe('KeyValueOperationExecutor', () => {
       expect(mockAdapter.listPush).toHaveBeenCalledWith('mylist', ['a', 'b'], 'right');
     });
 
+    it('should execute LSET command for list item update', async () => {
+      const commands = [
+        createCommand('data.update', 'queue:inventory:restock', {
+          column: 'value',
+          primaryKeys: { key: 'queue:inventory:restock', index: 1 },
+          newValue: '{"product_id":15,"sku":"AIRPODS-PRO2"}',
+          redisType: 'list',
+        }),
+      ];
+
+      const result = await executor.execute(commands);
+
+      expect(result.success).toBe(true);
+      expect(mockAdapter.executeRaw).toHaveBeenCalledWith('LSET', [
+        'queue:inventory:restock',
+        '1',
+        '{"product_id":15,"sku":"AIRPODS-PRO2"}',
+      ]);
+      expect(mockAdapter.setKey).not.toHaveBeenCalled();
+    });
+
     it('should execute SADD command for set insert', async () => {
       const commands = [
         createCommand('data.insert', 'myset', {
