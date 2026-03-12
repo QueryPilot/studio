@@ -2,7 +2,7 @@
 set -e
 
 # AI-Powered Local Release Script
-# Builds universal macOS binary (Intel + Apple Silicon), signs, notarizes, and uploads to GitHub
+# Builds separate macOS binaries for aarch64 and x86_64, signs, notarizes, and uploads to GitHub
 # with AI-assisted versioning and changelog
 # Usage: make relc V=0.7.1  (optional version override)
 
@@ -22,7 +22,7 @@ fi
 
 VERSION="${1:-}"
 VERSION="${VERSION#v}"  # Strip v prefix if present (e.g., v2026.1.0 → 2026.1.0)
-TARGETS="aarch64-apple-darwin x86_64-apple-darwin universal-apple-darwin"
+TARGETS="aarch64-apple-darwin x86_64-apple-darwin"
 
 # Colors
 RED='\033[0;31m'
@@ -172,10 +172,10 @@ analyze_commits() {
                 gh release delete "v$CURRENT_VERSION" --yes
                 success "GitHub release deleted"
             fi
-            # Delete from studio-app repo if exists
+            # Delete from QueryPilot/QueryPilot repo if exists
             if gh release view "v$CURRENT_VERSION" --repo QueryPilot/QueryPilot &>/dev/null 2>&1; then
                 gh release delete "v$CURRENT_VERSION" --repo QueryPilot/QueryPilot --yes
-                success "GitHub release deleted from studio-app"
+                success "GitHub release deleted from QueryPilot/QueryPilot"
             fi
             # Delete local and remote tag
             if git tag -l "v$CURRENT_VERSION" | grep -q .; then
@@ -489,13 +489,6 @@ build_querypilot_cli() {
     install -m 755 target/aarch64-apple-darwin/release/querypilot target/release/querypilot-aarch64-apple-darwin
     install -m 755 target/x86_64-apple-darwin/release/querypilot target/release/querypilot-x86_64-apple-darwin
 
-    # Create universal binary
-    lipo -create \
-        target/aarch64-apple-darwin/release/querypilot \
-        target/x86_64-apple-darwin/release/querypilot \
-        -output target/release/querypilot-universal-apple-darwin
-    chmod 755 target/release/querypilot-universal-apple-darwin
-
     # Verify required artifacts and executable bits.
     for artifact in \
         "target/debug/querypilot" \
@@ -503,8 +496,7 @@ build_querypilot_cli() {
         "target/release/querypilot" \
         "target/release/querypilot-$host_target" \
         "target/release/querypilot-aarch64-apple-darwin" \
-        "target/release/querypilot-x86_64-apple-darwin" \
-        "target/release/querypilot-universal-apple-darwin"; do
+        "target/release/querypilot-x86_64-apple-darwin"; do
         [ -f "$artifact" ] || error "Missing querypilot artifact: $artifact"
         [ -x "$artifact" ] || error "querypilot artifact is not executable: $artifact"
     done
@@ -566,7 +558,6 @@ arch_suffix() {
     case "$1" in
         aarch64-apple-darwin) echo "aarch64" ;;
         x86_64-apple-darwin)  echo "x86_64" ;;
-        universal-apple-darwin) echo "universal" ;;
         *) echo "$1" ;;
     esac
 }
@@ -641,8 +632,8 @@ generate_manifest() {
     X86_64_ARCHIVE="QueryPilot_v${version}_x86_64.app.tar.gz"
     X86_64_SIG="QueryPilot_v${version}_x86_64.app.tar.gz.sig"
 
-    for f in "$AARCH64_SIG" "$X86_64_SIG"; do
-        [ -f "$f" ] || error "Missing signature file: $f"
+    for f in "$AARCH64_ARCHIVE" "$AARCH64_SIG" "$X86_64_ARCHIVE" "$X86_64_SIG"; do
+        [ -f "$f" ] || error "Missing updater artifact: $f"
     done
 
     AARCH64_SIGNATURE=$(tr -d '\r\n' < "$AARCH64_SIG")

@@ -137,10 +137,6 @@ jobs:
             platform: macos
             target: x86_64-apple-darwin
             arch: x86_64
-          - os: macos-26
-            platform: macos
-            target: universal-apple-darwin
-            arch: universal
 
     steps:
       - name: Checkout code
@@ -211,22 +207,8 @@ jobs:
           TARGET="${{ matrix.target }}"
           mkdir -p target/release
 
-          if [ "$TARGET" = "universal-apple-darwin" ]; then
-            # Universal: build both + lipo
-            cargo build --release --package querypilot --target aarch64-apple-darwin
-            cargo build --release --package querypilot --target x86_64-apple-darwin
-            install -m 755 target/aarch64-apple-darwin/release/querypilot target/release/querypilot-aarch64-apple-darwin
-            install -m 755 target/x86_64-apple-darwin/release/querypilot target/release/querypilot-x86_64-apple-darwin
-            lipo -create \
-              target/aarch64-apple-darwin/release/querypilot \
-              target/x86_64-apple-darwin/release/querypilot \
-              -output target/release/querypilot-universal-apple-darwin
-            chmod 755 target/release/querypilot-universal-apple-darwin
-          else
-            # Single arch
-            cargo build --release --package querypilot --target "$TARGET"
-            install -m 755 "target/$TARGET/release/querypilot" "target/release/querypilot-$TARGET"
-          fi
+          cargo build --release --package querypilot --target "$TARGET"
+          install -m 755 "target/$TARGET/release/querypilot" "target/release/querypilot-$TARGET"
 
           EXPECTED_PATH="target/release/querypilot-$TARGET"
           if [ ! -f "$EXPECTED_PATH" ]; then
@@ -525,7 +507,7 @@ jobs:
           echo "📝 Release notes prepared:"
           cat RELEASE_NOTES.md
 
-      - name: Publish to studio-app repository
+      - name: Publish to QueryPilot/QueryPilot
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
           VERSION: ${{ needs.create-release.outputs.version }}
