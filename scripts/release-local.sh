@@ -109,6 +109,7 @@ run_tests() {
 
     # Run Rust backend tests
     log "Running Rust backend tests..."
+    mkdir -p dist
     if ! (cd src-tauri && cargo test --lib --bins 2>&1); then
         error "Rust tests failed! Fix tests before releasing."
     fi

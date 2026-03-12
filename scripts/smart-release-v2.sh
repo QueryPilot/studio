@@ -174,6 +174,7 @@ echo -e "${GREEN}OK${NC} querypilot CLI"
 
 # Rust tests
 echo "Running Rust tests..."
+mkdir -p dist
 if ! (cd src-tauri && cargo test --lib --bins 2>&1); then
   echo -e "${RED}Rust tests failed!${NC}"
   exit 1

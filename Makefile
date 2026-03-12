@@ -124,6 +124,7 @@ test-unit:
 # Run Rust backend tests
 test-backend:
 	@echo "Running Rust unit tests..."
+	@mkdir -p dist
 	@cd src-tauri && cargo test --lib --bins
 	@echo "Rust tests completed!"
 
