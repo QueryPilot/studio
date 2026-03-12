@@ -5,6 +5,36 @@
 <!-- The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), -->
 <!-- and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). -->
 
+## [2026.1.0-beta.12] - 2026-03-13
+
+### New Features
+- Added smart nested array views in the document grid. Query Pilot now shows object arrays as tables and mixed arrays as typed-value lists, making complex documents easier to inspect.
+- Added nested-view search with background worker processing. You can filter large nested datasets without blocking the UI.
+- Added a new Flatten depth control for document views. You can quickly tune how much nested structure appears in the grid.
+- Added a redesigned Inspector tree with syntax-highlighted JSON, collapsible nodes, inline value editing, inline subtree editing, and undo at the field level.
+- Added MongoDB query result modes for both Data and JSON views. You can switch between tabular exploration and raw result inspection more easily.
+- Added Redis database filtering in the sidebar with per-connection persistence. You can choose which DBs stay visible and Query Pilot now respects server-configured DB counts.
+- Added new Command Palette actions for MongoDB and Redis workflows, including quick open actions and copyable Redis `SELECT` commands.
+- Added new tab management commands in the workbench to close tabs/panels faster and merge tabs into a single panel.
+- Added an in-app changelog popover in Preferences so you can review release notes without leaving the app.
+
+### Improvements
+- Improved staged-change visibility in the data grid and Inspector, including better highlighting for nested document edits.
+- Improved selection persistence in the grid when toggling Inspector with active filters, so your current row context is retained.
+- Improved keyboard handling in grid-heavy views so typing in editors and text inputs no longer conflicts with grid shortcuts.
+- Improved SQL editor safety and feedback with diagnostics status and confirmation prompts for destructive queries.
+- Improved SQL metadata and reconnect behavior so schema/lint context refreshes more reliably after reconnecting.
+- Improved sidebar filtering for database functions with a toggle between user-created functions and the full function list.
+
+### Bug Fixes
+- Fixed nested Inspector edits that could corrupt parent objects. Edits now apply cleanly at the correct subtree level.
+- Fixed array drill-down when filtered so opening an item targets the correct original element.
+- Fixed MongoDB flatten projection path collisions that could break deeper flatten operations.
+- Fixed drillable cell preview overflow and navigation icon visibility issues for clearer in-grid navigation.
+- Fixed Redis DB selection behavior by removing hardcoded DB limits, improving compatibility with non-default Redis setups.
+- Fixed keyboard capture edge cases where internal hidden inputs could interfere with normal editing.
+- Fixed workspace title bar labeling and connection-count display for clearer context in single- and multi-connection workspaces.
+
 ## [2026.1.0-beta.11] - 2026-03-08
 
 ### New Features
