@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForAppUpdates, openAppUpdateDialog } from "@/utils/appUpdate";
+import { ChangelogPopover } from "@/components/ChangelogPopover";
 
 export default function GeneralPanel() {
   const { theme, setTheme, zoomLevel, setZoomLevel } = useAppStore();
@@ -187,6 +188,16 @@ export default function GeneralPanel() {
 
           <div className="flex items-center justify-between py-3 border rounded-xl px-4">
             <div className="space-y-0.5">
+              <Label className="text-xs font-medium">Changelog</Label>
+              <p className="text-xs text-muted-foreground">
+                See what&apos;s new in each release.
+              </p>
+            </div>
+            <ChangelogPopover />
+          </div>
+
+          <div className="flex items-center justify-between py-3 border rounded-xl px-4">
+            <div className="space-y-0.5">
               <Label className="text-xs font-medium">
                 Current Version: {appVersion || "..."}
               </Label>
@@ -263,6 +274,7 @@ export default function GeneralPanel() {
           </div>
         </div>
       </div>
+
     </div>
   );
 }
