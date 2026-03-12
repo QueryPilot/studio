@@ -266,4 +266,101 @@ describe("useStagedChangesIndicator", () => {
 
     expect(result.current.rowChanges.get(2)?.has("productSku")).toBe(true);
   });
+
+  it("marks root drillable field as changed for nested document updates", () => {
+    const tableKey = "mongo-conn:test-db::orders";
+    mockCrudState.stagedCommands.set(tableKey, [
+      {
+        id: "update-nested-root-1",
+        type: "data.update",
+        target: {
+          connectionId: "mongo-conn",
+          database: "test-db",
+          table: "orders",
+        },
+        payload: {
+          column: "items.2.productSku",
+          oldValue: "AUDIO-001",
+          newValue: "AUDIO-001ZZZ",
+          primaryKeys: {
+            _id: "order-1",
+            __index: 2,
+          },
+        },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          description: "Update nested sku",
+          gridColumn: "productSku",
+        },
+        state: "staged",
+      },
+    ] satisfies CrudCommand[]);
+
+    const rootColumns: GridColumnV2[] = [
+      {
+        id: "_id",
+        field: "_id",
+        name: "_id",
+        title: "_id",
+        type: "text",
+        width: 160,
+        meta: {
+          name: "_id",
+          db_type: "text",
+          nullable: false,
+          default: null,
+          is_pk: true,
+          is_fk: false,
+          ordinal: 0,
+        },
+      },
+      {
+        id: "items",
+        field: "items",
+        name: "items",
+        title: "items",
+        type: "json",
+        width: 220,
+        meta: {
+          name: "items",
+          db_type: "json",
+          nullable: true,
+          default: null,
+          is_pk: false,
+          is_fk: false,
+          ordinal: 1,
+        },
+      },
+    ];
+
+    const rootRows: GridRowModel[] = [
+      {
+        _id: {
+          value: "order-1",
+          db_type: "text",
+          value_type: "Text",
+          is_truncated: false,
+        },
+        items: {
+          value: [{ productSku: "PHONE-001" }, { productSku: "AUDIO-001" }],
+          db_type: "array",
+          value_type: "Json",
+          is_truncated: false,
+        },
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useStagedChangesIndicator({
+        connectionId: "mongo-conn",
+        database: "test-db",
+        table: "orders",
+        rowIdentityColumns: ["_id"],
+        rows: rootRows,
+        columns: rootColumns,
+      }),
+    );
+
+    expect(result.current.rowChanges.get(0)?.has("items")).toBe(true);
+  });
 });
