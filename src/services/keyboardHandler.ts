@@ -16,6 +16,9 @@ const nowMs = (): number => (
 
 const isNativeTextInputElement = (element: EventTarget | null): boolean => {
   if (!(element instanceof HTMLElement)) return false;
+  // Exclude GlideDataGrid's internal hidden keyboard-capture input
+  // (lives inside `.gdg-style`) — it's not a real user-facing text field.
+  if (element.closest(".gdg-style")) return false;
   return (
     element.tagName === "INPUT" ||
     element.tagName === "TEXTAREA" ||

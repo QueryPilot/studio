@@ -767,12 +767,14 @@ describe("BaseDataGrid row deletion staging", () => {
       });
     });
 
-    const gridRoot = container.querySelector('[data-testid="base-datagrid"]');
+    // Append inside the inner grid container (containerRef), matching
+    // real GlideDataGrid which places its hidden keyboard-capture input there.
+    const gridContainer = container.querySelector('[data-testid="base-datagrid"] .h-full.min-h-0.outline-none');
     const hiddenInputHost = document.createElement("div");
     hiddenInputHost.className = "gdg-style";
     const hiddenInput = document.createElement("input");
     hiddenInputHost.appendChild(hiddenInput);
-    gridRoot?.appendChild(hiddenInputHost);
+    gridContainer?.appendChild(hiddenInputHost);
     hiddenInput.focus();
 
     act(() => {
