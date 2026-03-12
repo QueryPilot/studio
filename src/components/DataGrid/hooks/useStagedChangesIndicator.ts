@@ -225,6 +225,19 @@ export function useStagedChangesIndicator(
             // payload.column is the full nested path but the grid column is __kv_value)
             const displayCol = command.metadata.gridColumn ?? payload.column;
             rowChangeSet.add(displayCol);
+
+            // For nested document updates (e.g. "items.2.productSku"), also mark
+            // the top-level field ("items"). This keeps root drillable cells
+            // visually staged when navigating back out of nested views.
+            if (
+              payload.column.includes(".") &&
+              displayCol !== payload.column
+            ) {
+              const rootField = payload.column.split(".")[0];
+              if (rootField) {
+                rowChangeSet.add(rootField);
+              }
+            }
           }
           break;
         }

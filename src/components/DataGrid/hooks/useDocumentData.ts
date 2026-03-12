@@ -166,6 +166,17 @@ function splitDocumentFieldPath(field: string): string[] {
     .filter((part) => part.length > 0);
 }
 
+export function filterDocumentsForCurrentLevel(
+  documents: Record<string, unknown>[],
+  filter: DocumentFilter | undefined,
+  isRootLevel: boolean,
+): Record<string, unknown>[] {
+  if (!isRootLevel || filter?.mode !== "search" || !filter.searchText) {
+    return documents;
+  }
+  return applyDocumentColumnSearch(documents, filter.searchText);
+}
+
 // ============================================================================
 // Hook Implementation
 // ============================================================================
@@ -638,14 +649,11 @@ export function useDocumentData(
 
   // Transform documents to GridRowModel (with optional client-side search filtering)
   const rows = useMemo<GridRowModel[]>(() => {
-    // Apply client-side search filter if in search mode
-    let filteredDocs = displayDocuments;
-    if (filter?.mode === "search" && filter.searchText) {
-      filteredDocs = applyDocumentColumnSearch(
-        displayDocuments as Record<string, unknown>[],
-        filter.searchText,
-      ) as typeof documents;
-    }
+    const filteredDocs = filterDocumentsForCurrentLevel(
+      displayDocuments as Record<string, unknown>[],
+      filter,
+      currentPath.length === 0,
+    ) as typeof documents;
 
     // Key-value mode: transform single object entries to rows
     if (isNestedSingleObject && filteredDocs.length === 1) {
@@ -756,6 +764,7 @@ export function useDocumentData(
     displayDocuments,
     columns,
     filter,
+    currentPath.length,
     isNestedSingleObject,
     isArrayLevel,
     arrayLayout,
