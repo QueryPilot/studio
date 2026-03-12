@@ -47,11 +47,20 @@ struct ErrorDetail {
     message: String,
 }
 
+/// Returns the socket path to connect to, preferring the dev socket if it exists.
+/// This allows the CLI (always built in release mode) to auto-detect whether
+/// a dev or prod instance of Query Pilot is running.
 fn socket_path() -> PathBuf {
-    dirs::home_dir()
+    let base = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".querypilot")
-        .join("agent.sock")
+        .join(".querypilot");
+
+    let dev_socket = base.join("agent.dev.sock");
+    if dev_socket.exists() {
+        return dev_socket;
+    }
+
+    base.join("agent.sock")
 }
 
 fn write_error(request_id: &str, capability: &str, code: &str, message: &str) {
@@ -123,7 +132,7 @@ fn main() {
         }
     };
 
-    // Connect to socket
+    // Connect to socket (try dev first, then prod)
     let path = socket_path();
     let mut stream = match UnixStream::connect(&path) {
         Ok(s) => s,
@@ -133,7 +142,7 @@ fn main() {
                 &capability,
                 "connection_failed",
                 &format!(
-                    "Cannot connect to Query Pilot ({}): {}. Is the app running?",
+                    "Cannot connect to Query Pilot (tried {}): {}. Is the app running?",
                     path.display(),
                     e
                 ),

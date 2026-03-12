@@ -55,11 +55,19 @@ struct SocketError {
 // Default socket path
 // ---------------------------------------------------------------------------
 
+fn socket_filename() -> &'static str {
+    if cfg!(debug_assertions) {
+        "agent.dev.sock"
+    } else {
+        "agent.sock"
+    }
+}
+
 fn default_socket_path() -> PathBuf {
     dirs::home_dir()
         .expect("Could not determine home directory")
         .join(".querypilot")
-        .join("agent.sock")
+        .join(socket_filename())
 }
 
 // ---------------------------------------------------------------------------
