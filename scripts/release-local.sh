@@ -503,18 +503,20 @@ build_querypilot_cli() {
     done
 
     # Smoke-test host release/debug CLI protocol path.
-    # Only run if the app is running (agent socket exists); otherwise skip.
+    # Only run if the app is actively listening on the agent socket; a stale
+    # socket file left over from a previous session must not trigger the test.
     local smoke_request='{"version":"1","requestId":"release-local-smoke","params":{}}'
-    if [ -S "$HOME/.querypilot/agent.sock" ]; then
-        printf '%s' "$smoke_request" | target/release/querypilot agent workspace.listTabs >/tmp/querypilot-release-smoke.json
+    local socket_path="$HOME/.querypilot/agent.sock"
+    if [ -S "$socket_path" ] && printf '%s' "$smoke_request" | target/release/querypilot agent workspace.listTabs >/tmp/querypilot-release-smoke.json 2>/dev/null; then
         jq -e '.ok == true and .requestId == "release-local-smoke" and .capability == "workspace.listTabs"' /tmp/querypilot-release-smoke.json >/dev/null \
             || error "querypilot release smoke test failed"
 
         printf '%s' "$smoke_request" | target/debug/querypilot agent workspace.listTabs >/tmp/querypilot-debug-smoke.json
         jq -e '.ok == true and .requestId == "release-local-smoke" and .capability == "workspace.listTabs"' /tmp/querypilot-debug-smoke.json >/dev/null \
             || error "querypilot debug smoke test failed"
+        success "CLI smoke tests passed"
     else
-        warn "Skipping CLI smoke test (app not running — agent.sock not found)"
+        warn "Skipping CLI smoke test (app not running or agent.sock not found)"
     fi
 
     success "querypilot CLI built and verified (dev + prod artifacts)"
