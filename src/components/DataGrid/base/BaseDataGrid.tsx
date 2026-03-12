@@ -125,7 +125,8 @@ const isTextInputElement = (element: EventTarget | null): boolean => {
   return (
     element.tagName === "INPUT" ||
     element.tagName === "TEXTAREA" ||
-    element.isContentEditable
+    element.isContentEditable ||
+    Boolean(element.closest(".cm-editor"))
   );
 };
 
@@ -2866,22 +2867,28 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       if (contextService.getValue("inQuickOpen")) return;
 
       const target = event.target as HTMLElement | null;
+      const activeElement = document.activeElement as HTMLElement | null;
       if (target && isEditorOverlayElement(target)) {
         return;
       }
       const isTextInputTarget = !!target && isTextInputElement(target);
+      const isTextInputActiveElement =
+        !!activeElement && isTextInputElement(activeElement);
 
       // Don't override native text-input behavior for copy/delete —
       // UNLESS the target is GlideDataGrid's internal hidden <input>,
       // which lives inside the grid container (containerRef). Any real
       // user-facing input (inspector search, quick filter, etc.) should
       // keep its native keyboard behavior even if it's inside the wrapper.
-      if (isTextInputTarget && !containerRef.current?.contains(target)) {
+      if (
+        (isTextInputTarget && !containerRef.current?.contains(target)) ||
+        (isTextInputActiveElement &&
+          !containerRef.current?.contains(activeElement))
+      ) {
         return;
       }
 
       const focusedGridId = dataGridRegistry.getFocused()?.id;
-      const activeElement = document.activeElement;
       const isFocusedByRegistry = focusedGridId === gridId;
       const isFocusedByDom =
         !!activeElement && !!containerRef.current?.contains(activeElement);
