@@ -1073,9 +1073,9 @@ export function ConnectionForm() {
                         </div>
                       </CommandEmpty>
 
-                      {savedWorkspaces.length > 0 && (
+                      {savedWorkspaces.filter((ws) => !ws.autoCreated).length > 0 && (
                         <CommandGroup heading="Workspaces" className="text-xs">
-                          {savedWorkspaces.map((ws) => (
+                          {savedWorkspaces.filter((ws) => !ws.autoCreated).map((ws) => (
                             <CommandItem
                               key={ws.id}
                               value={ws.name}
