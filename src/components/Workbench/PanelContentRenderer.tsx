@@ -20,7 +20,7 @@ import {
   IconLayoutGrid,
 } from "@tabler/icons-react";
 import { Loader2 } from "lucide-react";
-import { SqlDataGrid, DocumentDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
+import { SqlDataGrid, KeyValueDataGrid } from "@/components/DataGrid";
 import { TableStructure } from "@/components/TableStructure";
 import { TableIndexes } from "@/components/TableIndexes";
 import { TableTriggers } from "@/components/TableTriggers";
@@ -37,6 +37,7 @@ import { type TabMetadata } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import { CollectionDesigner } from "@/components/CollectionDesigner";
+import { MongoCollectionWorkbench } from "@/components/MongoCollectionWorkbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
@@ -273,17 +274,13 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     }
 
     if (type === "mongo-collection" && metadata) {
-      const mongoGridId = `document:${metadata.connectionId || activeConnectionId}:${metadata.database}:${metadata.table}`;
       return (
         <FeatureErrorBoundary featureName="MongoDB Collection">
-          <DocumentDataGrid
-            gridId={mongoGridId}
-            connectionId={metadata.connectionId || activeConnectionId || ""}
-            database={metadata.database || ""}
-            collection={metadata.table || ""}
-            className="h-full"
+          <MongoCollectionWorkbench
+            panelId={panelId}
+            tabId={tabId}
+            metadata={metadata}
             focused={isPanelFocused}
-            sortGridId={perTabSortGridId(mongoGridId, tabId, metadata.syncSort)}
           />
         </FeatureErrorBoundary>
       );

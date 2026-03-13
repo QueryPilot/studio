@@ -7,6 +7,7 @@ import type {
   DocumentQueryable,
 } from '../capabilities';
 import type {
+  CreateIndexResult,
   FindOptions,
   FindPageOptions,
   DocumentPageResult,
@@ -16,7 +17,14 @@ import type {
   UpdateResult,
   DeleteResult,
   CollectionInfo,
+  MongoCollectionMetadata,
   MongoDatabaseInfo,
+  MongoExplainRequest,
+  MongoExplainResult,
+  MongoIndexInfo,
+  MongoIndexKeySpec,
+  MongoIndexOptions,
+  ValidationRules,
 } from '../types/mongodb';
 import type { DocumentOperation, DocumentResult } from '../types/ipc';
 
@@ -65,7 +73,8 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
   async findDocuments(
     collection: string,
     filter: object = {},
-    options?: FindOptions
+    options?: FindOptions,
+    database?: string,
   ): Promise<object[]> {
     return this.execute<object[]>({
       type: 'find',
@@ -75,15 +84,16 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
       limit: options?.limit,
       sort: options?.sort,
       projection: options?.projection,
-    });
+    }, database);
   }
 
   async findDocumentsPage(
     collection: string,
     filter: object = {},
     options?: FindPageOptions,
-  ): Promise<DocumentPageResult<object>> {
-    return this.execute<DocumentPageResult<object>>({
+    database?: string,
+  ): Promise<DocumentPageResult> {
+    return this.execute<DocumentPageResult>({
       type: 'findPage',
       collection,
       filter,
@@ -91,13 +101,14 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
       sort: options?.sort,
       projection: options?.projection,
       cursor: options?.cursor ?? undefined,
-    });
+    }, database);
   }
 
   async sampleCollectionSchema(
     collection: string,
     filter?: object,
     options?: { sampleSize?: number; maxDepth?: number },
+    database?: string,
   ): Promise<DocumentSchemaSample> {
     return this.execute<DocumentSchemaSample>({
       type: 'sampleSchema',
@@ -105,7 +116,7 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
       filter,
       sampleSize: options?.sampleSize,
       maxDepth: options?.maxDepth,
-    });
+    }, database);
   }
 
   async insertDocument(collection: string, document: object, database?: string): Promise<InsertResult> {
@@ -116,54 +127,65 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
     }, database);
   }
 
-  async insertDocuments(collection: string, documents: object[]): Promise<InsertManyResult> {
+  async insertDocuments(collection: string, documents: object[], database?: string): Promise<InsertManyResult> {
     return this.execute<InsertManyResult>({
       type: 'insertMany',
       collection,
       documents,
-    });
+    }, database);
   }
 
   async updateDocument(
     collection: string,
     filter: object,
-    update: object
+    update: object,
+    database?: string,
   ): Promise<UpdateResult> {
     return this.execute<UpdateResult>({
       type: 'update',
       collection,
       filter,
       update,
-    });
+    }, database);
   }
 
-  async deleteDocument(collection: string, filter: object): Promise<DeleteResult> {
+  async deleteDocument(collection: string, filter: object, database?: string): Promise<DeleteResult> {
     return this.execute<DeleteResult>({
       type: 'delete',
       collection,
       filter,
-    });
+    }, database);
   }
 
-  async aggregate(collection: string, pipeline: object[]): Promise<object[]> {
+  async aggregate(collection: string, pipeline: object[], database?: string): Promise<object[]> {
     return this.execute<object[]>({
       type: 'aggregate',
       collection,
       pipeline,
-    });
+    }, database);
   }
 
-  async countDocuments(collection: string, filter?: object): Promise<number> {
+  async countDocuments(collection: string, filter?: object, database?: string): Promise<number> {
     return this.execute<number>({
       type: 'count',
       collection,
       filter,
-    });
+    }, database);
   }
 
   async listCollections(database?: string): Promise<CollectionInfo[]> {
     return this.execute<CollectionInfo[]>({
       type: 'listCollections',
+    }, database);
+  }
+
+  async getCollectionMetadata(
+    collection: string,
+    database?: string,
+  ): Promise<MongoCollectionMetadata> {
+    return this.execute<MongoCollectionMetadata>({
+      type: 'getCollectionMetadata',
+      collection,
     }, database);
   }
 
@@ -185,9 +207,9 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
    * Get index usage statistics for a collection using $indexStats aggregation
    * Returns statistics on index usage including access counts
    */
-  async getIndexUsageStats(collection: string, _database?: string): Promise<MongoIndexStats[]> {
+  async getIndexUsageStats(collection: string, database?: string): Promise<MongoIndexStats[]> {
     try {
-      const stats = await this.aggregate(collection, [{ $indexStats: {} }]);
+      const stats = await this.aggregate(collection, [{ $indexStats: {} }], database);
       return stats as MongoIndexStats[];
     } catch (error) {
       // If $indexStats fails (permissions, old version), return empty array
@@ -202,16 +224,72 @@ export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
    */
   async listIndexes(collection: string, database?: string): Promise<MongoIndexInfo[]> {
     try {
-      const result = await this.runCommand(
-        { listIndexes: collection },
-        database
-      );
-      // MongoDB returns { cursor: { firstBatch: [...indexes] } }
-      return ((result as any).cursor?.firstBatch || []) as MongoIndexInfo[];
+      return await this.execute<MongoIndexInfo[]>({
+        type: 'listIndexes',
+        collection,
+      }, database);
     } catch (error) {
       console.warn(`Failed to list indexes for ${collection}:`, error);
       return [];
     }
+  }
+
+  async createIndex(
+    collection: string,
+    keys: MongoIndexKeySpec,
+    options?: MongoIndexOptions,
+    database?: string,
+  ): Promise<CreateIndexResult> {
+    return this.execute<CreateIndexResult>({
+      type: 'createIndex',
+      collection,
+      keys,
+      options,
+    }, database);
+  }
+
+  async dropIndex(
+    collection: string,
+    indexName: string,
+    database?: string,
+  ): Promise<object> {
+    return this.execute<object>({
+      type: 'dropIndex',
+      collection,
+      indexName,
+    }, database);
+  }
+
+  async updateCollectionValidation(
+    collection: string,
+    rules: ValidationRules,
+    database?: string,
+  ): Promise<object> {
+    const validator = rules.$jsonSchema
+      ? { $jsonSchema: rules.$jsonSchema }
+      : rules.clearValidator
+        ? {}
+        : undefined;
+
+    return this.execute<object>({
+      type: 'updateCollectionValidation',
+      collection,
+      validator,
+      validationLevel: rules.validationLevel,
+      validationAction: rules.validationAction,
+    }, database);
+  }
+
+  async explainCollectionOperation(
+    collection: string,
+    request: MongoExplainRequest,
+    database?: string,
+  ): Promise<MongoExplainResult> {
+    return this.execute<MongoExplainResult>({
+      type: 'explain',
+      collection,
+      ...request,
+    }, database);
   }
 }
 
@@ -226,15 +304,4 @@ export interface MongoIndexStats {
   };
   spec: Record<string, unknown>;
   building?: boolean;
-}
-
-export interface MongoIndexInfo {
-  v: number;
-  key: Record<string, number>;
-  name: string;
-  ns?: string;
-  unique?: boolean;
-  sparse?: boolean;
-  expireAfterSeconds?: number;
-  [key: string]: unknown;
 }

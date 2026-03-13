@@ -13,6 +13,7 @@ import { debouncedSyncAiContext } from "@/services/aiContextService";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
 import type { TabMetadata } from "@/types/workbench";
+import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 
 // Re-export PersistedTabState for consumers
 export type { PersistedTabState };
@@ -179,7 +180,8 @@ interface QueryState {
   lastSelectQuery: string | null; // Store last SELECT query for auto-refresh after mutations
   inTransaction: boolean; // Track if this tab has an active transaction
   selectedDialect?: SqlDialect | "auto"; // Selected SQL dialect (auto = auto-detect)
-  tableViewType?: string; // For table tabs: "data" | "structure" | "indexes" | etc.
+  tableViewType?: string; // For table and Mongo tabs: "data" | "structure" | "indexes" | etc.
+  mongoWorkbench?: MongoWorkbenchState;
   scrollPosition?: { top: number; left: number };
   editorCursorPosition?: { line: number; ch: number };
   gridColumnWidths?: Record<string, number>;
@@ -301,6 +303,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         inTransaction: false,
         selectedDialect: persisted.selectedDialect,
         tableViewType: persisted.tableViewType,
+        mongoWorkbench: persisted.mongoWorkbench,
         scrollPosition: persisted.scrollPosition,
         editorCursorPosition: persisted.editorCursorPosition,
         gridColumnWidths: persisted.gridColumnWidths,
@@ -357,6 +360,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         inTransaction: false,
         selectedDialect: "auto" as const,
         tableViewType: undefined,
+        mongoWorkbench: undefined,
       };
       const newState = { ...base, ...state };
       newStates.set(tabId, newState);
@@ -370,6 +374,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
         "viewMode",
         "selectedDialect",
         "tableViewType",
+        "mongoWorkbench",
         "scrollPosition",
         "editorCursorPosition",
         "gridColumnWidths",
@@ -386,6 +391,7 @@ export const useTabStateStore = create<TabStateStore>((set, get) => ({
           viewMode: newState.viewMode,
           selectedDialect: newState.selectedDialect,
           tableViewType: newState.tableViewType,
+          mongoWorkbench: newState.mongoWorkbench,
           scrollPosition: newState.scrollPosition,
           editorCursorPosition: newState.editorCursorPosition,
           gridColumnWidths: newState.gridColumnWidths,

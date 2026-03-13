@@ -260,6 +260,41 @@ pub struct CollectionInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MongoCollectionStatsSummary {
+    pub count: Option<u64>,
+    pub size: Option<u64>,
+    pub avg_obj_size: Option<u64>,
+    pub storage_size: Option<u64>,
+    pub total_index_size: Option<u64>,
+    pub index_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoCollectionMetadata {
+    pub name: String,
+    pub options: Value,
+    pub validator: Option<Value>,
+    pub validation_level: Option<mongodb::options::ValidationLevel>,
+    pub validation_action: Option<mongodb::options::ValidationAction>,
+    pub stats: Option<MongoCollectionStatsSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoIndexCreateResult {
+    pub index_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MongoExplainMode {
+    Find,
+    Aggregate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DatabaseInfo {
     pub name: String,
 }

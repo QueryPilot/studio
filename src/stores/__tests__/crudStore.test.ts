@@ -173,6 +173,45 @@ describe("crudStore", () => {
       expect(state.stagedCommands.get(tableKey1)).toHaveLength(2);
       expect(state.stagedCommands.get(tableKey2)).toHaveLength(1);
     });
+
+    it("should replace staged validation updates for the same collection", () => {
+      const store = useCrudStore.getState();
+      const tableKey = store.getTableKey(mockTarget);
+
+      store.stageCommand({
+        id: "validation-1",
+        type: "document.validation.update",
+        target: mockTarget,
+        payload: {
+          validationJson: JSON.stringify({ $jsonSchema: { required: ["email"] } }),
+          validationLevel: "strict",
+          validationAction: "error",
+        },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged",
+      });
+
+      store.stageCommand({
+        id: "validation-2",
+        type: "document.validation.update",
+        target: mockTarget,
+        payload: {
+          clearValidator: true,
+          validationLevel: "moderate",
+          validationAction: "warn",
+        },
+        metadata: { timestamp: new Date().toISOString() },
+        state: "staged",
+      });
+
+      const state = useCrudStore.getState();
+      const staged = state.stagedCommands.get(tableKey);
+
+      expect(staged).toHaveLength(1);
+      expect(staged?.[0]?.id).toBe("validation-2");
+      expect(state.commandIndex.has("validation-1")).toBe(false);
+      expect(state.commandIndex.get("validation-2")).toBe(tableKey);
+    });
   });
 
   describe("Command Unstaging", () => {
