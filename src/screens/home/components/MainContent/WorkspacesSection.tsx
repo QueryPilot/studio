@@ -47,9 +47,6 @@ export function WorkspacesSection() {
 
   const showWorkspaceDetail = useHomeScreenStore((s) => s.showWorkspaceDetail);
   const openWorkspaceForm = useHomeScreenStore((s) => s.openWorkspaceForm);
-  const openWorkspaceCreationForm = useHomeScreenStore(
-    (s) => s.openWorkspaceCreationForm,
-  );
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -193,7 +190,7 @@ export function WorkspacesSection() {
         </div>
         <Button
           onClick={() => {
-            openWorkspaceCreationForm();
+            openWorkspaceForm("create");
           }}
         >
           <IconPlus className="w-4 h-4 mr-2" />
@@ -212,7 +209,7 @@ export function WorkspacesSection() {
           </p>
           <Button
             onClick={() => {
-              openWorkspaceCreationForm();
+              openWorkspaceForm("create");
             }}
           >
             <IconPlus className="w-4 h-4 mr-2" />

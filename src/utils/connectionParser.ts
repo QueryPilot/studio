@@ -163,18 +163,29 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
   }
 
   // Helper function to get value by trying multiple key variations
+  const envKeys = Object.keys(envVars);
   const getValue = (...keys: string[]): string | undefined => {
+    // Exact match first
     for (const key of keys) {
       if (envVars[key.toUpperCase()]) {
         return envVars[key.toUpperCase()];
       }
     }
+    // Suffix match for custom-prefixed env vars (e.g., PARTNER_DB_HOST matches DB_HOST)
+    for (const key of keys) {
+      const suffix = '_' + key.toUpperCase();
+      for (const envKey of envKeys) {
+        if (envKey.endsWith(suffix)) {
+          return envVars[envKey];
+        }
+      }
+    }
     return undefined;
   };
 
-  // Helper function to check if any key starts with a prefix
+  // Helper function to check if any key starts with or contains a prefix segment
   const hasPrefix = (prefix: string) =>
-    Object.keys(envVars).some((k) => k.startsWith(prefix));
+    envKeys.some((k) => k.startsWith(prefix) || k.includes('_' + prefix));
 
   const config: ParsedEnvConfig = {};
 

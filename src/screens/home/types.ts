@@ -4,8 +4,7 @@ export type ContentMode =
   | "details"
   | "workspace-list"
   | "workspace-detail"
-  | "workspace-form"
-  | "workspace-creation-form";
+  | "workspace-form";
 
 export type FormMode = "create" | "edit" | "import";
 
@@ -60,6 +59,4 @@ export interface HomeScreenState {
   clearWorkspaceFilter: () => void;
   openWorkspaceForm: (mode: "create" | "edit", workspaceId?: string) => void;
   closeWorkspaceForm: () => void;
-  openWorkspaceCreationForm: () => void;
-  closeWorkspaceCreationForm: () => void;
 }

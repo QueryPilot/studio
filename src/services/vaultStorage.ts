@@ -37,7 +37,7 @@ class VaultStorageService {
   private dirtyIds: Set<string> = new Set();
   private deletedIds: Set<string> = new Set();
   private indexDirty = false;
-  private keychainAccessible = true; // Track if keychain is accessible
+  private keychainAccessible = false; // Deny by default until successful vault_read
   private groupTagsCache: GroupTag[] | null = null;
   private groupTagsDirty = false;
   private workspacesCache: WorkspaceConfig[] | null = null;
@@ -80,13 +80,8 @@ class VaultStorageService {
       await this.writeVaultData();
     } catch (err) {
       logger.error("Failed to write snapshot", err);
-      if (err instanceof Error && (
-        err.message.includes("keychain") ||
-        err.message.includes("Keychain") ||
-        err.message.includes("access denied")
-      )) {
-        this.keychainAccessible = false;
-      }
+      // Any write failure should block further writes to prevent data corruption
+      this.keychainAccessible = false;
     } finally {
       this.dirtyIds.clear();
       this.deletedIds.clear();
@@ -386,19 +381,10 @@ class VaultStorageService {
     } catch (err) {
       logger.error("Failed to read vault - keychain may be inaccessible", err);
 
-      // Check if this is a keychain access error
-      if (err instanceof Error && (
-        err.message.includes("keychain") ||
-        err.message.includes("Keychain") ||
-        err.message.includes("access denied") ||
-        err.message.includes("timed out")
-      )) {
-        this.keychainAccessible = false;
-        logger.warn("Keychain access failed - running in read-only mode to prevent data loss");
-
-        // Throw to allow caller to handle UI feedback
-        throw new Error("Keychain access required. Please grant access in System Settings.");
-      }
+      // ANY failure to read vault means we cannot trust writes.
+      // Never allow writes without a successful read first.
+      this.keychainAccessible = false;
+      logger.warn("Vault read failed - running in read-only mode to prevent data loss");
 
       // CRITICAL: Do NOT clear cache or write empty data on error
       // Leave existing in-memory state intact (or empty if first load)
@@ -411,6 +397,8 @@ class VaultStorageService {
       if (!this.workspacesCache) {
         this.workspacesCache = [];
       }
+
+      throw new Error("Vault read failed. Keychain access may be required — check System Settings.");
     }
   }
 

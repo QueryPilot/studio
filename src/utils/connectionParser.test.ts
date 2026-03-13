@@ -215,6 +215,53 @@ DB_NAME=test_db`;
       });
     });
 
+    describe("custom-prefixed env vars", () => {
+      it("should parse env vars with a custom team prefix", () => {
+        const env = `PARTNER_DB_HOST=10.40.80.152
+PARTNER_DB_PORT=5432
+PARTNER_DB_USERNAME=k_sales
+PARTNER_DB_PASSWORD=UAT_KAuth168Postgres!^*
+PARTNER_DB_NAME=k_sales_cr02
+PARTNER_DB_SSL_MODE=disable`;
+
+        const config = parseConnectionEnv(env);
+
+        expect(config.host).toBe("10.40.80.152");
+        expect(config.port).toBe("5432");
+        expect(config.username).toBe("k_sales");
+        expect(config.password).toBe("UAT_KAuth168Postgres!^*");
+        expect(config.database).toBe("k_sales_cr02");
+        expect(config.sslMode).toBe(SslMode.Disable);
+      });
+
+      it("should parse env vars with app prefix on standard db keys", () => {
+        const env = `MYAPP_POSTGRES_HOST=db.example.com
+MYAPP_POSTGRES_PORT=5432
+MYAPP_POSTGRES_USER=admin
+MYAPP_POSTGRES_PASSWORD=secret
+MYAPP_POSTGRES_DB=production`;
+
+        const config = parseConnectionEnv(env);
+
+        expect(config.dbType).toBe("postgresql");
+        expect(config.host).toBe("db.example.com");
+        expect(config.port).toBe("5432");
+        expect(config.username).toBe("admin");
+        expect(config.password).toBe("secret");
+        expect(config.database).toBe("production");
+      });
+
+      it("should prefer exact match over prefixed match", () => {
+        const env = `DB_HOST=exact-host
+PARTNER_DB_HOST=prefixed-host
+DB_PORT=5432`;
+
+        const config = parseConnectionEnv(env);
+
+        expect(config.host).toBe("exact-host");
+      });
+    });
+
     describe("export statements", () => {
       it("should handle export prefix", () => {
         const env = `export DATABASE_HOST=localhost
