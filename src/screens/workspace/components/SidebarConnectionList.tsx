@@ -22,6 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { eventBus } from "@/services/eventBus";
+import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
 import { refreshConnectionData } from "@/lib/refreshConnectionData";
 import { QueryHistoryPanel } from "@/components/QueryHistory";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
@@ -156,10 +157,14 @@ export function SidebarConnectionList({
     }
   }, [connections]);
 
-  // Handle add connection
+  // Handle add connection - open the database picker via command palette
   const handleAddConnection = useCallback(() => {
-    // TODO: Open connection picker dialog
-    toast.info("Add connection - coming soon");
+    const { openPalette, setNestedMode } =
+      useCommandPaletteStore.getState();
+    openPalette();
+    setTimeout(() => {
+      setNestedMode({ type: "switch-database" });
+    }, 0);
   }, []);
 
   // When searching, show all connections and let ConnectionSection filter items within
@@ -196,53 +201,40 @@ export function SidebarConnectionList({
   return (
     <div className="flex flex-col h-full">
       {/* Header with tabs and actions */}
-      <div className="shrink-0 p-1.5 space-y-2">
+      <div className="shrink-0 p-1.5 space-y-2 @container/sidebar">
         {/* Tabs and action buttons row */}
         <div className="flex items-center justify-between">
           {/* Horizontal Tabs */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => {
-                setSidebarView("objects");
-              }}
-              className={cn(
-                "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors",
-                sidebarView === "objects"
-                  ? "text-foreground bg-muted rounded-md"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-              )}
-            >
-              <IconDatabase className="h-3.5 w-3.5" />
-              <span>Objects</span>
-            </button>
-            <button
-              onClick={() => {
-                setSidebarView("queries");
-              }}
-              className={cn(
-                "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors",
-                sidebarView === "queries"
-                  ? "text-foreground bg-muted rounded-md"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-              )}
-            >
-              <IconHistory className="h-3.5 w-3.5" />
-              <span>History</span>
-            </button>
-            <button
-              onClick={() => {
-                setSidebarView("erd");
-              }}
-              className={cn(
-                "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors",
-                sidebarView === "erd"
-                  ? "text-foreground bg-muted rounded-md"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-              )}
-            >
-              <IconSitemap className="h-3.5 w-3.5" />
-              <span>ERD</span>
-            </button>
+          <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+            {(
+              [
+                { key: "objects", label: "Objects", Icon: IconDatabase },
+                { key: "queries", label: "History", Icon: IconHistory },
+                { key: "erd", label: "ERD", Icon: IconSitemap },
+              ] as const
+            ).map(({ key, label, Icon }) => (
+              <Tooltip key={key}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      onClick={() => {
+                        setSidebarView(key);
+                      }}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium rounded transition-colors shrink-0",
+                        sidebarView === key
+                          ? "text-foreground bg-muted rounded-md"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                      )}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="hidden @[16rem]/sidebar:inline">{label}</span>
+                    </button>
+                  }
+                />
+                <TooltipContent side="bottom">{label}</TooltipContent>
+              </Tooltip>
+            ))}
           </div>
 
           {/* Action buttons */}
