@@ -9,9 +9,7 @@ import { QuickConnectDialog } from "../QuickConnectDialog";
 
 export function ActionBarActions() {
   const openConnectionForm = useHomeScreenStore((s) => s.openConnectionForm);
-  const openWorkspaceCreationForm = useHomeScreenStore(
-    (s) => s.openWorkspaceCreationForm
-  );
+  const openWorkspaceForm = useHomeScreenStore((s) => s.openWorkspaceForm);
   const [quickConnectOpen, setQuickConnectOpen] = useState(false);
 
   const handleNewConnection = () => {
@@ -19,7 +17,7 @@ export function ActionBarActions() {
   };
 
   const handleNewWorkspace = () => {
-    openWorkspaceCreationForm();
+    openWorkspaceForm("create");
   };
 
   const handleQuickConnect = () => {

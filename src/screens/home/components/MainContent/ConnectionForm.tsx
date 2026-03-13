@@ -68,7 +68,6 @@ import {
   type GroupTag,
 } from "@/types/connection";
 import { vaultStorage } from "@/services/vaultStorage";
-import { windowManager } from "@/services/windowManager";
 import {
   extractConnectionErrorMessage,
   getSslModeOptionsForDb,
@@ -316,7 +315,6 @@ export function ConnectionForm() {
 
   // UI state
   const [isSaving, setIsSaving] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [uriParsed, setUriParsed] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
@@ -892,67 +890,6 @@ export function ConnectionForm() {
     }
   };
 
-  const handleConnect = async () => {
-    if (!name.trim()) {
-      toast.error("Error", { description: "Please provide a connection name" });
-      return;
-    }
-
-    const sslValidationError = validateSslInputs({
-      dbType,
-      sslMode,
-      sslKeyFile,
-      sslCertFile,
-      sslCAFile,
-    });
-    if (sslValidationError) {
-      toast.error("Error", { description: sslValidationError });
-      return;
-    }
-
-    const sshValidationError = validateSshTunnelInputs({
-      useSSH,
-      sshHost,
-      sshUser,
-      sshPassword,
-      useSSHAgent,
-      useSSHKey,
-      sshKeyPath,
-    });
-    if (sshValidationError) {
-      toast.error("Error", { description: sshValidationError });
-      return;
-    }
-
-    setIsConnecting(true);
-    try {
-      const profile = buildConnectionProfile(connection?.profile.id);
-
-      if (isEditMode && connection.profile.id) {
-        await persistUpdate(connection.profile.id, profile, selectedTags);
-      } else {
-        await persistConnection(profile, selectedTags);
-      }
-
-      await syncWorkspaceMemberships(profile.id);
-
-      closeForm();
-
-      await windowManager.openWorkspace(profile.id, profile.name, {
-        database: profile.database,
-      });
-    } catch (error) {
-      const errorMessage = extractConnectionErrorMessage(
-        error,
-        "Failed to connect",
-      );
-      toast.error("Error", {
-        description: errorMessage,
-      });
-    } finally {
-      setIsConnecting(false);
-    }
-  };
 
   const dbTypeOptions = [
     {
@@ -1928,7 +1865,7 @@ export function ConnectionForm() {
             variant="outline"
             size="sm"
             onClick={handleTest}
-            disabled={isTesting || isSaving || isConnecting}
+            disabled={isTesting || isSaving}
             className={cn(
               "h-7 px-2.5 text-xs",
               testSuccess && "text-green-600!",
@@ -1949,10 +1886,9 @@ export function ConnectionForm() {
             )}
           </Button>
           <Button
-            variant="outline"
             size="sm"
             onClick={handleSave}
-            disabled={isSaving || isConnecting || isTesting}
+            disabled={isSaving || isTesting}
             className="h-7 px-2.5 text-xs"
           >
             {isSaving ? (
@@ -1962,21 +1898,6 @@ export function ConnectionForm() {
               </>
             ) : (
               "Save"
-            )}
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleConnect}
-            disabled={isConnecting || isSaving || isTesting}
-            className="h-7 px-3 text-xs"
-          >
-            {isConnecting ? (
-              <>
-                <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                Connecting...
-              </>
-            ) : (
-              "Connect"
             )}
           </Button>
         </div>

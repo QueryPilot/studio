@@ -1,15 +1,15 @@
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { WelcomeSection } from "./WelcomeSection";
 import { ConnectionsSection } from "./ConnectionsSection";
 import { StatsHeader } from "./StatsHeader";
 import { ConnectionForm } from "./ConnectionForm";
 import { WorkspaceForm } from "./WorkspaceForm";
-import { WorkspaceCreationForm } from "./WorkspaceCreationForm";
 import { ConnectionRow } from "../shared/ConnectionRow";
 import { WorkspacesSection } from "./WorkspacesSection";
 import { WorkspaceDetailView } from "./WorkspaceDetailView";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { toast } from "sonner";
 import { parseSearchFilters } from "../ActionBar/SidebarSearch";
 
@@ -17,6 +17,17 @@ export function MainContent() {
   const contentMode = useHomeScreenStore((s) => s.contentMode);
   const searchQuery = useHomeScreenStore((s) => s.searchQuery);
   const connections = useConnectionStore((s) => s.connections);
+  const loadSavedWorkspaces = useWorkspaceBundleStore((s) => s.loadSavedWorkspaces);
+
+  // Refresh workspaces when returning to browse from a form
+  const prevContentMode = useRef(contentMode);
+  useEffect(() => {
+    const prev = prevContentMode.current;
+    prevContentMode.current = contentMode;
+    if (contentMode === "browse" && (prev === "form" || prev === "workspace-form")) {
+      void loadSavedWorkspaces();
+    }
+  }, [contentMode, loadSavedWorkspaces]);
 
   // Global keyboard handler for navigation and shortcuts
   useEffect(() => {
@@ -148,14 +159,6 @@ export function MainContent() {
     return (
       <div className="h-full overflow-y-auto">
         <WorkspaceDetailView />
-      </div>
-    );
-  }
-
-  if (contentMode === "workspace-creation-form") {
-    return (
-      <div className="h-full overflow-y-auto">
-        <WorkspaceCreationForm />
       </div>
     );
   }

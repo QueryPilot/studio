@@ -15,13 +15,13 @@ import {
   IconList,
   IconChevronRight,
   IconPlayerPlay,
-  IconLayout2,
   IconTrash,
   IconAlertTriangle,
   IconDatabase,
   IconCheckbox,
   IconSquare,
   IconPencil,
+  IconDots,
 } from "@tabler/icons-react";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,13 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 type ViewMode = "hybrid" | "grid" | "list";
 
@@ -177,7 +184,7 @@ function DroppableWorkspaceGroup({
           }`}
         />
         {group.workspace ? (
-          <IconLayout2 className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-sm leading-none">{group.workspace.icon || "📦"}</span>
         ) : (
           <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
         )}
@@ -189,7 +196,7 @@ function DroppableWorkspaceGroup({
         </span>
       </button>
       {group.workspace && (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Button
             size="sm"
             variant="ghost"
@@ -202,6 +209,42 @@ function DroppableWorkspaceGroup({
             <IconPlayerPlay className="h-3 w-3 mr-1" />
             Open
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-accent"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <IconDots className="h-3.5 w-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  void handleOpenWorkspace();
+                }}
+              >
+                <IconPlayerPlay className="h-3.5 w-3.5 mr-2" />
+                Open
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onEditWorkspace(group.workspace!.id);
+                }}
+              >
+                <IconPencil className="h-3.5 w-3.5 mr-2" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => {
+                  onDeleteWorkspace(group.workspace!);
+                }}
+              >
+                <IconTrash className="h-3.5 w-3.5 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
     </div>

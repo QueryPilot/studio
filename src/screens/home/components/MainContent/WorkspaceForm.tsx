@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { IconLoader2, IconArrowLeft, IconCheck } from "@tabler/icons-react";
+import { IconLoader2, IconArrowLeft, IconSearch } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
@@ -58,6 +58,7 @@ export function WorkspaceForm() {
     [],
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [connectionSearch, setConnectionSearch] = useState("");
 
   const isEditMode = workspaceFormMode === "edit";
 
@@ -82,6 +83,20 @@ export function WorkspaceForm() {
       setSelectedConnectionIds([]);
     }
   }, [isEditMode, workspaceFormId, savedWorkspaces]);
+
+  const filteredConnections = useMemo(() => {
+    if (!connectionSearch.trim()) return connections;
+    const query = connectionSearch.toLowerCase();
+    return connections.filter((c) => {
+      const { name, host, database, db_type } = c.profile;
+      return (
+        name.toLowerCase().includes(query) ||
+        host.toLowerCase().includes(query) ||
+        database.toLowerCase().includes(query) ||
+        db_type.toLowerCase().includes(query)
+      );
+    });
+  }, [connections, connectionSearch]);
 
   const handleConnectionToggle = (connectionId: string) => {
     setSelectedConnectionIds((prev) => {
@@ -182,23 +197,20 @@ export function WorkspaceForm() {
           {/* Icon Picker */}
           <div className="space-y-2">
             <Label>Icon</Label>
-            <div className="flex items-center gap-2">
-              <div className="text-3xl">{icon}</div>
-              <div className="flex flex-wrap gap-1">
-                {WORKSPACE_EMOJIS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => setIcon(emoji)}
-                    className={cn(
-                      "text-2xl w-10 h-10 rounded-md hover:bg-accent transition-colors",
-                      icon === emoji && "bg-accent ring-2 ring-primary",
-                    )}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
+            <div className="flex flex-wrap gap-1">
+              {WORKSPACE_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => setIcon(emoji)}
+                  className={cn(
+                    "text-2xl w-10 h-10 rounded-md hover:bg-accent transition-colors",
+                    icon === emoji && "bg-accent ring-2 ring-primary",
+                  )}
+                >
+                  {emoji}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -216,8 +228,22 @@ export function WorkspaceForm() {
                 No connections available. Create a connection first.
               </div>
             ) : (
-              <div className="space-y-1 border border-border/40 rounded-lg p-3 max-h-[400px] overflow-y-auto">
-                {connections.map((connection) => {
+              <div className="border border-border/40 rounded-lg overflow-hidden">
+                <div className="relative px-3 pt-3 pb-2">
+                  <IconSearch className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search connections..."
+                    value={connectionSearch}
+                    onChange={(e) => setConnectionSearch(e.target.value)}
+                    className="h-8 text-xs pl-7"
+                  />
+                </div>
+                <div className="space-y-1 p-3 pt-0 max-h-[350px] overflow-y-auto">
+                {filteredConnections.length === 0 ? (
+                  <div className="text-center py-4 text-muted-foreground text-xs">
+                    No connections match "{connectionSearch}"
+                  </div>
+                ) : filteredConnections.map((connection) => {
                   const isSelected = selectedConnectionIds.includes(
                     connection.profile.id,
                   );
@@ -236,10 +262,7 @@ export function WorkspaceForm() {
                     >
                       <Checkbox
                         checked={isSelected}
-                        onCheckedChange={() =>
-                          handleConnectionToggle(connection.profile.id)
-                        }
-                        onClick={(e) => e.stopPropagation()}
+                        readOnly
                       />
                       <img src={logo} alt="" className="w-6 h-6 shrink-0" />
                       <div className="flex-1 min-w-0">
@@ -251,12 +274,10 @@ export function WorkspaceForm() {
                           {connection.profile.database}
                         </div>
                       </div>
-                      {isSelected && (
-                        <IconCheck className="h-4 w-4 text-primary shrink-0" />
-                      )}
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
 

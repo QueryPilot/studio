@@ -134,16 +134,6 @@ export const useHomeScreenStore = create<HomeScreenState>()(
           contentMode: "browse",
           workspaceFormId: null,
         }),
-
-      openWorkspaceCreationForm: () =>
-        set({
-          contentMode: "workspace-creation-form",
-        }),
-
-      closeWorkspaceCreationForm: () =>
-        set({
-          contentMode: "browse",
-        }),
     }),
     {
       name: "home-screen-state",

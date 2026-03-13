@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconLink, IconArrowRight, IconLock } from "@tabler/icons-react";
+import { IconLink, IconLock } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -137,7 +137,7 @@ export function QuickConnectDialog({
   onOpenChange,
 }: QuickConnectDialogProps) {
   const [uri, setUri] = useState("");
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [parsedInfo, setParsedInfo] = useState<ParsedInfo | null>(null);
   const saveConnection = useConnectionStore((s) => s.saveConnection);
 
@@ -169,10 +169,10 @@ export function QuickConnectDialog({
     }
   };
 
-  const handleConnect = async () => {
+  const handleSave = async () => {
     if (!uri.trim()) return;
 
-    setIsConnecting(true);
+    setIsSaving(true);
     try {
       const format = detectConnectionFormat(uri);
       let config: ParsedUriConfig | ParsedEnvConfig;
@@ -227,7 +227,7 @@ export function QuickConnectDialog({
         description: error instanceof Error ? error.message : "Invalid format",
       });
     } finally {
-      setIsConnecting(false);
+      setIsSaving(false);
     }
   };
 
@@ -268,11 +268,10 @@ export function QuickConnectDialog({
             Cancel
           </Button>
           <Button
-            onClick={handleConnect}
-            disabled={!parsedInfo || isConnecting}
+            onClick={handleSave}
+            disabled={!parsedInfo || isSaving}
           >
-            {isConnecting ? "Connecting..." : "Connect"}
-            <IconArrowRight className="h-4 w-4 ml-1" />
+            {isSaving ? "Saving..." : "Save"}
           </Button>
         </div>
       </DialogContent>

@@ -6,7 +6,7 @@ import { ActionBarFooter } from "./ActionBarFooter";
 
 export function ActionBar() {
   return (
-    <div className="h-full flex flex-col bg-sidebar border-sidebar-border">
+    <div className="h-full flex flex-col bg-transparent">
       {/* Logo */}
       <ActionBarLogo />
 
