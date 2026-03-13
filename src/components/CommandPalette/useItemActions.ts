@@ -28,6 +28,8 @@ import {
 } from "@/utils/workbench/openers";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { windowManager } from "@/services/windowManager";
 import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import type { DbType } from "@/types/connection";
 import { writeClipboardText } from "@/lib/clipboard";
@@ -569,6 +571,19 @@ function sanitizeName(name: string): string {
 export function getNestedDatabaseActions(dbType: DbType | null, query: string): ActionItem[] {
   const actions: ActionItem[] = [];
 
+  actions.push(
+    {
+      id: ACTION_IDS.ADD_TO_WORKSPACE,
+      label: "Add to Workspace",
+      shortcut: "W",
+    },
+    {
+      id: ACTION_IDS.OPEN_IN_NEW_WINDOW,
+      label: "Open in New Window",
+      shortcut: "O",
+    },
+  );
+
   if (dbType && DATABASE_CREATION_SUPPORTED.includes(dbType)) {
     const sanitizedName = sanitizeName(query);
     const displayName = sanitizedName || "new_database";
@@ -636,7 +651,8 @@ export function executeSchemaAction(
 export function executeDatabaseAction(
   actionId: string,
   query: string,
-  context: ActionContext
+  context: ActionContext,
+  selectedValue?: string,
 ): void {
   const { connectionId, database, closePalette, dbType } = context;
 
@@ -656,5 +672,96 @@ export function executeDatabaseAction(
       closePalette();
       break;
     }
+
+    case ACTION_IDS.ADD_TO_WORKSPACE: {
+      if (!selectedValue || !connectionId) return;
+      void addSelectedToWorkspace(selectedValue, connectionId, closePalette);
+      break;
+    }
+
+    case ACTION_IDS.OPEN_IN_NEW_WINDOW: {
+      if (!selectedValue || !connectionId) return;
+      void openSelectedInNewWindow(selectedValue, connectionId, closePalette);
+      break;
+    }
+  }
+}
+
+/**
+ * Resolve the selected value to a connection ID.
+ * selectedValue is either a database name (from "On this Server") or a profile ID (from "Saved Profiles").
+ */
+async function resolveSelectedConnection(
+  selectedValue: string,
+  currentConnectionId: string,
+): Promise<{ connectionId: string; label: string } | null> {
+  const connectionStore = useConnectionStore.getState();
+
+  // Check if selectedValue is a saved profile ID
+  const profileMatch = connectionStore.connections.find(
+    (c) => c.profile.id === selectedValue,
+  );
+  if (profileMatch) {
+    return { connectionId: profileMatch.profile.id, label: profileMatch.profile.name };
+  }
+
+  // Otherwise it's a database name on the current server
+  const dbName = selectedValue;
+  const newId = await connectionStore.getOrCreateDatabaseConnection(
+    currentConnectionId,
+    dbName,
+  );
+  if (!newId) return null;
+  return { connectionId: newId, label: dbName };
+}
+
+async function addSelectedToWorkspace(
+  selectedValue: string,
+  currentConnectionId: string,
+  closePalette: () => void,
+): Promise<void> {
+  try {
+    const resolved = await resolveSelectedConnection(selectedValue, currentConnectionId);
+    if (!resolved) {
+      toast.error("Failed to resolve connection");
+      return;
+    }
+
+    const store = useWorkspaceBundleStore.getState();
+    if (store.activeWorkspace?.connections.has(resolved.connectionId)) {
+      store.setFocusedConnection(resolved.connectionId);
+      toast.info(`${resolved.label} is already in workspace`);
+    } else {
+      await store.addConnectionToWorkspace(resolved.connectionId);
+      toast.success(`Added ${resolved.label} to workspace`);
+    }
+    closePalette();
+  } catch (error) {
+    logger.error("Failed to add to workspace:", error);
+    toast.error("Failed to add to workspace");
+  }
+}
+
+async function openSelectedInNewWindow(
+  selectedValue: string,
+  currentConnectionId: string,
+  closePalette: () => void,
+): Promise<void> {
+  try {
+    const resolved = await resolveSelectedConnection(selectedValue, currentConnectionId);
+    if (!resolved) {
+      toast.error("Failed to resolve connection");
+      return;
+    }
+
+    if (windowManager.isWorkspaceOpen(resolved.connectionId)) {
+      await windowManager.focusWorkspace(resolved.connectionId);
+    } else {
+      await windowManager.openWorkspace(resolved.connectionId, resolved.label);
+    }
+    closePalette();
+  } catch (error) {
+    logger.error("Failed to open in new window:", error);
+    toast.error("Failed to open in new window");
   }
 }

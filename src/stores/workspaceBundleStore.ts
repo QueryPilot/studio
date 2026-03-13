@@ -560,6 +560,9 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             },
           };
         });
+
+        // Trigger sidebar data refresh for the new connection
+        refreshConnectionData(openConnection);
       } catch (error) {
         logger.error(
           `[WorkspaceBundleStore] Failed to connect: ${connectionId}`,

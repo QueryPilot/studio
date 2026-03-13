@@ -470,7 +470,7 @@ export function CommandPalette(): React.ReactElement {
       };
 
       if (nestedMode?.type === "switch-database") {
-        executeDatabaseAction(actionId, query, context);
+        executeDatabaseAction(actionId, query, context, selectedValue);
       } else if (nestedMode?.type === "switch-schema") {
         executeSchemaAction(actionId, query, context);
       }
@@ -483,6 +483,7 @@ export function CommandPalette(): React.ReactElement {
       closePalette,
       nestedMode,
       query,
+      selectedValue,
     ],
   );
 

@@ -49,6 +49,8 @@ export const ACTION_IDS = {
 
   // Database actions
   CREATE_DATABASE: "create-database",
+  ADD_TO_WORKSPACE: "add-to-workspace",
+  OPEN_IN_NEW_WINDOW: "open-in-new-window",
 
   // Command actions
   EXECUTE: "execute",
