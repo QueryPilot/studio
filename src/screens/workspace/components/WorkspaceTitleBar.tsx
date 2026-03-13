@@ -124,7 +124,6 @@ export function WorkspaceTitleBar({
   const isInstallingUpdate = useAppStore((state) => state.isInstallingUpdate);
   const isUpdateBusy = isDownloadingUpdate || isInstallingUpdate;
 
-
   const { toggleSidebar: onToggleSidebar } = useWorkspaceScreenStore();
   const { openPreferences } = usePreferencesStore();
   const flushLayout = useWorkbenchStore((s) => s.flushLayout);
@@ -510,8 +509,7 @@ export function WorkspaceTitleBar({
 
   // Get server version from active connection
   useEffect(() => {
-    const activeConnection =
-      databaseService.getActiveConnection(connectionId);
+    const activeConnection = databaseService.getActiveConnection(connectionId);
     if (activeConnection?.server_version) {
       const match = activeConnection.server_version.match(/\d+\.?\d*/);
       setServerVersion(match ? match[0] : null);
@@ -594,7 +592,9 @@ export function WorkspaceTitleBar({
   const handleReconnect = async () => {
     setIsReconnecting(true);
     try {
-      await useWorkspaceBundleStore.getState().reconnectConnection(connectionId);
+      await useWorkspaceBundleStore
+        .getState()
+        .reconnectConnection(connectionId);
 
       // Emit event to refresh sidebar data
       await safeEmit("database-reconnected", { connectionId });
@@ -747,7 +747,7 @@ export function WorkspaceTitleBar({
 
   return (
     <div
-      className="relative flex items-center justify-between h-8 bg-secondary"
+      className="relative flex items-center justify-between h-8"
       data-tauri-drag-region
     >
       {/* Commit Progress Bar - Windows 11 style with 3 layers */}
@@ -828,7 +828,7 @@ export function WorkspaceTitleBar({
                     disabled={!canUndo}
                     title="Undo"
                   >
-                    <IconArrowBackUp className="!size-4" />
+                    <IconArrowBackUp className="size-4!" />
                   </Button>
                 }
               />
@@ -847,7 +847,7 @@ export function WorkspaceTitleBar({
                     disabled={!canRedo}
                     title="Redo"
                   >
-                    <IconArrowForwardUp className="!size-4" />
+                    <IconArrowForwardUp className="size-4!" />
                   </Button>
                 }
               />
@@ -888,7 +888,8 @@ export function WorkspaceTitleBar({
               className="text-muted-foreground whitespace-nowrap text-[10px]"
               data-tauri-drag-region
             >
-              {workspaceConnectionCount} {workspaceConnectionCount === 1 ? "connection" : "connections"}
+              {workspaceConnectionCount}{" "}
+              {workspaceConnectionCount === 1 ? "connection" : "connections"}
             </span>
           </>
         ) : (
@@ -917,9 +918,7 @@ export function WorkspaceTitleBar({
               <span
                 className={cn(
                   "text-xs truncate",
-                  isAutoCreated
-                    ? "font-medium"
-                    : "text-muted-foreground",
+                  isAutoCreated ? "font-medium" : "text-muted-foreground",
                 )}
                 data-tauri-drag-region
               >
@@ -937,7 +936,7 @@ export function WorkspaceTitleBar({
             {/* Connection Details - Hidden on smaller screens */}
             {connection?.host && (
               <>
-                <div className="h-3 w-px bg-border shrink-0 hidden xl:block" />
+                <div className="h-3 w-px bg-foreground/10 dark:bg-border shrink-0 hidden xl:block" />
                 <span
                   className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
                   data-tauri-drag-region
@@ -950,7 +949,10 @@ export function WorkspaceTitleBar({
         )}
 
         {/* Connection Status Badge */}
-        <div className="h-3 w-px bg-border shrink-0" data-tauri-drag-region />
+        <div
+          className="h-3 w-px bg-foreground/10 dark:bg-border shrink-0"
+          data-tauri-drag-region
+        />
         <div
           className={cn(
             "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap shrink-0",
@@ -1015,10 +1017,14 @@ export function WorkspaceTitleBar({
         {pendingUpdate && (
           <button
             className={cn(
-              "h-5 px-2 text-[10px] font-medium gap-1.5 rounded-full running-border running-border--red inline-flex items-center text-red-600 dark:text-red-400 transition-opacity",
-              isUpdateBusy ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"
+              "h-5 px-2 text-[10px] font-medium gap-1.5 rounded-full running-border inline-flex items-center text-primary transition-opacity",
+              isUpdateBusy
+                ? "opacity-50 cursor-not-allowed"
+                : "cursor-pointer hover:opacity-80",
             )}
-            onClick={() => { openAppUpdateDialog(); }}
+            onClick={() => {
+              openAppUpdateDialog();
+            }}
             disabled={isUpdateBusy}
             title={`Update to v${pendingUpdate.version}`}
           >

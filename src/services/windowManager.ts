@@ -34,7 +34,7 @@ function getMacOSTrafficLightPosition(): {
 // Update the native Window menu to reflect current open windows
 async function updateWindowMenu(): Promise<void> {
   if (!isTauri()) return;
-  
+
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("update_window_menu");
@@ -53,14 +53,18 @@ async function trackWorkspaceWindow(workspaceId: string) {
     const db = getSessionDatabase();
     await db.transaction("rw", db.appState, async () => {
       const current = await db.appState.get("singleton");
-      const lastActiveWorkspaceIds = [...(current?.lastActiveWorkspaceIds ?? [])];
+      const lastActiveWorkspaceIds = [
+        ...(current?.lastActiveWorkspaceIds ?? []),
+      ];
       const windowStates = [...(current?.windowStates ?? [])];
 
       if (!lastActiveWorkspaceIds.includes(workspaceId)) {
         lastActiveWorkspaceIds.push(workspaceId);
       }
 
-      const existingIdx = windowStates.findIndex((w) => w.workspaceId === workspaceId);
+      const existingIdx = windowStates.findIndex(
+        (w) => w.workspaceId === workspaceId,
+      );
       if (existingIdx >= 0) {
         windowStates[existingIdx] = { workspaceId };
       } else {
@@ -104,9 +108,7 @@ async function saveWindowBounds(
       }
 
       const windowStates = current.windowStates.map((ws) =>
-        ws.workspaceId === workspaceId
-          ? { ...ws, windowBounds: bounds }
-          : ws,
+        ws.workspaceId === workspaceId ? { ...ws, windowBounds: bounds } : ws,
       );
 
       await db.appState.put({ ...current, windowStates });
@@ -124,8 +126,12 @@ async function untrackWorkspaceWindow(workspaceId: string) {
 
     await db.appState.put({
       ...current,
-      lastActiveWorkspaceIds: current.lastActiveWorkspaceIds.filter((id) => id !== workspaceId),
-      windowStates: current.windowStates.filter((w) => w.workspaceId !== workspaceId),
+      lastActiveWorkspaceIds: current.lastActiveWorkspaceIds.filter(
+        (id) => id !== workspaceId,
+      ),
+      windowStates: current.windowStates.filter(
+        (w) => w.workspaceId !== workspaceId,
+      ),
     });
   } catch (error) {
     console.error("[windowManager] Failed to untrack workspace window:", error);
@@ -149,7 +155,7 @@ class WindowManager {
   // Local cache for window metadata (connectionName for titles)
   // Source of truth for "is open" is windowChannelTracker
   private windowMetadata: Map<string, WindowInfo> = new Map();
-  
+
   // Track windows that are in the process of closing to prevent double-close
   private windowStates: Map<string, WindowState> = new Map();
 
@@ -187,8 +193,8 @@ class WindowManager {
   async openWorkspace(
     connectionId: string,
     connectionName: string,
-    options: { 
-      database?: string; 
+    options: {
+      database?: string;
       schema?: string;
       dbType?: string;
       host?: string;
@@ -273,7 +279,7 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: false,
+      transparent: true,
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
@@ -380,14 +386,18 @@ class WindowManager {
 
     const workspaceWindow = this.getWindowByConnectionId(connectionId);
     if (!workspaceWindow) {
-      logger.warn(`[WindowManager] No window found for connection ${connectionId}`);
+      logger.warn(
+        `[WindowManager] No window found for connection ${connectionId}`,
+      );
       return;
     }
 
     // Check if already closing to prevent double-close
     const currentState = this.windowStates.get(workspaceWindow.label);
     if (currentState === "closing") {
-      logger.info(`[WindowManager] Window ${workspaceWindow.label} is already closing, skipping`);
+      logger.info(
+        `[WindowManager] Window ${workspaceWindow.label} is already closing, skipping`,
+      );
       return;
     }
 
@@ -400,7 +410,10 @@ class WindowManager {
         await webview.close();
         // Note: Don't delete from metadata here - the destroyed event handler does that
       } catch (error) {
-        logger.error(`[WindowManager] Failed to close window ${workspaceWindow.label}:`, error);
+        logger.error(
+          `[WindowManager] Failed to close window ${workspaceWindow.label}:`,
+          error,
+        );
         // Reset state so user can try again
         this.windowStates.set(workspaceWindow.label, "open");
         throw error;
@@ -560,7 +573,7 @@ class WindowManager {
 
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     const webview = await WebviewWindow.getByLabel(windowInfo.label);
-    
+
     if (webview) {
       try {
         const isMinimized = await webview.isMinimized();
@@ -574,7 +587,10 @@ class WindowManager {
         await webview.setFocus();
         return true;
       } catch (error) {
-        logger.error(`[WindowManager] Failed to focus workspace window:`, error);
+        logger.error(
+          `[WindowManager] Failed to focus workspace window:`,
+          error,
+        );
       }
     }
     return false;
@@ -657,7 +673,7 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: false,
+      transparent: true,
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
@@ -858,7 +874,7 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: false,
+      transparent: true,
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
@@ -924,7 +940,7 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: false,
+      transparent: true,
       titleBarStyle: "overlay",
       hiddenTitle: true,
       skipTaskbar: false,
@@ -943,7 +959,10 @@ class WindowManager {
         windowOptions as ConstructorParameters<typeof WebviewWindow>[1],
       );
     } catch (error) {
-      logger.error(`[WindowManager] Failed to create backup-restore window:`, error);
+      logger.error(
+        `[WindowManager] Failed to create backup-restore window:`,
+        error,
+      );
       throw error;
     }
 

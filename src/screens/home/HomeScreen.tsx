@@ -43,7 +43,7 @@ export function HomeScreen() {
   }, [openConnectionForm]);
 
   return (
-    <div className="relative h-screen flex flex-col bg-secondary">
+    <div className="relative h-screen flex flex-col bg-secondary/70">
       {/* Drag region - top bar */}
       <div
         data-tauri-drag-region
@@ -59,7 +59,7 @@ export function HomeScreen() {
 
         {/* Right Main Content */}
         <div
-          className="flex-1 overflow-hidden bg-background rounded-xl m-1.5 z-10"
+          className="flex-1 overflow-hidden bg-background rounded-xl m-1.5 ml-0 z-10"
           data-tauri-drag-region
         >
           <MainContent />

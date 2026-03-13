@@ -131,11 +131,7 @@ export function WorkspaceScreen() {
 
   // Load saved workspaces on mount (needed before we can open a named workspace by ID)
   useEffect(() => {
-    if (
-      workspaceId &&
-      savedWorkspaces.length === 0 &&
-      !workspacesLoaded
-    ) {
+    if (workspaceId && savedWorkspaces.length === 0 && !workspacesLoaded) {
       void loadSavedWorkspaces().then(() => {
         setWorkspacesLoaded(true);
       });
@@ -470,7 +466,7 @@ export function WorkspaceScreen() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
+    <div className="flex flex-col h-screen overflow-hidden bg-secondary">
       {/* Title Bar */}
       <WorkspaceTitleBar connectionId={connectionId} isConnecting={isLoading} />
 
@@ -478,71 +474,71 @@ export function WorkspaceScreen() {
       <div className="flex-1 flex overflow-hidden">
         {/* DnD context wraps both sidebar and workbench so sidebar items can drag to panel drop zones */}
         <WorkbenchDndProvider>
-        {/* Resizable Panels */}
-        <ResizablePanelGroup
-          orientation="horizontal"
-          className="flex-1 p-1.5 pt-0 bg-secondary"
-          autoSaveId="workspace-sidebars"
-        >
-          {/* Left Sidebar - Database Explorer */}
-          {sidebars.left && (
-            <>
-              <ResizablePanel
-                id="sidebar-left"
-                defaultSize="18"
-                minSize="12"
-                maxSize="30"
-                className="flex flex-col rounded-xl bg-background"
-              >
-                <div className="flex-1 overflow-hidden">
-                  <SidebarConnectionList />
-                </div>
-              </ResizablePanel>
-              <ResizableHandle />
-            </>
-          )}
-
-          {/* Central Content - Workbench Layout */}
-          <ResizablePanel
-            id="main-content"
-            defaultSize={
-              sidebars.left
-                ? sidebars.right
-                  ? "59"
-                  : "82"
-                : sidebars.right
-                  ? "77"
-                  : "100"
-            }
+          {/* Resizable Panels */}
+          <ResizablePanelGroup
+            orientation="horizontal"
+            className="flex-1 p-1.5 pt-0"
+            autoSaveId="workspace-sidebars"
           >
-            <WorkbenchLayout
-              className="h-full"
-              connectionId={connectionId}
-              database={selectedDatabase ?? undefined}
-            />
-          </ResizablePanel>
+            {/* Left Sidebar - Database Explorer */}
+            {sidebars.left && (
+              <>
+                <ResizablePanel
+                  id="sidebar-left"
+                  defaultSize="18"
+                  minSize="12"
+                  maxSize="30"
+                  className="flex flex-col rounded-xl bg-background"
+                >
+                  <div className="flex-1 overflow-hidden">
+                    <SidebarConnectionList />
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle />
+              </>
+            )}
 
-          {/* Right Sidebar - AI Panel */}
-          {sidebars.right && (
-            <>
-              <ResizableHandle />
-              <ResizablePanel
-                id="sidebar-right"
-                defaultSize="23"
-                minSize="18"
-                maxSize="40"
-                className="flex flex-col rounded-xl bg-background"
-              >
-                <AIPanel
-                  connectionId={connectionId}
-                  onClose={() => {
-                    useWorkspaceScreenStore.getState().toggleSidebar("right");
-                  }}
-                />
-              </ResizablePanel>
-            </>
-          )}
-        </ResizablePanelGroup>
+            {/* Central Content - Workbench Layout */}
+            <ResizablePanel
+              id="main-content"
+              defaultSize={
+                sidebars.left
+                  ? sidebars.right
+                    ? "59"
+                    : "82"
+                  : sidebars.right
+                    ? "77"
+                    : "100"
+              }
+            >
+              <WorkbenchLayout
+                className="h-full"
+                connectionId={connectionId}
+                database={selectedDatabase ?? undefined}
+              />
+            </ResizablePanel>
+
+            {/* Right Sidebar - AI Panel */}
+            {sidebars.right && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel
+                  id="sidebar-right"
+                  defaultSize="23"
+                  minSize="18"
+                  maxSize="40"
+                  className="flex flex-col rounded-xl bg-background"
+                >
+                  <AIPanel
+                    connectionId={connectionId}
+                    onClose={() => {
+                      useWorkspaceScreenStore.getState().toggleSidebar("right");
+                    }}
+                  />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
         </WorkbenchDndProvider>
       </div>
 

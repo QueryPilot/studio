@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
@@ -184,7 +185,9 @@ function DroppableWorkspaceGroup({
           }`}
         />
         {group.workspace ? (
-          <span className="text-sm leading-none">{group.workspace.icon || "📦"}</span>
+          <span className="text-sm leading-none">
+            {group.workspace.icon || "📦"}
+          </span>
         ) : (
           <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
         )}
@@ -212,7 +215,9 @@ function DroppableWorkspaceGroup({
           <DropdownMenu>
             <DropdownMenuTrigger
               className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-accent"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
             >
               <IconDots className="h-3.5 w-3.5" />
             </DropdownMenuTrigger>
@@ -573,12 +578,16 @@ export function ConnectionsSection() {
 
     // Derive source workspaces from savedWorkspaces (single source of truth)
     // A connection may appear in multiple workspaces
-    const sourceWorkspaces = savedWorkspaces.filter(ws =>
+    const sourceWorkspaces = savedWorkspaces.filter((ws) =>
       ws.connectionIds.includes(connectionId),
     );
 
     // If only in the target workspace already (or uncategorized→uncategorized), do nothing
-    if (sourceWorkspaces.length === 1 && sourceWorkspaces[0]?.id === targetWorkspaceId) return;
+    if (
+      sourceWorkspaces.length === 1 &&
+      sourceWorkspaces[0]?.id === targetWorkspaceId
+    )
+      return;
     if (sourceWorkspaces.length === 0 && targetWorkspaceId === null) return;
 
     try {
