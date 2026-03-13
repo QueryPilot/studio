@@ -32,7 +32,13 @@ describe('MongoDBAdapter', () => {
       expect(typeof adapter.aggregate).toBe('function');
       expect(typeof adapter.countDocuments).toBe('function');
       expect(typeof adapter.listCollections).toBe('function');
+      expect(typeof adapter.getCollectionMetadata).toBe('function');
       expect(typeof adapter.runCommand).toBe('function');
+      expect(typeof adapter.listIndexes).toBe('function');
+      expect(typeof adapter.createIndex).toBe('function');
+      expect(typeof adapter.dropIndex).toBe('function');
+      expect(typeof adapter.updateCollectionValidation).toBe('function');
+      expect(typeof adapter.explainCollectionOperation).toBe('function');
     });
 
     it('declares document-queryable capability', () => {
@@ -261,6 +267,195 @@ describe('MongoDBAdapter', () => {
         }),
       }));
       expect(result).toEqual({ ok: 1, version: '5.0.0' });
+    });
+
+    it('getCollectionMetadata calls document_execute with GetCollectionMetadata operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'collectionMetadata',
+        data: {
+          name: 'users',
+          options: { capped: false },
+          validator: { $jsonSchema: { bsonType: 'object' } },
+          validationLevel: 'strict',
+          validationAction: 'error',
+          stats: { count: 42, size: 1024, totalIndexSize: 256, indexCount: 2 },
+        },
+      });
+
+      const result = await adapter.getCollectionMetadata('users', 'app-db');
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'getCollectionMetadata',
+          collection: 'users',
+        }),
+      }));
+      expect(result.validationLevel).toBe('strict');
+      expect(result.stats?.count).toBe(42);
+    });
+
+    it('listIndexes calls document_execute with ListIndexes operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'indexes',
+        data: [
+          {
+            name: 'idx_status_createdAt',
+            keys: { status: 1, createdAt: -1 },
+            unique: true,
+            sparse: false,
+            expireAfterSeconds: 3600,
+          },
+        ],
+      });
+
+      const result = await adapter.listIndexes('users', 'app-db');
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'listIndexes',
+          collection: 'users',
+        }),
+      }));
+      expect(result[0]?.expireAfterSeconds).toBe(3600);
+    });
+
+    it('createIndex calls document_execute with CreateIndex operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'indexCreate',
+        data: { indexName: 'idx_status_createdAt' },
+      });
+
+      const result = await adapter.createIndex(
+        'users',
+        { status: 1, createdAt: -1 },
+        { unique: true, expireAfterSeconds: 3600 },
+        'app-db',
+      );
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'createIndex',
+          collection: 'users',
+          keys: { status: 1, createdAt: -1 },
+          options: { unique: true, expireAfterSeconds: 3600 },
+        }),
+      }));
+      expect(result.indexName).toBe('idx_status_createdAt');
+    });
+
+    it('dropIndex calls document_execute with DropIndex operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'ok',
+        data: { ok: 1 },
+      });
+
+      await adapter.dropIndex('users', 'idx_status_createdAt', 'app-db');
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'dropIndex',
+          collection: 'users',
+          indexName: 'idx_status_createdAt',
+        }),
+      }));
+    });
+
+    it('updateCollectionValidation calls document_execute with UpdateCollectionValidation operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'command',
+        data: { ok: 1 },
+      });
+
+      const result = await adapter.updateCollectionValidation(
+        'users',
+        {
+          $jsonSchema: { bsonType: 'object', required: ['status'] },
+          validationLevel: 'strict',
+          validationAction: 'error',
+        },
+        'app-db',
+      );
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'updateCollectionValidation',
+          collection: 'users',
+          validator: { $jsonSchema: { bsonType: 'object', required: ['status'] } },
+          validationLevel: 'strict',
+          validationAction: 'error',
+        }),
+      }));
+      expect(result).toEqual({ ok: 1 });
+    });
+
+    it('updateCollectionValidation clears the validator when requested', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'command',
+        data: { ok: 1 },
+      });
+
+      await adapter.updateCollectionValidation(
+        'users',
+        {
+          clearValidator: true,
+          validationLevel: 'off',
+          validationAction: 'warn',
+        },
+        'app-db',
+      );
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'updateCollectionValidation',
+          collection: 'users',
+          validator: {},
+          validationLevel: 'off',
+          validationAction: 'warn',
+        }),
+      }));
+    });
+
+    it('explainCollectionOperation calls document_execute with Explain operation', async () => {
+      mockInvoke.mockResolvedValueOnce({
+        type: 'explain',
+        data: {
+          queryPlanner: { winningPlan: { stage: 'IXSCAN' } },
+          executionStats: { nReturned: 3, totalDocsExamined: 3, totalKeysExamined: 3 },
+        },
+      });
+
+      const result = await adapter.explainCollectionOperation(
+        'users',
+        {
+          mode: 'aggregate',
+          pipeline: [{ $match: { status: 'active' } }],
+        },
+        'app-db',
+      );
+
+      expect(mockInvoke).toHaveBeenCalledWith('document_execute', expect.objectContaining({
+        connId: 'test-conn-id',
+        database: 'app-db',
+        operation: expect.objectContaining({
+          type: 'explain',
+          collection: 'users',
+          mode: 'aggregate',
+          pipeline: [{ $match: { status: 'active' } }],
+        }),
+      }));
+      expect((result as { queryPlanner: { winningPlan: { stage: string } } }).queryPlanner.winningPlan.stage).toBe('IXSCAN');
     });
   });
 });

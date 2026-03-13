@@ -23,7 +23,15 @@ import type {
   InsertManyResult, 
   UpdateResult, 
   DeleteResult, 
-  CollectionInfo 
+  CollectionInfo,
+  CreateIndexResult,
+  MongoCollectionMetadata,
+  MongoExplainRequest,
+  MongoExplainResult,
+  MongoIndexInfo,
+  MongoIndexKeySpec,
+  MongoIndexOptions,
+  ValidationRules,
 } from './types/mongodb';
 
 // ============ Base ============
@@ -122,14 +130,16 @@ export interface DocumentQueryable extends BaseAdapter {
   findDocuments(
     collection: string,
     filter: object,
-    options?: FindOptions
+    options?: FindOptions,
+    database?: string
   ): Promise<object[]>;
 
   findDocumentsPage(
     collection: string,
     filter: object,
-    options?: FindPageOptions
-  ): Promise<DocumentPageResult<object>>;
+    options?: FindPageOptions,
+    database?: string
+  ): Promise<DocumentPageResult>;
 
   sampleCollectionSchema(
     collection: string,
@@ -137,27 +147,61 @@ export interface DocumentQueryable extends BaseAdapter {
     options?: {
       sampleSize?: number;
       maxDepth?: number;
-    }
+    },
+    database?: string
   ): Promise<DocumentSchemaSample>;
   
-  insertDocument(collection: string, doc: object): Promise<InsertResult>;
-  insertDocuments(collection: string, docs: object[]): Promise<InsertManyResult>;
+  insertDocument(collection: string, doc: object, database?: string): Promise<InsertResult>;
+  insertDocuments(collection: string, docs: object[], database?: string): Promise<InsertManyResult>;
   
   updateDocument(
     collection: string,
     filter: object,
-    update: object
+    update: object,
+    database?: string
   ): Promise<UpdateResult>;
   
-  deleteDocument(collection: string, filter: object): Promise<DeleteResult>;
+  deleteDocument(collection: string, filter: object, database?: string): Promise<DeleteResult>;
   
-  aggregate(collection: string, pipeline: object[]): Promise<object[]>;
+  aggregate(collection: string, pipeline: object[], database?: string): Promise<object[]>;
   
-  countDocuments(collection: string, filter?: object): Promise<number>;
+  countDocuments(collection: string, filter?: object, database?: string): Promise<number>;
   
-  listCollections(): Promise<CollectionInfo[]>;
+  listCollections(database?: string): Promise<CollectionInfo[]>;
+
+  getCollectionMetadata(
+    collection: string,
+    database?: string
+  ): Promise<MongoCollectionMetadata>;
+
+  listIndexes(collection: string, database?: string): Promise<MongoIndexInfo[]>;
+
+  createIndex(
+    collection: string,
+    keys: MongoIndexKeySpec,
+    options?: MongoIndexOptions,
+    database?: string
+  ): Promise<CreateIndexResult>;
+
+  dropIndex(
+    collection: string,
+    indexName: string,
+    database?: string
+  ): Promise<object>;
+
+  updateCollectionValidation(
+    collection: string,
+    rules: ValidationRules,
+    database?: string
+  ): Promise<object>;
+
+  explainCollectionOperation(
+    collection: string,
+    request: MongoExplainRequest,
+    database?: string
+  ): Promise<MongoExplainResult>;
   
-  runCommand(command: object): Promise<object>;
+  runCommand(command: object, database?: string): Promise<object>;
 }
 
 // ============ Key-Value ============

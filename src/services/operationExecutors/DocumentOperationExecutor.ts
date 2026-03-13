@@ -35,12 +35,43 @@ function stripSyntheticKeys(keys: Record<string, unknown>): Record<string, unkno
 }
 
 type MongoOperation = {
-  type: 'insert' | 'update' | 'delete';
+  type:
+    | 'insert'
+    | 'update'
+    | 'delete'
+    | 'createIndex'
+    | 'dropIndex'
+    | 'updateValidation';
   collection: string;
+  database?: string;
   document?: object;
   filter?: object;
   update?: object;
+  indexName?: string;
+  indexKeys?: Record<string, 1 | -1 | 'text'>;
+  indexOptions?: Record<string, unknown>;
+  validation?: {
+    validationJson?: string;
+    clearValidator?: boolean;
+    validationLevel?: 'off' | 'strict' | 'moderate';
+    validationAction?: 'error' | 'warn';
+  };
 };
+
+function safeParseJsonObject(
+  value: string | undefined,
+): Record<string, unknown> | undefined {
+  if (!value || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const parsed = JSON.parse(value) as unknown;
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+
+  throw new Error('Validation JSON must be an object');
+}
 
 export class DocumentOperationExecutor implements DocumentOperationExecutorInterface {
   readonly paradigm = 'document' as const;
@@ -113,7 +144,14 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
       errors.push('Collection name is required');
     }
 
-    const supportedTypes = ['data.insert', 'data.update', 'data.delete'];
+    const supportedTypes = [
+      'data.insert',
+      'data.update',
+      'data.delete',
+      'document.index.create',
+      'document.index.drop',
+      'document.validation.update',
+    ];
     if (!supportedTypes.includes(command.type)) {
       errors.push(`Unsupported operation type: ${command.type}`);
     }
@@ -129,6 +167,38 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
       const payload = command.payload as { primaryKeys?: unknown };
       if (!payload.primaryKeys) {
         errors.push('Delete requires document identifier (_id)');
+      }
+    }
+
+    if (command.type === 'document.index.create') {
+      const payload = command.payload as {
+        definition?: { name?: string; keys?: Record<string, unknown> };
+      };
+      if (!payload.definition?.name) {
+        errors.push('Document index create requires an index name');
+      }
+      if (!payload.definition?.keys || Object.keys(payload.definition.keys).length === 0) {
+        errors.push('Document index create requires at least one index key');
+      }
+    }
+
+    if (command.type === 'document.index.drop') {
+      const payload = command.payload as { indexName?: string };
+      if (!payload.indexName) {
+        errors.push('Document index drop requires an index name');
+      }
+    }
+
+    if (command.type === 'document.validation.update') {
+      const payload = command.payload as { validationJson?: string };
+      if (payload.validationJson?.trim()) {
+        try {
+          safeParseJsonObject(payload.validationJson);
+        } catch (error) {
+          errors.push(
+            error instanceof Error ? error.message : 'Validation JSON is invalid',
+          );
+        }
       }
     }
 
@@ -157,6 +227,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
   private commandToOperation(command: CrudCommand): MongoOperation | null {
     const collection = command.target.table;
     if (!collection) return null;
+    const database = command.target.database;
 
     switch (command.type) {
       case 'data.insert': {
@@ -164,6 +235,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
         return {
           type: 'insert',
           collection,
+          database,
           document: payload.values ?? {},
         };
       }
@@ -183,6 +255,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
         return {
           type: 'update',
           collection,
+          database,
           filter,
           update,
         };
@@ -193,7 +266,57 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
         return {
           type: 'delete',
           collection,
+          database,
           filter: stripSyntheticKeys(payload.primaryKeys ?? {}),
+        };
+      }
+
+      case 'document.index.create': {
+        const payload = command.payload as {
+          definition?: {
+            name?: string;
+            keys?: Record<string, 1 | -1 | 'text'>;
+            options?: Record<string, unknown>;
+          };
+        };
+
+        return {
+          type: 'createIndex',
+          collection,
+          database,
+          indexName: payload.definition?.name,
+          indexKeys: payload.definition?.keys,
+          indexOptions: payload.definition?.options,
+        };
+      }
+
+      case 'document.index.drop': {
+        const payload = command.payload as { indexName?: string };
+        return {
+          type: 'dropIndex',
+          collection,
+          database,
+          indexName: payload.indexName,
+        };
+      }
+
+      case 'document.validation.update': {
+        const payload = command.payload as {
+          validationJson?: string;
+          clearValidator?: boolean;
+          validationLevel?: 'off' | 'strict' | 'moderate';
+          validationAction?: 'error' | 'warn';
+        };
+        return {
+          type: 'updateValidation',
+          collection,
+          database,
+          validation: {
+            validationJson: payload.validationJson,
+            clearValidator: payload.clearValidator,
+            validationLevel: payload.validationLevel,
+            validationAction: payload.validationAction,
+          },
         };
       }
 
@@ -205,15 +328,75 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
   private async executeOperation(op: MongoOperation): Promise<void> {
     switch (op.type) {
       case 'insert':
-        await this.adapter.insertDocument(op.collection, op.document ?? {});
+        if (op.database) {
+          await this.adapter.insertDocument(op.collection, op.document ?? {}, op.database);
+        } else {
+          await this.adapter.insertDocument(op.collection, op.document ?? {});
+        }
         break;
 
       case 'update':
-        await this.adapter.updateDocument(op.collection, op.filter ?? {}, op.update ?? {});
+        if (op.database) {
+          await this.adapter.updateDocument(
+            op.collection,
+            op.filter ?? {},
+            op.update ?? {},
+            op.database,
+          );
+        } else {
+          await this.adapter.updateDocument(op.collection, op.filter ?? {}, op.update ?? {});
+        }
         break;
 
       case 'delete':
-        await this.adapter.deleteDocument(op.collection, op.filter ?? {});
+        if (op.database) {
+          await this.adapter.deleteDocument(op.collection, op.filter ?? {}, op.database);
+        } else {
+          await this.adapter.deleteDocument(op.collection, op.filter ?? {});
+        }
+        break;
+
+      case 'createIndex':
+        if (op.database) {
+          await this.adapter.createIndex(
+            op.collection,
+            op.indexKeys ?? {},
+            op.indexOptions,
+            op.database,
+          );
+        } else {
+          await this.adapter.createIndex(
+            op.collection,
+            op.indexKeys ?? {},
+            op.indexOptions,
+          );
+        }
+        break;
+
+      case 'dropIndex':
+        if (op.database) {
+          await this.adapter.dropIndex(op.collection, op.indexName ?? '', op.database);
+        } else {
+          await this.adapter.dropIndex(op.collection, op.indexName ?? '');
+        }
+        break;
+
+      case 'updateValidation':
+        if (op.database) {
+          await this.adapter.updateCollectionValidation(op.collection, {
+            ...(safeParseJsonObject(op.validation?.validationJson) ?? {}),
+            clearValidator: op.validation?.clearValidator,
+            validationLevel: op.validation?.validationLevel,
+            validationAction: op.validation?.validationAction,
+          }, op.database);
+        } else {
+          await this.adapter.updateCollectionValidation(op.collection, {
+            ...(safeParseJsonObject(op.validation?.validationJson) ?? {}),
+            clearValidator: op.validation?.clearValidator,
+            validationLevel: op.validation?.validationLevel,
+            validationAction: op.validation?.validationAction,
+          });
+        }
         break;
     }
   }
@@ -230,6 +413,12 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
         const filterStr = JSON.stringify(op.filter);
         return `db.${op.collection}.deleteOne(${filterStr})`;
       }
+      case 'createIndex':
+        return `db.${op.collection}.createIndex(${JSON.stringify(op.indexKeys)}, {...})`;
+      case 'dropIndex':
+        return `db.${op.collection}.dropIndex(${JSON.stringify(op.indexName)})`;
+      case 'updateValidation':
+        return `db.runCommand({ collMod: ${JSON.stringify(op.collection)}, ... })`;
     }
   }
 
@@ -246,6 +435,18 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
           return `db.${op.collection}.updateOne(\n  ${JSON.stringify(op.filter)},\n  ${JSON.stringify(op.update, null, 2)}\n);`;
         case 'delete':
           return `db.${op.collection}.deleteOne(${JSON.stringify(op.filter)});`;
+        case 'createIndex':
+          return `db.${op.collection}.createIndex(\n  ${JSON.stringify(op.indexKeys, null, 2)},\n  ${JSON.stringify(op.indexOptions ?? {}, null, 2)}\n);`;
+        case 'dropIndex':
+          return `db.${op.collection}.dropIndex(${JSON.stringify(op.indexName)});`;
+        case 'updateValidation':
+          return `db.runCommand(${JSON.stringify({
+            collMod: op.collection,
+            validator: safeParseJsonObject(op.validation?.validationJson)
+              ?? (op.validation?.clearValidator ? {} : undefined),
+            validationLevel: op.validation?.validationLevel,
+            validationAction: op.validation?.validationAction,
+          }, null, 2)});`;
       }
     }).join('\n\n');
   }
@@ -261,6 +462,11 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
       return payload.primaryKeys;
     }
 
+    if (command.type === 'document.index.drop') {
+      const payload = command.payload as { indexName?: string };
+      return payload.indexName;
+    }
+
     return undefined;
   }
 
@@ -273,6 +479,20 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
     if (command.type === 'data.update') {
       const payload = command.payload as { newValue?: unknown };
       return payload.newValue;
+    }
+
+    if (command.type === 'document.index.create') {
+      const payload = command.payload as { definition?: unknown };
+      return payload.definition;
+    }
+
+    if (command.type === 'document.validation.update') {
+      const payload = command.payload as {
+        validationJson?: string;
+        validationLevel?: string;
+        validationAction?: string;
+      };
+      return payload;
     }
 
     return undefined;

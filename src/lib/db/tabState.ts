@@ -9,6 +9,7 @@ import { logger } from "@/lib/logger";
 import Dexie, { type Table } from "dexie";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import type { ViewMode } from "@/types/viewMode";
+import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 
 /**
  * Lightweight state for IndexedDB persistence.
@@ -20,7 +21,8 @@ export interface PersistedTabState {
   lastExecutedQuery: string;
   viewMode: ViewMode;
   selectedDialect?: SqlDialect | "auto";
-  tableViewType?: string; // "data" | "structure" | "indexes" | "triggers" | "partitions" | "definition"
+  tableViewType?: string; // SQL or Mongo workbench view name
+  mongoWorkbench?: MongoWorkbenchState;
   // New fields for full-fidelity restore
   scrollPosition?: { top: number; left: number };
   editorCursorPosition?: { line: number; ch: number };
@@ -74,6 +76,7 @@ export async function persistTabState(
       viewMode: state.viewMode ?? existing?.viewMode ?? "table",
       selectedDialect: state.selectedDialect ?? existing?.selectedDialect ?? "auto",
       tableViewType: state.tableViewType ?? existing?.tableViewType,
+      mongoWorkbench: state.mongoWorkbench ?? existing?.mongoWorkbench,
       scrollPosition: state.scrollPosition ?? existing?.scrollPosition,
       editorCursorPosition: state.editorCursorPosition ?? existing?.editorCursorPosition,
       gridColumnWidths: state.gridColumnWidths ?? existing?.gridColumnWidths,
@@ -90,6 +93,7 @@ export async function persistTabState(
     viewMode: state.viewMode ?? "table",
     selectedDialect: state.selectedDialect ?? "auto",
     tableViewType: state.tableViewType,
+    mongoWorkbench: state.mongoWorkbench,
     scrollPosition: state.scrollPosition,
     editorCursorPosition: state.editorCursorPosition,
     gridColumnWidths: state.gridColumnWidths,

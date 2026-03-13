@@ -2,8 +2,24 @@
  * IPC types matching Rust enums in src-tauri/src/commands.rs
  */
 
-import type { InsertResult, InsertManyResult, UpdateResult, DeleteResult, CollectionInfo } from './mongodb';
-import type { CursorToken, DocumentPageResult, DocumentSchemaSample } from './mongodb';
+import type {
+  CollectionInfo,
+  CreateIndexResult,
+  CursorToken,
+  DeleteResult,
+  DocumentPageResult,
+  DocumentSchemaSample,
+  InsertManyResult,
+  InsertResult,
+  MongoCollectionMetadata,
+  MongoExplainRequest,
+  MongoExplainResult,
+  MongoIndexInfo,
+  MongoIndexKeySpec,
+  MongoIndexOptions,
+  UpdateResult,
+  ValidationRules,
+} from './mongodb';
 import type { RedisValue, RedisType, ScanResult, ScanResultWithPreviews, ZSetMember, StreamEntry } from './redis';
 import type { SetOptions } from '../capabilities';
 
@@ -18,11 +34,23 @@ export type DocumentOperation =
   | { type: 'aggregate'; collection: string; pipeline: object[] }
   | { type: 'count'; collection: string; filter?: object }
   | { type: 'listCollections' }
+  | { type: 'getCollectionMetadata'; collection: string }
+  | { type: 'listIndexes'; collection: string }
+  | { type: 'createIndex'; collection: string; keys: MongoIndexKeySpec; options?: MongoIndexOptions }
+  | { type: 'dropIndex'; collection: string; indexName: string }
+  | {
+      type: 'updateCollectionValidation';
+      collection: string;
+      validator?: Record<string, unknown>;
+      validationLevel?: ValidationRules['validationLevel'];
+      validationAction?: ValidationRules['validationAction'];
+    }
+  | ({ type: 'explain'; collection: string } & MongoExplainRequest)
   | { type: 'runCommand'; command: object };
 
 export type DocumentResult =
   | { type: 'documents'; data: object[] }
-  | { type: 'documentPage'; data: DocumentPageResult<object> }
+  | { type: 'documentPage'; data: DocumentPageResult }
   | { type: 'schemaSample'; data: DocumentSchemaSample }
   | { type: 'insert'; data: InsertResult }
   | { type: 'insertMany'; data: InsertManyResult }
@@ -30,6 +58,11 @@ export type DocumentResult =
   | { type: 'delete'; data: DeleteResult }
   | { type: 'count'; data: number }
   | { type: 'collections'; data: CollectionInfo[] }
+  | { type: 'collectionMetadata'; data: MongoCollectionMetadata }
+  | { type: 'indexes'; data: MongoIndexInfo[] }
+  | { type: 'indexCreate'; data: CreateIndexResult }
+  | { type: 'explain'; data: MongoExplainResult }
+  | { type: 'ok'; data: object }
   | { type: 'command'; data: object };
 
 export type KeyValueOperation =

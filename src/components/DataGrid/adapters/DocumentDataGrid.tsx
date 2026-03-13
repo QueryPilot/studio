@@ -75,6 +75,14 @@ export interface DocumentCollectionDataGridProps extends DocumentDataGridBasePro
   collection: string;
   /** Page size for pagination */
   pageSize?: number;
+  /** Applied filter text shared with sibling Mongo workbench views */
+  initialFilterText?: string;
+  /** Notifies sibling Mongo workbench views when the applied filter changes */
+  onAppliedFilterChange?: (state: {
+    text: string;
+    filter: DocumentFilter | undefined;
+    error: string | null;
+  }) => void;
 }
 
 export interface DocumentResultDataGridProps extends DocumentDataGridBaseProps {
@@ -87,6 +95,31 @@ export interface DocumentResultDataGridProps extends DocumentDataGridBaseProps {
 export type DocumentDataGridProps =
   | DocumentCollectionDataGridProps
   | DocumentResultDataGridProps;
+
+function getInitialDocumentFilterState(initialFilterText?: string): {
+  filter: DocumentFilter | undefined;
+  error: string | null;
+} {
+  if (typeof initialFilterText !== "string" || initialFilterText.trim().length === 0) {
+    return {
+      filter: undefined,
+      error: null,
+    };
+  }
+
+  const result = parseDocumentFilter(initialFilterText);
+  if (result.success) {
+    return {
+      filter: result.filter,
+      error: null,
+    };
+  }
+
+  return {
+    filter: undefined,
+    error: result.error || "Invalid filter",
+  };
+}
 
 function useDocumentGridInspectorState(gridId: string) {
   const persistedInspector = useGridPreferencesStore(
@@ -139,6 +172,8 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   database,
   collection,
   pageSize = 50,
+  initialFilterText,
+  onAppliedFilterChange,
   className,
   focused,
   sortGridId,
@@ -146,12 +181,18 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const preferenceGridId = sortGridId ?? gridId;
   const quickFilterRef = useRef<QuickFilterRef>(null);
   const lastDrilledCellRef = useRef<string | null>(null);
+  const initialFilterState = useMemo(
+    () => getInitialDocumentFilterState(initialFilterText),
+    [initialFilterText],
+  );
 
   // Filter state
   const [documentFilter, setDocumentFilter] = useState<
     DocumentFilter | undefined
-  >(undefined);
-  const [filterError, setFilterError] = useState<string | null>(null);
+  >(() => initialFilterState.filter);
+  const [filterError, setFilterError] = useState<string | null>(
+    () => initialFilterState.error,
+  );
   const [flattenMode, setFlattenMode] = useState(false);
   const [flattenDepth, setFlattenDepth] = useState(3);
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
@@ -204,6 +245,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   // Quick filter hook for managing filter input state
   const quickFilter = useQuickFilter({
     columns: filterColumns,
+    initialValue: initialFilterText,
     clientSideFiltering: false, // We handle both server and client filtering ourselves
     generateAIFilter: undefined,
     gridId: preferenceGridId,
@@ -216,6 +258,11 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     if (!value) {
       setDocumentFilter(undefined);
       setFilterError(null);
+      onAppliedFilterChange?.({
+        text: "",
+        filter: undefined,
+        error: null,
+      });
       return;
     }
 
@@ -224,6 +271,11 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     if (result.success && result.filter) {
       setDocumentFilter(result.filter);
       setFilterError(null);
+      onAppliedFilterChange?.({
+        text: quickFilter.value,
+        filter: result.filter,
+        error: null,
+      });
       logger.info("document-grid", "Filter applied", {
         mode: result.filter.mode,
         description: result.filter.description,
@@ -232,10 +284,21 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       // Empty filter
       setDocumentFilter(undefined);
       setFilterError(null);
+      onAppliedFilterChange?.({
+        text: quickFilter.value,
+        filter: undefined,
+        error: null,
+      });
     } else {
-      setFilterError(result.error || "Invalid filter");
+      const error = result.error || "Invalid filter";
+      setFilterError(error);
+      onAppliedFilterChange?.({
+        text: quickFilter.value,
+        filter: undefined,
+        error,
+      });
     }
-  }, [quickFilter.value]);
+  }, [onAppliedFilterChange, quickFilter.value]);
 
   // Handle mode change - convert between document filter modes and standard modes
   const handleModeChange = useCallback(
@@ -244,8 +307,13 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       // Clear filter when mode changes
       setDocumentFilter(undefined);
       setFilterError(null);
+      onAppliedFilterChange?.({
+        text: "",
+        filter: undefined,
+        error: null,
+      });
     },
-    [quickFilter],
+    [onAppliedFilterChange, quickFilter],
   );
 
   // Handle cell activation for drill-down
