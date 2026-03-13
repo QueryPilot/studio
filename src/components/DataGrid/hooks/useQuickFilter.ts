@@ -14,6 +14,8 @@ import { useGridPreferencesHydrated } from "../stores/gridPreferencesSelectors";
 export interface UseQuickFilterOptions {
   /** Columns available for filtering (can be empty initially, will update reactively) */
   columns: FilterColumnInfo[];
+  /** Initial raw input value shown in the filter box */
+  initialValue?: string;
   /** Initial WHERE clause filter (e.g., from FK reference navigation) */
   initialFilter?: string;
   /** Enable client-side filtering mode (AI generates search patterns instead of SQL, WHERE mode disabled) */
@@ -52,6 +54,7 @@ export interface UseQuickFilterResult {
  */
 export function useQuickFilter({
   columns,
+  initialValue,
   initialFilter,
   generateAIFilter,
   clientSideFiltering = false,
@@ -62,9 +65,13 @@ export function useQuickFilter({
   const persistedFilter = useGridPreferencesStore(
     (state) => gridId ? state.preferences[gridId]?.quickFilter : undefined
   );
+  const hasExplicitInitialValue = typeof initialValue === "string";
 
   // Filter input state - initialize from persisted or defaults
   const [value, setValue] = useState(() => {
+    if (hasExplicitInitialValue) {
+      return initialValue;
+    }
     // On initial mount, try to read from store (may not be hydrated yet)
     if (gridId) {
       const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
@@ -72,10 +79,15 @@ export function useQuickFilter({
         return persisted.value;
       }
     }
-    // Fall back to initialFilter or empty
+    // Fall back to explicit initial value, initialFilter, or empty
     return initialFilter ? `?${initialFilter}` : "";
   });
   const [mode, setMode] = useState<FilterMode>(() => {
+    if (hasExplicitInitialValue) {
+      return initialValue.trim().length > 0
+        ? detectFilterMode(initialValue)
+        : "search";
+    }
     // On initial mount, try to read from store (may not be hydrated yet)
     if (gridId) {
       const persisted = useGridPreferencesStore.getState().preferences[gridId]?.quickFilter;
@@ -83,7 +95,7 @@ export function useQuickFilter({
         return persisted.mode;
       }
     }
-    // Fall back to initialFilter detection or search
+    // Fall back to the explicit initial value, initialFilter detection, or search
     return initialFilter ? "where" : "search";
   });
   const [error, setError] = useState<string | null>(null);
@@ -295,9 +307,10 @@ export function useQuickFilter({
       return;
     }
 
-    // Skip if there's an initialFilter (it takes priority)
-    if (initialFilter) {
+    // Skip if explicit inputs are controlling the filter state.
+    if (initialFilter || hasExplicitInitialValue) {
       hasRestoredPersistedFilterRef.current = true;
+      lastPersistedByUsRef.current = persistedFilter?.value;
       return;
     }
 
@@ -333,7 +346,7 @@ export function useQuickFilter({
       }
     }
     // Note: AI mode is not auto-applied since it requires user interaction
-  }, [gridId, columns, initialFilter, hydrated, persistedFilter, value, mode]);
+  }, [gridId, columns, initialFilter, hasExplicitInitialValue, hydrated, persistedFilter, value, mode]);
 
   // React to external store changes (e.g. AI agent calling grid.setFilter)
   // This runs after initial restore, only when the store was changed by something

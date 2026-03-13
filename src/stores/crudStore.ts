@@ -77,6 +77,9 @@ const buildUpdateDedupIndex = (
   return index;
 };
 
+const findValidationUpdateIndex = (commands: CrudCommand[]): number =>
+  commands.findIndex((command) => command.type === "document.validation.update");
+
 const rebuildCommandIndex = (
   staged: Map<string, CrudCommand[]>,
 ): Map<string, string> => {
@@ -264,11 +267,28 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
             nextCommands[existingUpdateIndex] = command;
             stagedCommands.set(tableKey, nextCommands);
             commandIndex.set(command.id, tableKey);
-            if (oldCommand) {
+            if (oldCommand && oldCommand.id !== command.id) {
               commandIndex.delete(oldCommand.id);
             }
           } else {
             // No existing UPDATE for this cell, add new one
+            const nextCommands = [...existing, command];
+            stagedCommands.set(tableKey, nextCommands);
+            commandIndex.set(command.id, tableKey);
+          }
+        } else if (command.type === "document.validation.update") {
+          const existingValidationIndex = findValidationUpdateIndex(existing);
+
+          if (existingValidationIndex >= 0) {
+            const oldCommand = existing[existingValidationIndex];
+            const nextCommands = [...existing];
+            nextCommands[existingValidationIndex] = command;
+            stagedCommands.set(tableKey, nextCommands);
+            commandIndex.set(command.id, tableKey);
+            if (oldCommand && oldCommand.id !== command.id) {
+              commandIndex.delete(oldCommand.id);
+            }
+          } else {
             const nextCommands = [...existing, command];
             stagedCommands.set(tableKey, nextCommands);
             commandIndex.set(command.id, tableKey);
@@ -442,7 +462,7 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
               if (dedupKey) updateDedupMap.set(dedupKey, existingUpdateIndex);
               idMap.set(command.id, existingUpdateIndex);
               commandIndex.set(command.id, tableKey);
-              if (oldCommand) {
+              if (oldCommand && oldCommand.id !== command.id) {
                 idMap.delete(oldCommand.id);
                 commandIndex.delete(oldCommand.id);
               }
@@ -451,6 +471,23 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
               currentCommands.push(command); // mutate in-place
               if (dedupKey) updateDedupMap.set(dedupKey, newIdx);
               idMap.set(command.id, newIdx);
+              commandIndex.set(command.id, tableKey);
+            }
+          } else if (command.type === "document.validation.update") {
+            const existingValidationIndex = findValidationUpdateIndex(currentCommands);
+
+            if (existingValidationIndex >= 0) {
+              const oldCommand = currentCommands[existingValidationIndex];
+              currentCommands[existingValidationIndex] = command;
+              idMap.set(command.id, existingValidationIndex);
+              commandIndex.set(command.id, tableKey);
+              if (oldCommand && oldCommand.id !== command.id) {
+                idMap.delete(oldCommand.id);
+                commandIndex.delete(oldCommand.id);
+              }
+            } else {
+              idMap.set(command.id, currentCommands.length);
+              currentCommands.push(command);
               commandIndex.set(command.id, tableKey);
             }
           } else {

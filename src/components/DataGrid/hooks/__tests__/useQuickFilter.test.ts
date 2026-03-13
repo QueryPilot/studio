@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useQuickFilter } from "../useQuickFilter";
+import { useGridPreferencesStore } from "../../stores/gridPreferencesStore";
 import type { FilterColumnInfo } from "@/utils/filterParser";
 
 // Sample columns for testing
@@ -32,6 +33,7 @@ const mockColumns: FilterColumnInfo[] = [
 describe("useQuickFilter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useGridPreferencesStore.getState().resetAll();
   });
 
   describe("Initial State", () => {
@@ -79,6 +81,24 @@ describe("useQuickFilter", () => {
       await waitFor(() => {
         expect(result.current.activeFilter).toBeDefined();
       });
+    });
+
+    it("should prefer initialValue over persisted quick filter", () => {
+      useGridPreferencesStore.getState().setQuickFilter("users-grid", {
+        value: "persisted search",
+        mode: "search",
+      });
+
+      const { result } = renderHook(() =>
+        useQuickFilter({
+          columns: mockColumns,
+          gridId: "users-grid",
+          initialValue: "?status = 'active'",
+        })
+      );
+
+      expect(result.current.value).toBe("?status = 'active'");
+      expect(result.current.mode).toBe("where");
     });
   });
 
@@ -320,7 +340,7 @@ describe("useQuickFilter", () => {
   });
 
   describe("Clear", () => {
-    it("should reset all state when clear is called", async () => {
+    it("should reset all state when clear is called", () => {
       const { result } = renderHook(() =>
         useQuickFilter({
           columns: mockColumns,

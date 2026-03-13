@@ -5,6 +5,9 @@ export type CrudOperationType =
   | "data.update"
   | "data.insert"
   | "data.delete"
+  | "document.index.create"
+  | "document.index.drop"
+  | "document.validation.update"
   | "table.create"
   | "table.rename"
   | "table.drop"
@@ -225,6 +228,27 @@ export interface DataDeletePayload extends CrudCommandPayload {
   readonly primaryKeys: Record<string, JsonValue>;
 }
 
+export interface DocumentIndexDefinitionInput {
+  readonly name: string;
+  readonly keys: Record<string, 1 | -1 | "text">;
+  readonly options?: Record<string, JsonValue>;
+}
+
+export interface DocumentIndexCreatePayload extends CrudCommandPayload {
+  readonly definition: DocumentIndexDefinitionInput;
+}
+
+export interface DocumentIndexDropPayload extends CrudCommandPayload {
+  readonly indexName: string;
+}
+
+export interface DocumentValidationUpdatePayload extends CrudCommandPayload {
+  readonly validationJson?: string;
+  readonly clearValidator?: boolean;
+  readonly validationLevel?: "off" | "strict" | "moderate";
+  readonly validationAction?: "error" | "warn";
+}
+
 export interface ColumnAddPayload extends CrudCommandPayload {
   readonly column: ColumnDefinitionInput;
 }
@@ -392,6 +416,9 @@ export type CrudCommandPayloadMap = {
   "data.update": DataUpdatePayload;
   "data.insert": DataInsertPayload;
   "data.delete": DataDeletePayload;
+  "document.index.create": DocumentIndexCreatePayload;
+  "document.index.drop": DocumentIndexDropPayload;
+  "document.validation.update": DocumentValidationUpdatePayload;
   "table.create": TableCreatePayload;
   "table.rename": TableRenamePayload;
   "table.drop": TableDropPayload;

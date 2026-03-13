@@ -611,6 +611,30 @@ describe("executeCommand", () => {
       "tab-1",
       { viewType: "structure" },
     );
+    expect(mockTabStateStore.setQueryState).toHaveBeenCalledWith(
+      "tab-1",
+      { tableViewType: "structure" },
+    );
+  });
+
+  it("applies Mongo workbench views through grid.setView", async () => {
+    const command = createCommand<GridSetViewParams>("grid.setView", {
+      tabId: "tab-1",
+      view: "aggregation",
+    });
+
+    const result = await executeCommand(command);
+
+    expect(result.success).toBe(true);
+    expect(mockWorkbenchState.updateTabMetadata).toHaveBeenCalledWith(
+      "panel-1",
+      "tab-1",
+      { viewType: "aggregation" },
+    );
+    expect(mockTabStateStore.setQueryState).toHaveBeenCalledWith(
+      "tab-1",
+      { tableViewType: "aggregation" },
+    );
   });
 
   it("returns focused tab context", async () => {

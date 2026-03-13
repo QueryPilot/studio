@@ -26,11 +26,18 @@ export interface TabPayload {
   tableName?: string;
   isView?: boolean;
   kind?: "Table" | "View" | "MaterializedView";
-  activeView?: "data" | "structure" | "indexes" | "triggers";
+  activeView?:
+    | "data"
+    | "structure"
+    | "indexes"
+    | "triggers"
+    | "aggregation"
+    | "validation"
+    | "explain";
   filters?: Array<{
     column: string;
     operator: string;
-    value: any;
+    value: unknown;
   }>;
   sort?: {
     column: string;

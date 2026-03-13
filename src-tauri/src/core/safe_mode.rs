@@ -382,7 +382,10 @@ pub fn classify_document_op(op: &DocumentOperation) -> OperationKind {
         | DocumentOperation::Aggregate { .. }
         | DocumentOperation::Count { .. }
         | DocumentOperation::SampleSchema { .. }
-        | DocumentOperation::ListCollections => OperationKind::Read,
+        | DocumentOperation::ListCollections
+        | DocumentOperation::GetCollectionMetadata { .. }
+        | DocumentOperation::ListIndexes { .. }
+        | DocumentOperation::Explain { .. } => OperationKind::Read,
 
         DocumentOperation::Insert { .. } | DocumentOperation::InsertMany { .. } => {
             OperationKind::Insert
@@ -391,6 +394,10 @@ pub fn classify_document_op(op: &DocumentOperation) -> OperationKind {
         DocumentOperation::Update { .. } => OperationKind::Update,
 
         DocumentOperation::Delete { .. } => OperationKind::Delete,
+
+        DocumentOperation::CreateIndex { .. }
+        | DocumentOperation::DropIndex { .. }
+        | DocumentOperation::UpdateCollectionValidation { .. } => OperationKind::Ddl,
 
         DocumentOperation::RunCommand { command } => classify_mongo_run_command(command),
     }
@@ -414,7 +421,7 @@ fn classify_mongo_run_command(command: &serde_json::Value) -> OperationKind {
             | "hostinfo" | "features" | "listcommands" | "ping" | "whatsmyuri" | "ismaster"
             | "hello" | "getlog" | "top" | "validate" | "datasize" | "count" | "distinct" | "find"
             | "aggregate" | "listcollections" | "listindexes" | "listdatabases" | "currentop"
-            | "getmore" | "collmod" | "profile" | "replsetgetstatus" | "replsetgetconfig",
+            | "getmore" | "profile" | "replsetgetstatus" | "replsetgetconfig",
         ) => OperationKind::Read,
 
         // Insert
@@ -425,6 +432,9 @@ fn classify_mongo_run_command(command: &serde_json::Value) -> OperationKind {
 
         // Delete
         Some("delete") => OperationKind::Delete,
+
+        // Collection metadata mutation
+        Some("collmod") => OperationKind::Ddl,
 
         // DDL / admin — drop, create, reIndex, etc.
         _ => OperationKind::Ddl,
@@ -817,6 +827,57 @@ mod tests {
         assert_eq!(classify_document_op(&op), OperationKind::Delete);
     }
 
+    #[test]
+    fn test_classify_document_collection_metadata_ops_are_read() {
+        let metadata = DocumentOperation::GetCollectionMetadata {
+            collection: "users".into(),
+        };
+        assert_eq!(classify_document_op(&metadata), OperationKind::Read);
+
+        let indexes = DocumentOperation::ListIndexes {
+            collection: "users".into(),
+        };
+        assert_eq!(classify_document_op(&indexes), OperationKind::Read);
+
+        let explain = DocumentOperation::Explain {
+            collection: "users".into(),
+            mode: crate::core::capabilities::MongoExplainMode::Aggregate,
+            filter: None,
+            sort: None,
+            projection: None,
+            skip: None,
+            limit: None,
+            pipeline: Some(vec![serde_json::json!({ "$match": { "status": "active" } })]),
+        };
+        assert_eq!(classify_document_op(&explain), OperationKind::Read);
+    }
+
+    #[test]
+    fn test_classify_document_admin_ops_are_ddl() {
+        let create = DocumentOperation::CreateIndex {
+            collection: "users".into(),
+            keys: serde_json::json!({ "status": 1 }),
+            options: None,
+        };
+        assert_eq!(classify_document_op(&create), OperationKind::Ddl);
+
+        let drop = DocumentOperation::DropIndex {
+            collection: "users".into(),
+            index_name: "idx_status".into(),
+        };
+        assert_eq!(classify_document_op(&drop), OperationKind::Ddl);
+
+        let validation = DocumentOperation::UpdateCollectionValidation {
+            collection: "users".into(),
+            validator: Some(serde_json::json!({
+                "$jsonSchema": { "bsonType": "object" }
+            })),
+            validation_level: Some(mongodb::options::ValidationLevel::Strict),
+            validation_action: Some(mongodb::options::ValidationAction::Error),
+        };
+        assert_eq!(classify_document_op(&validation), OperationKind::Ddl);
+    }
+
     // ---- classify_document_op: RunCommand sub-classification ----
 
     #[test]
@@ -842,6 +903,17 @@ mod tests {
                 cmd_name
             );
         }
+    }
+
+    #[test]
+    fn test_classify_document_run_command_collmod_is_ddl() {
+        let op = DocumentOperation::RunCommand {
+            command: serde_json::json!({
+                "collMod": "users",
+                "validator": { "$jsonSchema": { "bsonType": "object" } }
+            }),
+        };
+        assert_eq!(classify_document_op(&op), OperationKind::Ddl);
     }
 
     #[test]

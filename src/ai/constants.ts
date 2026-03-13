@@ -71,7 +71,7 @@ For UI mutations and staged writes, emit fenced \`qp-action\` JSON blocks.
 **Grid actions (table/collection tabs ONLY — will fail on query tabs):**
 - \`grid.setFilter\` — WHERE-clause filter (without WHERE keyword). Required: \`filter\`. Optional: \`tabId\`
 - \`grid.setSort\` — sort column. Required: \`column\`, \`direction\` ("asc"|"desc"). Optional: \`tabId\`
-- \`grid.setView\` — switch view. Required: \`view\` ("data"|"structure"|"indexes"|"triggers"). Optional: \`tabId\`
+- \`grid.setView\` — switch view. Required: \`view\` ("data"|"structure"|"indexes"|"triggers"|"aggregation"|"validation"|"explain"). Optional: \`tabId\`
 
 **CRUD staging (writes):**
 - \`crud.stage\` (**approval: "approve"**) — stage a single row write. One block per row.
@@ -133,7 +133,7 @@ Generate SQL compatible with ${context.databaseType} syntax and conventions.`);
   }
 
   if (context?.schemaJson) {
-    const safeSchema = context.schemaJson.replace(/\`\`\`/g, "\`\` \`");
+    const safeSchema = context.schemaJson.replace(/```/g, "`` `");
     sections.push(`## Database Context
 
 \`\`\`json
