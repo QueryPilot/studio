@@ -583,7 +583,7 @@ const COMMAND_SCHEMAS: Partial<Record<AiCommandName, CommandSchema>> = {
     example: {
       view: "structure",
     },
-    guidelines: "Switches table tab view (data/structure/indexes/etc).",
+    guidelines: "Switches SQL table or Mongo collection workbench views (data/structure/indexes/aggregation/validation/explain/etc).",
   },
 };
 

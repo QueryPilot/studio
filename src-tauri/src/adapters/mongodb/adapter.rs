@@ -6,7 +6,11 @@
 use async_trait::async_trait;
 use bson::{doc, Bson, Document};
 use futures::TryStreamExt;
-use mongodb::{options::ClientOptions, Client, Database};
+use mongodb::{
+    options::{ClientOptions, IndexOptions, ValidationAction, ValidationLevel},
+    results::CollectionSpecification,
+    Client, Database, IndexModel,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -301,6 +305,178 @@ impl MongoDbAdapter {
         }
 
         Ok(result)
+    }
+
+    fn json_to_index_options(options: Option<&Value>) -> Result<Option<IndexOptions>, AppError> {
+        options
+            .map(|value| {
+                let mut normalized = value.clone();
+                if let Some(object) = normalized.as_object_mut() {
+                    if let Some(default_language) = object.remove("defaultLanguage") {
+                        object.insert("default_language".to_string(), default_language);
+                    }
+                    if let Some(language_override) = object.remove("languageOverride") {
+                        object.insert("language_override".to_string(), language_override);
+                    }
+                }
+
+                serde_json::from_value::<IndexOptions>(normalized).map_err(|e| {
+                    AppError::InvalidInput(format!("Invalid index options: {}", e))
+                })
+            })
+            .transpose()
+    }
+
+    fn serialize_index_model(index: IndexModel) -> Result<Value, AppError> {
+        let mut value = serde_json::to_value(index).map_err(|e| {
+            AppError::ParseError(format!("Failed to serialize index model: {}", e))
+        })?;
+        let object = value.as_object_mut().ok_or_else(|| {
+            AppError::ParseError("Serialized index model was not an object".to_string())
+        })?;
+        if let Some(keys) = object.remove("key") {
+            object.insert("keys".to_string(), keys);
+        }
+        Ok(value)
+    }
+
+    fn serialize_collection_specification(
+        spec: &CollectionSpecification,
+        stats: Option<crate::core::capabilities::MongoCollectionStatsSummary>,
+    ) -> Result<crate::core::capabilities::MongoCollectionMetadata, AppError> {
+        let options = serde_json::to_value(&spec.options).map_err(|e| {
+            AppError::ParseError(format!(
+                "Failed to serialize collection options: {}",
+                e
+            ))
+        })?;
+
+        let validator = spec
+            .options
+            .validator
+            .clone()
+            .map(Self::bson_doc_to_json);
+
+        Ok(crate::core::capabilities::MongoCollectionMetadata {
+            name: spec.name.clone(),
+            options,
+            validator,
+            validation_level: spec.options.validation_level.clone(),
+            validation_action: spec.options.validation_action.clone(),
+            stats,
+        })
+    }
+
+    fn extract_u64(document: &Document, key: &str) -> Option<u64> {
+        match document.get(key) {
+            Some(Bson::Int32(value)) => (*value).try_into().ok(),
+            Some(Bson::Int64(value)) => (*value).try_into().ok(),
+            Some(Bson::Double(value)) if *value >= 0.0 => Some(*value as u64),
+            _ => None,
+        }
+    }
+
+    fn summarize_collection_stats(
+        stats: &Document,
+    ) -> crate::core::capabilities::MongoCollectionStatsSummary {
+        crate::core::capabilities::MongoCollectionStatsSummary {
+            count: Self::extract_u64(stats, "count"),
+            size: Self::extract_u64(stats, "size"),
+            avg_obj_size: Self::extract_u64(stats, "avgObjSize"),
+            storage_size: Self::extract_u64(stats, "storageSize"),
+            total_index_size: Self::extract_u64(stats, "totalIndexSize"),
+            index_count: Self::extract_u64(stats, "nindexes")
+                .or_else(|| Self::extract_u64(stats, "indexCount")),
+        }
+    }
+
+    fn build_validation_command(
+        collection: &str,
+        validator: Option<Value>,
+        validation_level: Option<ValidationLevel>,
+        validation_action: Option<ValidationAction>,
+    ) -> Result<Document, AppError> {
+        let mut command = doc! { "collMod": collection };
+
+        if let Some(validator_value) = validator {
+            command.insert("validator", Self::json_to_bson(&validator_value)?);
+        }
+
+        if let Some(level) = validation_level {
+            command.insert(
+                "validationLevel",
+                bson::to_bson(&level).map_err(|e| {
+                    AppError::ParseError(format!(
+                        "Failed to serialize validation level: {}",
+                        e
+                    ))
+                })?,
+            );
+        }
+
+        if let Some(action) = validation_action {
+            command.insert(
+                "validationAction",
+                bson::to_bson(&action).map_err(|e| {
+                    AppError::ParseError(format!(
+                        "Failed to serialize validation action: {}",
+                        e
+                    ))
+                })?,
+            );
+        }
+
+        Ok(command)
+    }
+
+    fn build_explain_command(
+        collection: &str,
+        mode: &crate::core::capabilities::MongoExplainMode,
+        filter: Option<Value>,
+        sort: Option<Value>,
+        projection: Option<Value>,
+        skip: Option<u64>,
+        limit: Option<u64>,
+        pipeline: Option<Vec<Value>>,
+    ) -> Result<Document, AppError> {
+        let inner = match mode {
+            crate::core::capabilities::MongoExplainMode::Find => {
+                let mut command = doc! { "find": collection };
+
+                if let Some(filter_value) = filter {
+                    command.insert("filter", Self::json_to_bson(&filter_value)?);
+                }
+                if let Some(sort_value) = sort {
+                    command.insert("sort", Self::json_to_bson_doc(&sort_value)?);
+                }
+                if let Some(projection_value) = projection {
+                    command.insert("projection", Self::json_to_bson_doc(&projection_value)?);
+                }
+                if let Some(skip_value) = skip {
+                    command.insert("skip", skip_value as i64);
+                }
+                if let Some(limit_value) = limit {
+                    command.insert("limit", limit_value as i64);
+                }
+
+                command
+            }
+            crate::core::capabilities::MongoExplainMode::Aggregate => {
+                let pipeline_docs = pipeline
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|stage| Ok(Bson::Document(Self::json_to_bson_doc(&stage)?)))
+                    .collect::<Result<Vec<_>, AppError>>()?;
+
+                doc! {
+                    "aggregate": collection,
+                    "pipeline": pipeline_docs,
+                    "cursor": {}
+                }
+            }
+        };
+
+        Ok(doc! { "explain": inner })
     }
 
     /// Run a command on a specific database (does not modify adapter state).
@@ -1124,44 +1300,31 @@ impl MongoDbAdapter {
     pub async fn list_indexes(&self, collection: &str) -> Result<Vec<Value>, AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
-            Some(database) => {
-                let coll = database.collection::<Document>(collection);
-                let mut cursor = coll.list_indexes().await.map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to list indexes: {}", e))
-                })?;
-
-                let mut indexes = Vec::new();
-                while let Some(index) = cursor
-                    .try_next()
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Cursor error: {}", e)))?
-                {
-                    // Convert IndexModel to JSON-compatible format
-                    let mut idx_json = serde_json::Map::new();
-                    idx_json.insert(
-                        "keys".to_string(),
-                        Self::bson_doc_to_json(index.keys.clone()),
-                    );
-                    if let Some(opts) = &index.options {
-                        if let Some(name) = &opts.name {
-                            idx_json.insert("name".to_string(), Value::String(name.clone()));
-                        }
-                        if let Some(unique) = opts.unique {
-                            idx_json.insert("unique".to_string(), Value::Bool(unique));
-                        }
-                        if let Some(sparse) = opts.sparse {
-                            idx_json.insert("sparse".to_string(), Value::Bool(sparse));
-                        }
-                        if let Some(background) = opts.background {
-                            idx_json.insert("background".to_string(), Value::Bool(background));
-                        }
-                    }
-                    indexes.push(Value::Object(idx_json));
-                }
-                Ok(indexes)
-            }
+            Some(database) => self.list_indexes_on_db(database, collection).await,
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
+    }
+
+    pub async fn list_indexes_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+    ) -> Result<Vec<Value>, AppError> {
+        let coll = database.collection::<Document>(collection);
+        let mut cursor = coll
+            .list_indexes()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to list indexes: {}", e)))?;
+
+        let mut indexes = Vec::new();
+        while let Some(index) = cursor
+            .try_next()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Cursor error: {}", e)))?
+        {
+            indexes.push(Self::serialize_index_model(index)?);
+        }
+        Ok(indexes)
     }
 
     /// Create an index on a collection
@@ -1169,39 +1332,215 @@ impl MongoDbAdapter {
         &self,
         collection: &str,
         keys: Value,
-        _options: Option<Value>,
+        options: Option<Value>,
     ) -> Result<String, AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
-            Some(database) => {
-                let coll = database.collection::<Document>(collection);
-                let keys_doc = Self::json_to_bson_doc(&keys)?;
-
-                let index_model = mongodb::IndexModel::builder().keys(keys_doc).build();
-
-                let result = coll.create_index(index_model).await.map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to create index: {}", e))
-                })?;
-
-                Ok(result.index_name)
-            }
+            Some(database) => self
+                .create_index_on_db(database, collection, keys, options)
+                .await,
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
+    }
+
+    pub async fn create_index_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+        keys: Value,
+        options: Option<Value>,
+    ) -> Result<String, AppError> {
+        let coll = database.collection::<Document>(collection);
+        let keys_doc = Self::json_to_bson_doc(&keys)?;
+        let index_options = Self::json_to_index_options(options.as_ref())?;
+        let index_model = IndexModel::builder()
+            .keys(keys_doc)
+            .options(index_options)
+            .build();
+
+        let result = coll
+            .create_index(index_model)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to create index: {}", e)))?;
+
+        Ok(result.index_name)
     }
 
     /// Drop an index from a collection
     pub async fn drop_index(&self, collection: &str, index_name: &str) -> Result<(), AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
+            Some(database) => self.drop_index_on_db(database, collection, index_name).await,
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    pub async fn drop_index_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+        index_name: &str,
+    ) -> Result<(), AppError> {
+        let coll = database.collection::<Document>(collection);
+        coll.drop_index(index_name)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to drop index: {}", e)))?;
+        Ok(())
+    }
+
+    pub async fn get_collection_metadata(
+        &self,
+        collection: &str,
+    ) -> Result<crate::core::capabilities::MongoCollectionMetadata, AppError> {
+        let db = self.database.read().await;
+        match db.as_ref() {
+            Some(database) => self.get_collection_metadata_on_db(database, collection).await,
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    pub async fn get_collection_metadata_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+    ) -> Result<crate::core::capabilities::MongoCollectionMetadata, AppError> {
+        let mut cursor = database
+            .list_collections()
+            .filter(doc! { "name": collection })
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!(
+                    "Failed to fetch collection metadata for '{}': {}",
+                    collection, e
+                ))
+            })?;
+
+        let spec = cursor
+            .try_next()
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!(
+                    "Failed to iterate collection metadata for '{}': {}",
+                    collection, e
+                ))
+            })?
+            .ok_or_else(|| {
+                AppError::DatabaseError(format!("Collection '{}' was not found", collection))
+            })?;
+
+        let stats = database
+            .run_command(doc! { "collStats": collection })
+            .await
+            .ok()
+            .map(|doc| Self::summarize_collection_stats(&doc));
+
+        Self::serialize_collection_specification(&spec, stats)
+    }
+
+    pub async fn update_collection_validation(
+        &self,
+        collection: &str,
+        validator: Option<Value>,
+        validation_level: Option<ValidationLevel>,
+        validation_action: Option<ValidationAction>,
+    ) -> Result<Value, AppError> {
+        let db = self.database.read().await;
+        match db.as_ref() {
             Some(database) => {
-                let coll = database.collection::<Document>(collection);
-                coll.drop_index(index_name)
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Failed to drop index: {}", e)))?;
-                Ok(())
+                self.update_collection_validation_on_db(
+                    database,
+                    collection,
+                    validator,
+                    validation_level,
+                    validation_action,
+                )
+                .await
             }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
+    }
+
+    pub async fn update_collection_validation_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+        validator: Option<Value>,
+        validation_level: Option<ValidationLevel>,
+        validation_action: Option<ValidationAction>,
+    ) -> Result<Value, AppError> {
+        let command = Self::build_validation_command(
+            collection,
+            validator,
+            validation_level,
+            validation_action,
+        )?;
+        let result = database
+            .run_command(command)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("collMod failed: {}", e)))?;
+        Ok(Self::bson_doc_to_json(result))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn explain_collection_operation(
+        &self,
+        collection: &str,
+        mode: crate::core::capabilities::MongoExplainMode,
+        filter: Option<Value>,
+        sort: Option<Value>,
+        projection: Option<Value>,
+        skip: Option<u64>,
+        limit: Option<u64>,
+        pipeline: Option<Vec<Value>>,
+    ) -> Result<Value, AppError> {
+        let db = self.database.read().await;
+        match db.as_ref() {
+            Some(database) => {
+                self.explain_collection_operation_on_db(
+                    database,
+                    collection,
+                    mode,
+                    filter,
+                    sort,
+                    projection,
+                    skip,
+                    limit,
+                    pipeline,
+                )
+                .await
+            }
+            None => Err(AppError::DatabaseError("Not connected".to_string())),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn explain_collection_operation_on_db(
+        &self,
+        database: &Database,
+        collection: &str,
+        mode: crate::core::capabilities::MongoExplainMode,
+        filter: Option<Value>,
+        sort: Option<Value>,
+        projection: Option<Value>,
+        skip: Option<u64>,
+        limit: Option<u64>,
+        pipeline: Option<Vec<Value>>,
+    ) -> Result<Value, AppError> {
+        let command = Self::build_explain_command(
+            collection,
+            &mode,
+            filter,
+            sort,
+            projection,
+            skip,
+            limit,
+            pipeline,
+        )?;
+        let result = database
+            .run_command(command)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Explain failed: {}", e)))?;
+        Ok(Self::bson_doc_to_json(result))
     }
 }
 
@@ -1277,6 +1616,7 @@ impl DocumentQueryable for MongoDbAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mongodb::options::{IndexOptions, ValidationAction, ValidationLevel};
 
     #[test]
     fn test_new_adapter() {
@@ -1421,5 +1761,99 @@ mod tests {
             conn_str,
             "mongodb+srv://admin:secret@cluster0.mongodb.net/mydb"
         );
+    }
+
+    #[test]
+    fn test_json_to_index_options_preserves_rich_options() {
+        let options = serde_json::json!({
+            "name": "idx_status_createdAt",
+            "unique": true,
+            "sparse": false,
+            "expireAfterSeconds": 3600,
+            "defaultLanguage": "english",
+            "languageOverride": "lang",
+            "weights": { "title": 5 },
+            "partialFilterExpression": { "status": "active" }
+        });
+
+        let parsed = MongoDbAdapter::json_to_index_options(Some(&options))
+            .unwrap()
+            .expect("expected parsed options");
+        let serialized = serde_json::to_value(parsed).unwrap();
+
+        assert_eq!(serialized["name"], "idx_status_createdAt");
+        assert_eq!(serialized["unique"], true);
+        assert_eq!(serialized["expireAfterSeconds"], 3600);
+        assert_eq!(serialized["default_language"], "english");
+        assert_eq!(serialized["language_override"], "lang");
+        assert_eq!(serialized["weights"]["title"], 5);
+        assert_eq!(
+            serialized["partialFilterExpression"]["status"],
+            "active"
+        );
+    }
+
+    #[test]
+    fn test_serialize_index_model_renames_key_to_keys() {
+        let index = IndexModel::builder()
+            .keys(doc! { "status": 1, "title": "text" })
+            .options(Some(
+                IndexOptions::builder()
+                    .name(Some("idx_status_title_text".to_string()))
+                    .unique(true)
+                    .expire_after(std::time::Duration::from_secs(900))
+                    .build(),
+            ))
+            .build();
+
+        let serialized = MongoDbAdapter::serialize_index_model(index).unwrap();
+
+        assert_eq!(serialized["keys"]["status"], 1);
+        assert_eq!(serialized["keys"]["title"], "text");
+        assert_eq!(serialized["name"], "idx_status_title_text");
+        assert_eq!(serialized["unique"], true);
+        assert_eq!(serialized["expireAfterSeconds"], 900);
+        assert!(serialized.get("key").is_none());
+    }
+
+    #[test]
+    fn test_build_validation_command_includes_schema_and_policy() {
+        let command = MongoDbAdapter::build_validation_command(
+            "users",
+            Some(serde_json::json!({
+                "$jsonSchema": {
+                    "bsonType": "object",
+                    "required": ["status"]
+                }
+            })),
+            Some(ValidationLevel::Strict),
+            Some(ValidationAction::Error),
+        )
+        .unwrap();
+
+        assert_eq!(command.get_str("collMod").unwrap(), "users");
+        assert!(command.get_document("validator").is_ok());
+        assert_eq!(command.get_str("validationLevel").unwrap(), "strict");
+        assert_eq!(command.get_str("validationAction").unwrap(), "error");
+    }
+
+    #[test]
+    fn test_build_explain_command_for_aggregate_uses_pipeline() {
+        let command = MongoDbAdapter::build_explain_command(
+            "users",
+            &crate::core::capabilities::MongoExplainMode::Aggregate,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(vec![serde_json::json!({ "$match": { "status": "active" } })]),
+        )
+        .unwrap();
+
+        let explain = command.get_document("explain").unwrap();
+        assert_eq!(explain.get_str("aggregate").unwrap(), "users");
+        assert!(explain.get_array("pipeline").is_ok());
+        assert!(explain.get_document("cursor").is_ok());
     }
 }

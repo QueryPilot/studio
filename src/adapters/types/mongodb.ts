@@ -62,12 +62,36 @@ export interface CollectionInfo {
   sizeBytes?: number;
 }
 
-export interface MongoIndexInfo {
-  name: string;
-  keys: Record<string, 1 | -1>;
+export type MongoIndexKeyValue = 1 | -1 | 'text';
+
+export type MongoIndexKeySpec = Record<string, MongoIndexKeyValue>;
+
+export interface MongoIndexOptions {
+  name?: string;
   unique?: boolean;
   sparse?: boolean;
-  ttl?: number;
+  expireAfterSeconds?: number;
+  background?: boolean;
+  defaultLanguage?: string;
+  languageOverride?: string;
+  weights?: Record<string, number>;
+  partialFilterExpression?: Record<string, unknown>;
+}
+
+export interface MongoIndexInfo {
+  name: string;
+  keys: MongoIndexKeySpec;
+  unique?: boolean;
+  sparse?: boolean;
+  expireAfterSeconds?: number;
+  partialFilterExpression?: Record<string, unknown>;
+  defaultLanguage?: string;
+  languageOverride?: string;
+  weights?: Record<string, number>;
+  hidden?: boolean;
+  textIndexVersion?: number;
+  usageCount?: number;
+  raw?: Record<string, unknown>;
 }
 
 export interface MongoConnectionConfig {
@@ -120,6 +144,40 @@ export interface CollectionStats {
  */
 export interface ValidationRules {
   $jsonSchema?: Record<string, unknown>;
+  clearValidator?: boolean;
   validationLevel?: 'off' | 'strict' | 'moderate';
   validationAction?: 'error' | 'warn';
 }
+
+export interface MongoCollectionMetadata {
+  name: string;
+  options?: Record<string, unknown>;
+  validator?: Record<string, unknown>;
+  validationLevel?: ValidationRules['validationLevel'];
+  validationAction?: ValidationRules['validationAction'];
+  stats?: Partial<CollectionStats>;
+}
+
+export interface CreateIndexResult {
+  indexName: string;
+}
+
+export interface MongoFindExplainRequest {
+  mode: 'find';
+  filter?: object;
+  sort?: Record<string, 1 | -1>;
+  projection?: Record<string, 0 | 1>;
+  skip?: number;
+  limit?: number;
+}
+
+export interface MongoAggregateExplainRequest {
+  mode: 'aggregate';
+  pipeline: object[];
+}
+
+export type MongoExplainRequest =
+  | MongoFindExplainRequest
+  | MongoAggregateExplainRequest;
+
+export type MongoExplainResult = Record<string, unknown>;

@@ -10,7 +10,9 @@ use tauri::State;
 use crate::adapters::mongodb::{
     BsonMsgPackEncoder, MongoCursorToken, MongoDocumentPage, MongoSchemaSample,
 };
-use crate::core::capabilities::FindOptions;
+use crate::core::capabilities::{
+    FindOptions, MongoCollectionMetadata, MongoExplainMode, MongoIndexCreateResult,
+};
 use crate::core::ConnectionManager;
 use crate::types::*;
 
@@ -479,6 +481,37 @@ pub enum DocumentOperation {
         max_depth: Option<u8>,
     },
     ListCollections,
+    GetCollectionMetadata {
+        collection: String,
+    },
+    ListIndexes {
+        collection: String,
+    },
+    CreateIndex {
+        collection: String,
+        keys: serde_json::Value,
+        options: Option<serde_json::Value>,
+    },
+    DropIndex {
+        collection: String,
+        index_name: String,
+    },
+    UpdateCollectionValidation {
+        collection: String,
+        validator: Option<serde_json::Value>,
+        validation_level: Option<mongodb::options::ValidationLevel>,
+        validation_action: Option<mongodb::options::ValidationAction>,
+    },
+    Explain {
+        collection: String,
+        mode: MongoExplainMode,
+        filter: Option<serde_json::Value>,
+        sort: Option<serde_json::Value>,
+        projection: Option<serde_json::Value>,
+        skip: Option<u64>,
+        limit: Option<u64>,
+        pipeline: Option<Vec<serde_json::Value>>,
+    },
     RunCommand {
         command: serde_json::Value,
     },
@@ -497,6 +530,11 @@ pub enum DocumentResult {
     Count(u64),
     SchemaSample(MongoSchemaSample),
     Collections(Vec<crate::core::capabilities::CollectionInfo>),
+    CollectionMetadata(MongoCollectionMetadata),
+    Indexes(Vec<serde_json::Value>),
+    IndexCreate(MongoIndexCreateResult),
+    Explain(serde_json::Value),
+    Ok(serde_json::Value),
     Command(serde_json::Value),
 }
 
@@ -658,6 +696,140 @@ pub async fn document_execute(
             };
             Ok(DocumentResult::Collections(collections))
         }
+        DocumentOperation::GetCollectionMetadata { collection } => {
+            let metadata = if let Some(ref db) = db_override {
+                mongo
+                    .get_collection_metadata_on_db(db, &collection)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .get_collection_metadata(&collection)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            Ok(DocumentResult::CollectionMetadata(metadata))
+        }
+        DocumentOperation::ListIndexes { collection } => {
+            let indexes = if let Some(ref db) = db_override {
+                mongo
+                    .list_indexes_on_db(db, &collection)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo.list_indexes(&collection).await.map_err(|e| e.to_string())?
+            };
+            Ok(DocumentResult::Indexes(indexes))
+        }
+        DocumentOperation::CreateIndex {
+            collection,
+            keys,
+            options,
+        } => {
+            let index_name = if let Some(ref db) = db_override {
+                mongo
+                    .create_index_on_db(db, &collection, keys, options)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .create_index(&collection, keys, options)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            Ok(DocumentResult::IndexCreate(MongoIndexCreateResult {
+                index_name,
+            }))
+        }
+        DocumentOperation::DropIndex {
+            collection,
+            index_name,
+        } => {
+            if let Some(ref db) = db_override {
+                mongo
+                    .drop_index_on_db(db, &collection, &index_name)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            } else {
+                mongo
+                    .drop_index(&collection, &index_name)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(DocumentResult::Ok(serde_json::json!({ "ok": 1 })))
+        }
+        DocumentOperation::UpdateCollectionValidation {
+            collection,
+            validator,
+            validation_level,
+            validation_action,
+        } => {
+            let result = if let Some(ref db) = db_override {
+                mongo
+                    .update_collection_validation_on_db(
+                        db,
+                        &collection,
+                        validator,
+                        validation_level,
+                        validation_action,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .update_collection_validation(
+                        &collection,
+                        validator,
+                        validation_level,
+                        validation_action,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            Ok(DocumentResult::Command(result))
+        }
+        DocumentOperation::Explain {
+            collection,
+            mode,
+            filter,
+            sort,
+            projection,
+            skip,
+            limit,
+            pipeline,
+        } => {
+            let result = if let Some(ref db) = db_override {
+                mongo
+                    .explain_collection_operation_on_db(
+                        db,
+                        &collection,
+                        mode,
+                        filter,
+                        sort,
+                        projection,
+                        skip,
+                        limit,
+                        pipeline,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                mongo
+                    .explain_collection_operation(
+                        &collection,
+                        mode,
+                        filter,
+                        sort,
+                        projection,
+                        skip,
+                        limit,
+                        pipeline,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            Ok(DocumentResult::Explain(result))
+        }
         DocumentOperation::RunCommand { command } => {
             let result = if let Some(ref db) = db_override {
                 mongo
@@ -705,5 +877,77 @@ mod tests {
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("count"));
         assert!(json.contains("42"));
+    }
+
+    #[test]
+    fn test_document_operation_serializes_collection_admin_variants() {
+        let metadata_op = DocumentOperation::GetCollectionMetadata {
+            collection: "users".to_string(),
+        };
+        let metadata_json = serde_json::to_value(&metadata_op).unwrap();
+        assert_eq!(metadata_json["type"], "getCollectionMetadata");
+        assert_eq!(metadata_json["collection"], "users");
+
+        let create_index_op = DocumentOperation::CreateIndex {
+            collection: "users".to_string(),
+            keys: serde_json::json!({ "status": 1, "title": "text" }),
+            options: Some(serde_json::json!({
+                "unique": true,
+                "expireAfterSeconds": 3600
+            })),
+        };
+        let create_index_json = serde_json::to_value(&create_index_op).unwrap();
+        assert_eq!(create_index_json["type"], "createIndex");
+        assert_eq!(create_index_json["keys"]["status"], 1);
+        assert_eq!(create_index_json["options"]["expireAfterSeconds"], 3600);
+
+        let explain_op = DocumentOperation::Explain {
+            collection: "users".to_string(),
+            mode: MongoExplainMode::Aggregate,
+            filter: None,
+            sort: None,
+            projection: None,
+            skip: None,
+            limit: None,
+            pipeline: Some(vec![serde_json::json!({
+                "$match": { "status": "active" }
+            })]),
+        };
+        let explain_json = serde_json::to_value(&explain_op).unwrap();
+        assert_eq!(explain_json["type"], "explain");
+        assert_eq!(explain_json["mode"], "aggregate");
+        assert_eq!(explain_json["pipeline"][0]["$match"]["status"], "active");
+    }
+
+    #[test]
+    fn test_document_result_serializes_mongo_admin_variants() {
+        let metadata_result = DocumentResult::CollectionMetadata(MongoCollectionMetadata {
+            name: "users".to_string(),
+            options: serde_json::json!({ "capped": false }),
+            validator: Some(serde_json::json!({
+                "$jsonSchema": { "bsonType": "object" }
+            })),
+            validation_level: Some(mongodb::options::ValidationLevel::Strict),
+            validation_action: Some(mongodb::options::ValidationAction::Error),
+            stats: Some(crate::core::capabilities::MongoCollectionStatsSummary {
+                count: Some(42),
+                size: Some(1024),
+                avg_obj_size: Some(24),
+                storage_size: Some(2048),
+                total_index_size: Some(256),
+                index_count: Some(2),
+            }),
+        });
+        let metadata_json = serde_json::to_value(&metadata_result).unwrap();
+        assert_eq!(metadata_json["type"], "collectionMetadata");
+        assert_eq!(metadata_json["data"]["validationLevel"], "strict");
+        assert_eq!(metadata_json["data"]["stats"]["indexCount"], 2);
+
+        let explain_result = DocumentResult::Explain(serde_json::json!({
+            "queryPlanner": { "winningPlan": { "stage": "IXSCAN" } }
+        }));
+        let explain_json = serde_json::to_value(&explain_result).unwrap();
+        assert_eq!(explain_json["type"], "explain");
+        assert_eq!(explain_json["data"]["queryPlanner"]["winningPlan"]["stage"], "IXSCAN");
     }
 }

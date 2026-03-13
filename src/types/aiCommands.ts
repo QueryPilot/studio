@@ -296,7 +296,7 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
         name: "view",
         type: "string",
         required: true,
-        description: "data|structure|indexes|triggers",
+        description: "data|structure|indexes|triggers|aggregation|validation|explain",
       },
     ],
   },
