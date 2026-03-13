@@ -1,4 +1,10 @@
-import { IconSettings, IconMoon, IconSun, IconRotate, IconLoader2 } from "@tabler/icons-react";
+import {
+  IconSettings,
+  IconMoon,
+  IconSun,
+  IconRotate,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { useAppStore } from "@/stores/appStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { cn } from "@/lib/utils";
@@ -14,26 +20,30 @@ export function ActionBarFooter() {
   const isUpdateBusy = isDownloadingUpdate || isInstallingUpdate;
 
   const handleToggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
+    setTheme(theme === "dark" ? "light" : "dark");
   };
 
   const buttonClass = cn(
-    'flex items-center gap-2 w-full px-3 py-2 rounded-md',
-    'text-xs text-muted-foreground',
-    'hover:text-foreground hover:bg-sidebar-accent',
-    'transition-colors duration-150'
+    "flex items-center gap-2 w-full px-3 py-2 rounded-md",
+    "text-xs text-muted-foreground",
+    "hover:text-foreground hover:bg-foreground/8",
+    "transition-colors duration-150",
   );
 
   return (
-    <div className="flex flex-col gap-0.5 p-2 border-t border-sidebar-border">
+    <div className="flex flex-col gap-0.5 p-2">
       {pendingUpdate && (
         <button
           type="button"
           className={cn(
-            "flex items-center gap-2 w-full px-3 py-2 mb-0.5 rounded-full running-border running-border--red text-xs font-medium text-red-600 dark:text-red-400 transition-opacity",
-            isUpdateBusy ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:opacity-80"
+            "flex items-center gap-2 w-full px-3 py-2 mb-0.5 rounded-full running-border running-border--primary/30 text-xs font-medium text-primary dark:text-primary transition-opacity",
+            isUpdateBusy
+              ? "opacity-50 cursor-not-allowed"
+              : "cursor-pointer hover:opacity-80",
           )}
-          onClick={() => { openAppUpdateDialog(); }}
+          onClick={() => {
+            openAppUpdateDialog();
+          }}
           disabled={isUpdateBusy}
         >
           {isUpdateBusy ? (
@@ -51,18 +61,23 @@ export function ActionBarFooter() {
         </button>
       )}
 
-      <button type="button" className={buttonClass} onClick={() => { openPreferences(); }}>
-        <IconSettings className="h-4 w-4" />
-        <span>Settings</span>
-      </button>
-
       <button type="button" className={buttonClass} onClick={handleToggleTheme}>
-        {theme === 'dark' ? (
+        {theme === "dark" ? (
           <IconSun className="h-4 w-4" />
         ) : (
           <IconMoon className="h-4 w-4" />
         )}
-        <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+        <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+      </button>
+      <button
+        type="button"
+        className={buttonClass}
+        onClick={() => {
+          openPreferences();
+        }}
+      >
+        <IconSettings className="h-4 w-4" />
+        <span>Settings</span>
       </button>
     </div>
   );

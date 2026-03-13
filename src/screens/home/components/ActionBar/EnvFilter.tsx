@@ -51,8 +51,8 @@ export function EnvFilter() {
               "group flex items-center gap-2.5 h-8 px-2.5 w-full rounded-lg text-left",
               "transition-all duration-150 ease-out",
               "text-muted-foreground hover:text-foreground",
-              "hover:bg-foreground/6",
-              isActive && "bg-foreground/8 text-foreground"
+              "hover:bg-foreground/8",
+              isActive && "bg-foreground/8 text-foreground",
             )}
             onClick={() => {
               toggleEnvFilter(env.key);
@@ -63,14 +63,14 @@ export function EnvFilter() {
                 "h-2 w-2 rounded-full transition-all duration-150",
                 env.color,
                 "group-hover:scale-110",
-                isActive && "scale-125"
+                isActive && "scale-125",
               )}
             />
             <span
               className={cn(
                 "flex-1 transition-all duration-150",
                 "text-xs",
-                isActive && "font-medium"
+                isActive && "font-medium",
               )}
             >
               {env.label}
@@ -82,7 +82,7 @@ export function EnvFilter() {
                   "transition-all duration-150",
                   isActive
                     ? "bg-foreground/10 text-foreground font-medium"
-                    : "bg-muted text-muted-foreground"
+                    : "bg-muted text-muted-foreground",
                 )}
               >
                 {count}

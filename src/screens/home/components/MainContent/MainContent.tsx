@@ -17,14 +17,19 @@ export function MainContent() {
   const contentMode = useHomeScreenStore((s) => s.contentMode);
   const searchQuery = useHomeScreenStore((s) => s.searchQuery);
   const connections = useConnectionStore((s) => s.connections);
-  const loadSavedWorkspaces = useWorkspaceBundleStore((s) => s.loadSavedWorkspaces);
+  const loadSavedWorkspaces = useWorkspaceBundleStore(
+    (s) => s.loadSavedWorkspaces,
+  );
 
   // Refresh workspaces when returning to browse from a form
   const prevContentMode = useRef(contentMode);
   useEffect(() => {
     const prev = prevContentMode.current;
     prevContentMode.current = contentMode;
-    if (contentMode === "browse" && (prev === "form" || prev === "workspace-form")) {
+    if (
+      contentMode === "browse" &&
+      (prev === "form" || prev === "workspace-form")
+    ) {
       void loadSavedWorkspaces();
     }
   }, [contentMode, loadSavedWorkspaces]);
@@ -71,7 +76,7 @@ export function MainContent() {
         );
         if (!isConnectionFocused) {
           const firstItem = document.querySelector<HTMLElement>(
-            "[data-connection-item]"
+            "[data-connection-item]",
           );
           if (firstItem) {
             e.preventDefault();
@@ -108,7 +113,7 @@ export function MainContent() {
           }
         } else if (filter.key === "tag" || filter.key === "env") {
           const hasTag = metadata.tags.some(
-            (tag) => tag.toLowerCase() === filter.value
+            (tag) => tag.toLowerCase() === filter.value,
           );
           if (!hasTag) {
             return false;

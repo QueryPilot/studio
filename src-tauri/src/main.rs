@@ -12,6 +12,7 @@ use ssh::rate_limiter::RateLimiter;
 use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
+use window_vibrancy::NSVisualEffectMaterial;
 
 fn main() {
     // Initialize tracing
@@ -91,6 +92,19 @@ fn main() {
             });
 
             Ok(())
+        })
+        .on_page_load(|webview, _payload| {
+            let window = webview.window();
+            #[cfg(target_os = "macos")]
+            {
+                use window_vibrancy::apply_vibrancy;
+                let _ = apply_vibrancy(&window, NSVisualEffectMaterial::UnderWindowBackground, None, None);
+            }
+            #[cfg(target_os = "windows")]
+            {
+                use window_vibrancy::apply_mica;
+                let _ = apply_mica(&window, Some(true));
+            }
         })
         .invoke_handler(tauri::generate_handler![
             crate::vault::vault_write,

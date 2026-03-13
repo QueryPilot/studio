@@ -14,7 +14,7 @@ export function ActionBar() {
       <ActionBarActions />
 
       {/* Quick Access */}
-      <div className="flex-1 overflow-y-auto scrollbar-none">
+      <div className="flex-1 overflow-y-auto scrollbar-none contain-[paint]">
         {/* Favorites */}
         <SidebarFavorites />
 

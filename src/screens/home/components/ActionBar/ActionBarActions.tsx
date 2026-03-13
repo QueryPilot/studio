@@ -1,9 +1,5 @@
 import { useState } from "react";
-import {
-  IconPlus,
-  IconLayout2,
-  IconLink,
-} from "@tabler/icons-react";
+import { IconPlus, IconLayout2, IconLink } from "@tabler/icons-react";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { QuickConnectDialog } from "../QuickConnectDialog";
 
@@ -30,14 +26,14 @@ export function ActionBarActions() {
         <button
           type="button"
           onClick={handleNewConnection}
-          className="flex items-center gap-3 p-2.5 rounded-lg bg-primary/10 hover:bg-primary/20 transition-colors text-left"
+          className="flex items-center gap-3 p-2.5 rounded-lg bg-primary/10 hover:bg-foreground/8 transition-all text-left"
         >
-          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-primary/20">
-            <IconPlus className="h-4 w-4 text-primary" />
+          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-primary/35">
+            <IconPlus className="h-4 w-4 text-primary-foreground" />
           </div>
           <div className="flex flex-col min-w-0">
             <span className="text-xs font-medium">New Connection</span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               Add database
             </span>
           </div>
@@ -46,28 +42,28 @@ export function ActionBarActions() {
         <button
           type="button"
           onClick={handleQuickConnect}
-          className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-sidebar-accent transition-colors text-left"
+          className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-foreground/8 transition-colors text-left"
         >
-          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-muted">
+          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-muted/10">
             <IconLink className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex flex-col min-w-0">
             <span className="text-xs font-medium">Quick Connect</span>
-            <span className="text-[10px] text-muted-foreground">Paste URI</span>
+            <span className="text-[11px] text-muted-foreground">Paste URI</span>
           </div>
         </button>
 
         <button
           type="button"
           onClick={handleNewWorkspace}
-          className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-sidebar-accent transition-colors text-left"
+          className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-foreground/8 transition-colors text-left"
         >
-          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-muted">
+          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-muted/10">
             <IconLayout2 className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex flex-col min-w-0">
             <span className="text-xs font-medium">New Workspace</span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               Group connections
             </span>
           </div>
