@@ -382,7 +382,7 @@ export function FKPreviewPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-50 w-[400px] rounded-lg bg-secondary text-popover-foreground shadow-lg ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95 duration-100"
+      className="fixed z-50 w-[400px] rounded-lg bg-muted text-popover-foreground shadow border border-border animate-in fade-in-0 zoom-in-95 duration-100"
       style={{
         top: position.top,
         left: position.left,
@@ -419,7 +419,7 @@ export function FKPreviewPopover({
         </div>
       </div>
 
-      <div className="max-h-[300px] overflow-y-auto p-2 bg-secondary rounded-b-lg">
+      <div className="max-h-[300px] overflow-y-auto p-2 bg-muted rounded-b-lg">
         {isLoading && (
           <div className="space-y-2">
             {[...Array(5)].map((_, i) => (
@@ -482,7 +482,7 @@ export function FKPreviewPopover({
                       )}
                     </div>
                   </div>
-                  <div className="relative group rounded bg-background">
+                  <div className="relative group rounded-md bg-input/35 border border-border">
                     <div className="text-xs font-mono break-all line-clamp-5 p-2 pr-8">
                       {rawValue === "NULL" ? (
                         <span className="text-muted-foreground/50 italic">

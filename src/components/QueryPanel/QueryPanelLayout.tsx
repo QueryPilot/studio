@@ -134,14 +134,22 @@ export function QueryPanelLayout({
             minSize="30"
             className="rounded-xl overflow-hidden"
           >
-            <ResizablePanelGroup orientation="vertical" className="h-full" autoSaveId="query-panel-editor-results">
+            <ResizablePanelGroup
+              orientation="vertical"
+              className="h-full"
+              autoSaveId="query-panel-editor-results"
+            >
               <ResizablePanel
                 id="qp-editor"
                 defaultSize="50"
                 minSize="20"
                 className="border-none"
               >
-                <ResizablePanelGroup orientation="horizontal" className="h-full" autoSaveId="query-panel-editor-outline">
+                <ResizablePanelGroup
+                  orientation="horizontal"
+                  className="h-full"
+                  autoSaveId="query-panel-editor-outline"
+                >
                   <ResizablePanel
                     id="qp-sql-editor"
                     defaultSize="75"
@@ -262,7 +270,7 @@ export function QueryPanelLayout({
               {showResults && (
                 <>
                   <div className="px-1">
-                    <ResizableHandle className="bg-secondary !h-1 rounded-xl" />
+                    <ResizableHandle className="!h-1 rounded-xl" />
                   </div>
 
                   <ResizablePanel id="qp-results" defaultSize="50" minSize="20">

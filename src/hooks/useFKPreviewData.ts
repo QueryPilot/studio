@@ -108,7 +108,9 @@ function buildEmbeddedFKSql(
   });
 
   const colName = quoteIdentifier(pkColumn, dbType);
-  return `SELECT ${selectParts.join(", ")} FROM ${tableName} ${joinParts.join(" ")} WHERE ${tableName}.${colName} = ${pkValue} LIMIT 1`;
+  const selectKeyword = dbType === DbType.SQLServer ? `SELECT TOP 1` : `SELECT`;
+  const limitSuffix = dbType === DbType.SQLServer ? '' : ' LIMIT 1';
+  return `${selectKeyword} ${selectParts.join(", ")} FROM ${tableName} ${joinParts.join(" ")} WHERE ${tableName}.${colName} = ${pkValue}${limitSuffix}`;
 }
 
 export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResult {
@@ -172,7 +174,11 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
           sql = buildEmbeddedFKSql(tableName, pkColumn, val, embeddedFKs, dbType);
         } else {
           const colName = quoteIdentifier(pkColumn, dbType);
-          sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} LIMIT 1`;
+          if (dbType === DbType.SQLServer) {
+            sql = `SELECT TOP 1 * FROM ${tableName} WHERE ${colName} = ${val}`;
+          } else {
+            sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} LIMIT 1`;
+          }
         }
 
         logger.debug(`[useFKPreviewData] Fetching FK preview:`, { schema, table, pkColumn, pkValue, sql });

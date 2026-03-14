@@ -33,7 +33,7 @@ import { AppUpdateDialog } from "./components/AppUpdateDialog";
 
 function VaultLoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-secondary">
+    <div className="flex flex-col items-center justify-center h-screen bg-secondary/60">
       <img
         src="/logo.png"
         alt="Query Pilot"
@@ -104,24 +104,25 @@ function parseSemverCore(version: string): [number, number, number] | null {
   const major = Number.parseInt(match[1] ?? "", 10);
   const minor = Number.parseInt(match[2] ?? "", 10);
   const patch = Number.parseInt(match[3] ?? "", 10);
-  if (
-    Number.isNaN(major) ||
-    Number.isNaN(minor) ||
-    Number.isNaN(patch)
-  ) {
+  if (Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(patch)) {
     return null;
   }
   return [major, minor, patch];
 }
 
-function isPatchVersionUpdate(currentVersion: string, nextVersion: string): boolean {
+function isPatchVersionUpdate(
+  currentVersion: string,
+  nextVersion: string,
+): boolean {
   const current = parseSemverCore(currentVersion);
   const next = parseSemverCore(nextVersion);
   if (!current || !next) {
     return false;
   }
 
-  return current[0] === next[0] && current[1] === next[1] && next[2] > current[2];
+  return (
+    current[0] === next[0] && current[1] === next[1] && next[2] > current[2]
+  );
 }
 
 function App() {
@@ -226,28 +227,38 @@ function App() {
             }
           } finally {
             // Restore previous session if configured
-            const startupBehavior = usePreferencesStore.getState().startupBehavior;
+            const startupBehavior =
+              usePreferencesStore.getState().startupBehavior;
             if (startupBehavior === "restore") {
               try {
                 const db = getSessionDatabase();
                 const appState = await db.appState.get("singleton");
                 if (appState?.lastActiveWorkspaceIds.length) {
                   // Load saved workspaces first so windowManager can look up names
-                  await useWorkspaceBundleStore.getState().loadSavedWorkspaces();
+                  await useWorkspaceBundleStore
+                    .getState()
+                    .loadSavedWorkspaces();
 
-                  const savedWorkspaces = useWorkspaceBundleStore.getState().savedWorkspaces;
+                  const savedWorkspaces =
+                    useWorkspaceBundleStore.getState().savedWorkspaces;
 
                   // Open each workspace window, restoring saved bounds
                   for (const workspaceId of appState.lastActiveWorkspaceIds) {
-                    const ws = savedWorkspaces.find((w) => w.id === workspaceId);
+                    const ws = savedWorkspaces.find(
+                      (w) => w.id === workspaceId,
+                    );
                     if (ws) {
                       const windowState = appState.windowStates.find(
                         (s) => s.workspaceId === workspaceId,
                       );
-                      await windowManager.openNamedWorkspace(workspaceId, ws.name, {
-                        icon: ws.icon,
-                        bounds: windowState?.windowBounds,
-                      });
+                      await windowManager.openNamedWorkspace(
+                        workspaceId,
+                        ws.name,
+                        {
+                          icon: ws.icon,
+                          bounds: windowState?.windowBounds,
+                        },
+                      );
                     }
                   }
                 }
@@ -384,9 +395,7 @@ function App() {
     ): Promise<boolean> => {
       const manual = options.manual ?? false;
       const openDialog = options.openDialog ?? false;
-      const {
-        autoCheckForUpdates,
-      } = usePreferencesStore.getState();
+      const { autoCheckForUpdates } = usePreferencesStore.getState();
       const {
         deferredUpdateVersion,
         setDeferredUpdateVersion,
@@ -396,7 +405,8 @@ function App() {
         setUpdateError,
         openUpdateDialog,
       } = useAppStore.getState();
-      const shouldRun = manual || autoCheckForUpdates || Boolean(deferredUpdateVersion);
+      const shouldRun =
+        manual || autoCheckForUpdates || Boolean(deferredUpdateVersion);
 
       if (!shouldRun) {
         return false;
@@ -460,7 +470,8 @@ function App() {
               err instanceof Error ? err.message : "Failed to install update",
             );
             toast.error("Update failed", {
-              description: err instanceof Error ? err.message : "Failed to install update",
+              description:
+                err instanceof Error ? err.message : "Failed to install update",
             });
           } finally {
             setIsInstallingUpdate(false);
@@ -500,7 +511,9 @@ function App() {
       } catch (error) {
         logger.error("Update check failed", error);
         const message =
-          error instanceof Error ? error.message : "Failed to check for updates";
+          error instanceof Error
+            ? error.message
+            : "Failed to check for updates";
         setUpdateError(message);
         if (manual) {
           toast.error("Failed to check for updates", {
@@ -617,11 +630,8 @@ function App() {
     };
 
     const deferPendingUpdate = (): boolean => {
-      const {
-        closeUpdateDialog,
-        pendingUpdate,
-        setDeferredUpdateVersion,
-      } = useAppStore.getState();
+      const { closeUpdateDialog, pendingUpdate, setDeferredUpdateVersion } =
+        useAppStore.getState();
 
       if (!pendingUpdate?.downloaded) {
         return false;
@@ -630,7 +640,8 @@ function App() {
       setDeferredUpdateVersion(pendingUpdate.version);
       closeUpdateDialog();
       toast.info("Update deferred", {
-        description: "Query Pilot will process this update on your next startup.",
+        description:
+          "Query Pilot will process this update on your next startup.",
       });
       return true;
     };
@@ -646,9 +657,12 @@ function App() {
     });
 
     void checkForUpdates();
-    const checkInterval = setInterval(() => {
-      void checkForUpdates();
-    }, 1000 * 60 * 60 * 6);
+    const checkInterval = setInterval(
+      () => {
+        void checkForUpdates();
+      },
+      1000 * 60 * 60 * 6,
+    );
 
     return () => {
       disposed = true;

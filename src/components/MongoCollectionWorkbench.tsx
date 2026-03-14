@@ -8,6 +8,25 @@ import React, {
 } from "react";
 import { nanoid } from "nanoid";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DocumentDataGrid } from "@/components/DataGrid";
 import { MongoResultViewer } from "@/components/MongoQueryPanel/MongoResultViewer";
@@ -77,6 +96,27 @@ const DEFAULT_STAGE_TEMPLATES: Record<string, string> = {
   Project: JSON.stringify({ $project: { _id: 0 } }, null, 2),
   Limit: JSON.stringify({ $limit: 50 }, null, 2),
 };
+
+function StatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <Card size="sm" className="gap-2 bg-muted/20">
+      <CardHeader className="gap-0.5">
+        <CardDescription className="text-[11px] uppercase tracking-wide">
+          {label}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="text-sm font-semibold">{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function perTabSortGridId(
   baseGridId: string,
@@ -606,10 +646,11 @@ const MongoStructureView = memo(function MongoStructureView({
 
   return (
     <div className="h-full overflow-auto p-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-sm">
-          <span>Sample size</span>
-          <input
+      <div className="mb-3 flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="mongo-structure-sample-size">Sample size</Label>
+          <Input
+            id="mongo-structure-sample-size"
             type="number"
             min={50}
             max={5000}
@@ -619,12 +660,13 @@ const MongoStructureView = memo(function MongoStructureView({
                 structureSampleSize: Number(event.target.value) || 500,
               });
             }}
-            className="h-8 w-24 rounded border bg-background px-2 text-sm"
+            className="h-8 w-28"
           />
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <span>Max depth</span>
-          <input
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="mongo-structure-max-depth">Max depth</Label>
+          <Input
+            id="mongo-structure-max-depth"
             type="number"
             min={1}
             max={12}
@@ -634,9 +676,9 @@ const MongoStructureView = memo(function MongoStructureView({
                 structureMaxDepth: Number(event.target.value) || 4,
               });
             }}
-            className="h-8 w-20 rounded border bg-background px-2 text-sm"
+            className="h-8 w-24"
           />
-        </label>
+        </div>
         <Button size="sm" variant="outline" onClick={() => void load()}>
           Refresh
         </Button>
@@ -644,38 +686,22 @@ const MongoStructureView = memo(function MongoStructureView({
 
       {metadata ? (
         <div className="mb-3 grid gap-2 md:grid-cols-4">
-          <div className="rounded border bg-muted/20 p-3">
-            <div className="text-[11px] uppercase text-muted-foreground">
-              Sampled docs
-            </div>
-            <div className="text-lg font-semibold">
-              {sample ? sample.scannedCount.toLocaleString() : 0}
-            </div>
-          </div>
-          <div className="rounded border bg-muted/20 p-3">
-            <div className="text-[11px] uppercase text-muted-foreground">
-              Fields
-            </div>
-            <div className="text-lg font-semibold">
-              {sample ? sample.fields.length.toLocaleString() : 0}
-            </div>
-          </div>
-          <div className="rounded border bg-muted/20 p-3">
-            <div className="text-[11px] uppercase text-muted-foreground">
-              Validator
-            </div>
-            <div className="text-sm font-medium">
-              {metadata.validator ? "Attached" : "None"}
-            </div>
-          </div>
-          <div className="rounded border bg-muted/20 p-3">
-            <div className="text-[11px] uppercase text-muted-foreground">
-              Collection docs
-            </div>
-            <div className="text-lg font-semibold">
-              {metadata.stats?.count?.toLocaleString() ?? "n/a"}
-            </div>
-          </div>
+          <StatCard
+            label="Sampled docs"
+            value={sample ? sample.scannedCount.toLocaleString() : 0}
+          />
+          <StatCard
+            label="Fields"
+            value={sample ? sample.fields.length.toLocaleString() : 0}
+          />
+          <StatCard
+            label="Validator"
+            value={metadata.validator ? "Attached" : "None"}
+          />
+          <StatCard
+            label="Collection docs"
+            value={metadata.stats?.count?.toLocaleString() ?? "n/a"}
+          />
         </div>
       ) : null}
 
@@ -856,123 +882,149 @@ const MongoIndexesView = memo(function MongoIndexesView({
         </Button>
       </div>
 
-      <div className="mb-4 grid gap-3 rounded border bg-muted/10 p-3 md:grid-cols-2">
-        <label className="space-y-1 text-sm">
-          <span>Index name</span>
-          <input
-            value={indexName}
-            onChange={(event) => {
-              setIndexName(event.target.value);
-            }}
-            className="h-9 w-full rounded border bg-background px-2"
-          />
-        </label>
-        <label className="space-y-1 text-sm">
-          <span>Primary field</span>
-          <div className="flex gap-2">
-            <input
-              value={fieldName}
+      <Card className="mb-4 gap-3 bg-muted/10">
+        <CardHeader className="pb-0">
+          <CardTitle>Create index</CardTitle>
+          <CardDescription>
+            Stage compound, TTL, and text indexes using the shared admin flow.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-index-name">Index name</Label>
+            <Input
+              id="mongo-index-name"
+              value={indexName}
               onChange={(event) => {
-                setFieldName(event.target.value);
+                setIndexName(event.target.value);
               }}
-              className="h-9 flex-1 rounded border bg-background px-2"
+              className="h-9"
             />
-            <select
-              value={direction}
-              onChange={(event) => {
-                setDirection(event.target.value as "1" | "-1" | "text");
-              }}
-              className="h-9 rounded border bg-background px-2"
-            >
-              <option value="1">Asc</option>
-              <option value="-1">Desc</option>
-              <option value="text">Text</option>
-            </select>
           </div>
-        </label>
-        <label className="space-y-1 text-sm">
-          <span>Secondary field</span>
-          <div className="flex gap-2">
-            <input
-              value={secondaryFieldName}
-              onChange={(event) => {
-                setSecondaryFieldName(event.target.value);
-              }}
-              className="h-9 flex-1 rounded border bg-background px-2"
-            />
-            <select
-              value={secondaryDirection}
-              onChange={(event) => {
-                setSecondaryDirection(
-                  event.target.value as "1" | "-1" | "text",
-                );
-              }}
-              className="h-9 rounded border bg-background px-2"
-            >
-              <option value="1">Asc</option>
-              <option value="-1">Desc</option>
-              <option value="text">Text</option>
-            </select>
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-index-primary-field">Primary field</Label>
+            <div className="flex gap-2">
+              <Input
+                id="mongo-index-primary-field"
+                value={fieldName}
+                onChange={(event) => {
+                  setFieldName(event.target.value);
+                }}
+                className="h-9 flex-1"
+              />
+              <Select
+                value={direction}
+                onValueChange={(value) => {
+                  setDirection(value as "1" | "-1" | "text");
+                }}
+              >
+                <SelectTrigger
+                  id="mongo-index-primary-direction"
+                  className="h-9 w-28"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Asc</SelectItem>
+                  <SelectItem value="-1">Desc</SelectItem>
+                  <SelectItem value="text">Text</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        </label>
-        <label className="space-y-1 text-sm">
-          <span>TTL seconds</span>
-          <input
-            type="number"
-            min={0}
-            value={expireAfterSeconds}
-            onChange={(event) => {
-              setExpireAfterSeconds(event.target.value);
-            }}
-            className="h-9 w-full rounded border bg-background px-2"
-          />
-        </label>
-        <label className="space-y-1 text-sm">
-          <span>Default language</span>
-          <input
-            value={defaultLanguage}
-            onChange={(event) => {
-              setDefaultLanguage(event.target.value);
-            }}
-            className="h-9 w-full rounded border bg-background px-2"
-          />
-        </label>
-        <label className="space-y-1 text-sm">
-          <span>Language override</span>
-          <input
-            value={languageOverride}
-            onChange={(event) => {
-              setLanguageOverride(event.target.value);
-            }}
-            className="h-9 w-full rounded border bg-background px-2"
-          />
-        </label>
-        <div className="flex items-end gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={unique}
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-index-secondary-field">Secondary field</Label>
+            <div className="flex gap-2">
+              <Input
+                id="mongo-index-secondary-field"
+                value={secondaryFieldName}
+                onChange={(event) => {
+                  setSecondaryFieldName(event.target.value);
+                }}
+                className="h-9 flex-1"
+              />
+              <Select
+                value={secondaryDirection}
+                onValueChange={(value) => {
+                  setSecondaryDirection(value as "1" | "-1" | "text");
+                }}
+              >
+                <SelectTrigger
+                  id="mongo-index-secondary-direction"
+                  className="h-9 w-28"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Asc</SelectItem>
+                  <SelectItem value="-1">Desc</SelectItem>
+                  <SelectItem value="text">Text</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-index-ttl">TTL seconds</Label>
+            <Input
+              id="mongo-index-ttl"
+              type="number"
+              min={0}
+              value={expireAfterSeconds}
               onChange={(event) => {
-                setUnique(event.target.checked);
+                setExpireAfterSeconds(event.target.value);
               }}
+              className="h-9"
             />
-            <span>Unique</span>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={sparse}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-index-default-language">Default language</Label>
+            <Input
+              id="mongo-index-default-language"
+              value={defaultLanguage}
               onChange={(event) => {
-                setSparse(event.target.checked);
+                setDefaultLanguage(event.target.value);
               }}
+              className="h-9"
             />
-            <span>Sparse</span>
-          </label>
-          <Button size="sm" onClick={stageCreate}>
-            Stage Create
-          </Button>
-        </div>
-      </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-index-language-override">Language override</Label>
+            <Input
+              id="mongo-index-language-override"
+              value={languageOverride}
+              onChange={(event) => {
+                setLanguageOverride(event.target.value);
+              }}
+              className="h-9"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-4 md:col-span-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="mongo-index-unique"
+                checked={unique}
+                onCheckedChange={(checked) => {
+                  setUnique(checked);
+                }}
+              />
+              <Label htmlFor="mongo-index-unique">Unique</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="mongo-index-sparse"
+                checked={sparse}
+                onCheckedChange={(checked) => {
+                  setSparse(checked);
+                }}
+              />
+              <Label htmlFor="mongo-index-sparse">Sparse</Label>
+            </div>
+            <Button size="sm" onClick={stageCreate}>
+              Stage Create
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {error ? (
         <div className="mb-4 rounded border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
@@ -994,23 +1046,27 @@ const MongoIndexesView = memo(function MongoIndexesView({
             );
 
             return (
-              <div key={index.name} className="rounded border bg-background/60 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+              <Card key={index.name} size="sm" className="bg-background/60">
+                <CardContent className="flex items-start justify-between gap-3">
+                  <div className="space-y-2">
                     <div className="font-mono text-sm font-medium">{index.name}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       {Object.entries(index.keys)
                         .map(([key, value]) => `${key}:${value}`)
                         .join(", ")}
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                      {index.unique ? <span>unique</span> : null}
-                      {index.sparse ? <span>sparse</span> : null}
+                    <div className="flex flex-wrap gap-2">
+                      {index.unique ? <Badge variant="secondary">unique</Badge> : null}
+                      {index.sparse ? <Badge variant="secondary">sparse</Badge> : null}
                       {typeof index.expireAfterSeconds === "number" ? (
-                        <span>ttl {index.expireAfterSeconds}s</span>
+                        <Badge variant="secondary">
+                          ttl {index.expireAfterSeconds}s
+                        </Badge>
                       ) : null}
                       {usageByName[index.name] !== undefined ? (
-                        <span>usage {usageByName[index.name]}</span>
+                        <Badge variant="secondary">
+                          usage {usageByName[index.name]}
+                        </Badge>
                       ) : null}
                     </div>
                   </div>
@@ -1024,8 +1080,8 @@ const MongoIndexesView = memo(function MongoIndexesView({
                   >
                     {stagedDrop ? "Unstage Drop" : "Stage Drop"}
                   </Button>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             );
           })
         )}
@@ -1138,8 +1194,14 @@ const MongoAggregationView = memo(function MongoAggregationView({
       </div>
 
       <div className="grid min-h-0 gap-3 lg:grid-cols-2">
-        <div className="space-y-2">
-          <div className="text-sm font-semibold">Pipeline stages</div>
+        <Card className="min-h-0">
+          <CardHeader className="pb-0">
+            <CardTitle>Pipeline stages</CardTitle>
+            <CardDescription>
+              Build and reorder stages before running the draft.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
           <div className="space-y-2">
             {stages.length === 0 ? (
               <div className="rounded border border-dashed p-3 text-sm text-muted-foreground">
@@ -1184,59 +1246,62 @@ const MongoAggregationView = memo(function MongoAggregationView({
                       </Button>
                     </div>
                   </div>
-                  <textarea
+                  <Textarea
                     value={stage}
                     onChange={(event) => {
                       const nextStages = [...stages];
                       nextStages[index] = event.target.value;
                       updateStages(nextStages);
                     }}
-                    className="min-h-[132px] w-full rounded border bg-background p-2 font-mono text-xs"
+                    className="min-h-[132px] font-mono text-xs"
                   />
                 </div>
               ))
             )}
           </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="space-y-2">
-          <div className="text-sm font-semibold">Combined pipeline</div>
-          <pre className="min-h-[220px] overflow-auto rounded border bg-muted/20 p-3 text-xs">
-            {parsed.ok
-              ? JSON.stringify(parsed.pipeline, null, 2)
-              : parsed.error}
-          </pre>
+        <Card className="min-h-0">
+          <CardHeader className="pb-0">
+            <CardTitle>Combined pipeline</CardTitle>
+            <CardDescription>
+              Review the final pipeline payload before execution or explain.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <pre className="min-h-[220px] overflow-auto rounded-md border bg-muted/20 p-3 text-xs">
+              {parsed.ok
+                ? JSON.stringify(parsed.pipeline, null, 2)
+                : parsed.error}
+            </pre>
           {error ? (
             <div className="rounded border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
               {error}
             </div>
           ) : null}
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="min-h-0 overflow-hidden rounded border">
         <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-2">
           <div className="text-sm font-semibold">Results</div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={resultViewMode === "data" ? "secondary" : "outline"}
-              onClick={() => {
-                setResultViewMode("data");
-              }}
-            >
-              Data
-            </Button>
-            <Button
-              size="sm"
-              variant={resultViewMode === "json" ? "secondary" : "outline"}
-              onClick={() => {
-                setResultViewMode("json");
-              }}
-            >
-              JSON
-            </Button>
-          </div>
+          <Tabs
+            value={resultViewMode}
+            onValueChange={(value) => {
+              setResultViewMode(value as MongoResultViewMode);
+            }}
+          >
+            <TabsList className="h-6 p-0.5">
+              <TabsTrigger value="data" className="h-5 px-2 text-xs">
+                Data
+              </TabsTrigger>
+              <TabsTrigger value="json" className="h-5 px-2 text-xs">
+                JSON
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
         <MongoResultViewer
           result={result}
@@ -1356,58 +1421,79 @@ const MongoValidationView = memo(function MongoValidationView({
       ) : null}
 
       {metadata ? (
-        <div className="mb-3 rounded border bg-muted/10 p-3 text-sm text-muted-foreground">
-          Current validator: {metadata.validator ? "present" : "none"} | level{" "}
-          {metadata.validationLevel ?? "n/a"} | action{" "}
-          {metadata.validationAction ?? "n/a"}
-        </div>
+        <Card size="sm" className="mb-3 bg-muted/10">
+          <CardContent className="text-sm text-muted-foreground">
+            Current validator: {metadata.validator ? "present" : "none"} | level{" "}
+            {metadata.validationLevel ?? "n/a"} | action{" "}
+            {metadata.validationAction ?? "n/a"}
+          </CardContent>
+        </Card>
       ) : null}
 
-      <div className="mb-3 grid gap-3 md:grid-cols-2">
-        <label className="space-y-1 text-sm">
-          <span>Validation level</span>
-          <select
-            value={workbenchState.validationLevel ?? "strict"}
-            onChange={(event) => {
-              onWorkbenchStateChange({
-                validationLevel: event.target.value as MongoWorkbenchState["validationLevel"],
-              });
-            }}
-            className="h-9 w-full rounded border bg-background px-2"
-          >
-            <option value="off">off</option>
-            <option value="strict">strict</option>
-            <option value="moderate">moderate</option>
-          </select>
-        </label>
-        <label className="space-y-1 text-sm">
-          <span>Validation action</span>
-          <select
-            value={workbenchState.validationAction ?? "error"}
-            onChange={(event) => {
-              onWorkbenchStateChange({
-                validationAction: event.target.value as MongoWorkbenchState["validationAction"],
-              });
-            }}
-            className="h-9 w-full rounded border bg-background px-2"
-          >
-            <option value="error">error</option>
-            <option value="warn">warn</option>
-          </select>
-        </label>
-      </div>
+      <Card className="mb-3 gap-3">
+        <CardHeader className="pb-0">
+          <CardTitle>Validation rules</CardTitle>
+          <CardDescription>
+            Stage collection validator changes without applying them immediately.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="mongo-validation-level">Validation level</Label>
+              <Select
+                value={workbenchState.validationLevel ?? "strict"}
+                onValueChange={(value) => {
+                  onWorkbenchStateChange({
+                    validationLevel: value as MongoWorkbenchState["validationLevel"],
+                  });
+                }}
+              >
+                <SelectTrigger id="mongo-validation-level" className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">off</SelectItem>
+                  <SelectItem value="strict">strict</SelectItem>
+                  <SelectItem value="moderate">moderate</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mongo-validation-action">Validation action</Label>
+              <Select
+                value={workbenchState.validationAction ?? "error"}
+                onValueChange={(value) => {
+                  onWorkbenchStateChange({
+                    validationAction: value as MongoWorkbenchState["validationAction"],
+                  });
+                }}
+              >
+                <SelectTrigger id="mongo-validation-action" className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="error">error</SelectItem>
+                  <SelectItem value="warn">warn</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      <label className="mb-3 block space-y-1 text-sm">
-        <span>Validator JSON</span>
-        <textarea
-          value={workbenchState.validationJson ?? ""}
-          onChange={(event) => {
-            onWorkbenchStateChange({ validationJson: event.target.value });
-          }}
-          className="min-h-[260px] w-full rounded border bg-background p-3 font-mono text-xs"
-          placeholder='{"$jsonSchema":{"bsonType":"object"}}'
-        />
-      </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="mongo-validation-json">Validator JSON</Label>
+            <Textarea
+              id="mongo-validation-json"
+              value={workbenchState.validationJson ?? ""}
+              onChange={(event) => {
+                onWorkbenchStateChange({ validationJson: event.target.value });
+              }}
+              className="min-h-[260px] font-mono text-xs"
+              placeholder='{"$jsonSchema":{"bsonType":"object"}}'
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={stageValidation}>
@@ -1549,19 +1635,17 @@ const MongoExplainView = memo(function MongoExplainView({
       {summary.length > 0 ? (
         <div className="mb-3 grid gap-2 md:grid-cols-4">
           {summary.map((item) => (
-            <div key={item.label} className="rounded border bg-muted/20 p-3">
-              <div className="text-[11px] uppercase text-muted-foreground">
-                {item.label}
-              </div>
-              <div className="text-sm font-semibold">{item.value}</div>
-            </div>
+            <StatCard key={item.label} label={item.label} value={item.value} />
           ))}
         </div>
       ) : null}
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <div className="space-y-2">
-          <div className="text-sm font-semibold">Query planner</div>
+        <Card className="gap-2">
+          <CardHeader className="pb-0">
+            <CardTitle>Query planner</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
           {queryPlanner ? (
             renderExplainNode("queryPlanner", queryPlanner)
           ) : (
@@ -1569,9 +1653,13 @@ const MongoExplainView = memo(function MongoExplainView({
               No planner tree available yet.
             </div>
           )}
-        </div>
-        <div className="space-y-2">
-          <div className="text-sm font-semibold">Execution stages</div>
+          </CardContent>
+        </Card>
+        <Card className="gap-2">
+          <CardHeader className="pb-0">
+            <CardTitle>Execution stages</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
           {executionStages ? (
             renderExplainNode("executionStages", executionStages)
           ) : (
@@ -1579,15 +1667,20 @@ const MongoExplainView = memo(function MongoExplainView({
               No execution stage tree available.
             </div>
           )}
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="mt-3">
-        <div className="mb-2 text-sm font-semibold">Raw JSON</div>
-        <pre className="overflow-auto rounded border bg-muted/20 p-3 text-xs">
-          {result ? JSON.stringify(result, null, 2) : "Run explain to inspect the raw response."}
-        </pre>
-      </div>
+      <Card className="mt-3 gap-2">
+        <CardHeader className="pb-0">
+          <CardTitle>Raw JSON</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <pre className="overflow-auto rounded-md border bg-muted/20 p-3 text-xs">
+            {result ? JSON.stringify(result, null, 2) : "Run explain to inspect the raw response."}
+          </pre>
+        </CardContent>
+      </Card>
     </div>
   );
 });
@@ -1712,19 +1805,29 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
           </Tabs>
           {activeView === "explain" ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Source</span>
-              <select
+              <Label htmlFor="mongo-explain-source" className="text-xs text-muted-foreground">
+                Source
+              </Label>
+              <Select
                 value={workbenchState.explainSource ?? "data"}
-                onChange={(event) => {
+                onValueChange={(value) => {
                   updateWorkbenchState({
-                    explainSource: event.target.value as MongoWorkbenchState["explainSource"],
+                    explainSource: value as MongoWorkbenchState["explainSource"],
                   });
                 }}
-                className="h-8 rounded border bg-background px-2 text-xs"
               >
-                <option value="data">Current Data Query</option>
-                <option value="aggregation">Aggregation Draft</option>
-              </select>
+                <SelectTrigger
+                  id="mongo-explain-source"
+                  size="sm"
+                  className="w-44"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="data">Current Data Query</SelectItem>
+                  <SelectItem value="aggregation">Aggregation Draft</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           ) : null}
         </div>

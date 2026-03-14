@@ -1012,9 +1012,14 @@ export function ConnectionForm() {
                       disabled={isTesting}
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                        {selectedWorkspaceIds.length > 0 ? (
+                        {selectedWorkspaceIds.some(
+                          (id) => savedWorkspaces.find((ws) => ws.id === id && !ws.autoCreated),
+                        ) ? (
                           <span className="truncate">
                             {selectedWorkspaceIds
+                              .filter(
+                                (id) => savedWorkspaces.find((ws) => ws.id === id && !ws.autoCreated),
+                              )
                               .map(
                                 (id) =>
                                   savedWorkspaces.find((ws) => ws.id === id)

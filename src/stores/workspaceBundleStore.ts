@@ -16,8 +16,20 @@ import type {
   OpenConnection,
   ActiveWorkspace,
 } from "@/types/workspace";
-import { getDefaultSchema } from "@/types/connection";
+import { DbType, getDefaultSchema } from "@/types/connection";
 import useWorkbenchStore from "@/stores/workbenchStore";
+
+/**
+ * Resolve the effective schema for a connection profile.
+ * MySQL/MariaDB always use the database name as schema — `default_schema` is ignored
+ * because it only applies to PostgreSQL/SQLServer.
+ */
+function resolveSchema(dbType: DbType, database: string, defaultSchema?: string): string {
+  if (dbType === DbType.MySQL || dbType === DbType.MariaDB) {
+    return database;
+  }
+  return defaultSchema || getDefaultSchema(dbType, database) || "";
+}
 
 interface WorkspaceBundleStore {
   // ===== State =====
@@ -270,18 +282,21 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         }
 
         const profile = stored.profile;
-        const state = config.connectionStates[connectionId] || {
-          database: profile.database,
-          schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
-        };
+        const savedState = config.connectionStates[connectionId];
+        // For MySQL/MariaDB the database IS the schema — always use profile.database
+        // as the authoritative source to prevent stale connectionStates from overriding.
+        const database = (profile.db_type === DbType.MySQL || profile.db_type === DbType.MariaDB)
+          ? profile.database
+          : (savedState?.database || profile.database);
+        const schema = resolveSchema(profile.db_type, database, profile.default_schema);
 
         // Add connection with connecting status
         const openConnection: OpenConnection = {
           id: connectionId,
           profile,
           status: "connecting",
-          database: state.database,
-          schema: state.schema,
+          database,
+          schema,
         };
 
         set((s) => {
@@ -367,7 +382,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
 
       // Use override options if provided, otherwise fall back to profile defaults
       const database = options?.database || profile.database;
-      const schema = options?.schema || profile.default_schema || getDefaultSchema(profile.db_type, database) || "";
+      const schema = options?.schema || resolveSchema(profile.db_type, database, profile.default_schema);
 
       // Get or create an auto-workspace for this connection (clone to avoid mutating store state)
       const originalConfig = await get().getOrCreateWorkspaceForConnection(connectionId);
@@ -501,7 +516,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
         profile,
         status: "connecting",
         database: profile.database,
-        schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
+        schema: resolveSchema(profile.db_type, profile.database, profile.default_schema),
       };
 
       set((s) => {
@@ -518,7 +533,7 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             ...s.activeWorkspace.config.connectionStates,
             [connectionId]: {
               database: profile.database,
-              schema: profile.default_schema || getDefaultSchema(profile.db_type, profile.database) || "",
+              schema: resolveSchema(profile.db_type, profile.database, profile.default_schema),
             },
           },
         };

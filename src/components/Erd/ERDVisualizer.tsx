@@ -1079,7 +1079,9 @@ export const ERDVisualizer = React.forwardRef<
     const edgeUpdateFrameRef = useRef<number | null>(null);
     const isDraggingRef = useRef(false);
     const isPanningRef = useRef(false);
-    const viewportChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const viewportChangeTimeoutRef = useRef<ReturnType<
+      typeof setTimeout
+    > | null>(null);
     const isUserTriggeredLayoutRef = useRef(false);
     const previousTableIdsRef = useRef<Set<string>>(new Set());
 
@@ -1673,7 +1675,7 @@ export const ERDVisualizer = React.forwardRef<
       }
 
       // Check if this is initial load
-      const currentTableIds = new Set(tables.map(t => buildNodeId(t)));
+      const currentTableIds = new Set(tables.map((t) => buildNodeId(t)));
       const previousTableIds = previousTableIdsRef.current;
       const isInitialLoad = previousTableIds.size === 0;
 
@@ -1754,7 +1756,9 @@ export const ERDVisualizer = React.forwardRef<
         fitAppliedRef.current = true;
       }, 100);
 
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+      };
     }, [nodes.length]); // Only depend on nodes.length, not nodes array
 
     const handleNodesChange = useCallback(
@@ -1786,7 +1790,9 @@ export const ERDVisualizer = React.forwardRef<
 
     // PERFORMANCE: Track panning/zooming state to simplify edges during viewport changes
     const [isInteracting, setIsInteracting] = useState(false);
-    const interactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const interactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
 
     const handleMoveStart = useCallback(() => {
       isPanningRef.current = true;
@@ -2049,22 +2055,22 @@ export const ERDVisualizer = React.forwardRef<
         >
           <Background className="opacity-60" gap={24} size={1} />
           {/* PERFORMANCE: Hide MiniMap during drag/pan/zoom to reduce re-renders */}
-          {!isInPerformanceMode && (
-            <MiniMap
-              nodeStrokeWidth={3}
-              nodeColor={miniMapNodeColor}
-              nodeBorderRadius={4}
-              maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
-              className="!bg-secondary !border !border-border rounded-md shadow-none"
-              position="bottom-right"
-              pannable={true}
-              zoomable={true}
-              style={{
-                width: 180,
-                height: 120,
-              }}
-            />
-          )}
+          {/* {!isInPerformanceMode && ( */}
+          <MiniMap
+            nodeStrokeWidth={3}
+            nodeColor={miniMapNodeColor}
+            nodeBorderRadius={4}
+            maskColor="color-mix(in oklch, var(--background) 80%, transparent)"
+            className="bg-secondary/80 rounded-lg overflow-hidden shadow"
+            position="bottom-right"
+            pannable={true}
+            zoomable={true}
+            style={{
+              width: 180,
+              height: 120,
+            }}
+          />
+          {/* )} */}
         </ReactFlow>
       </div>
     );
