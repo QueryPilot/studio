@@ -29,19 +29,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MongoResultViewer } from "@/components/MongoQueryPanel/MongoResultViewer";
-import { normalizeMongoResult } from "@/components/MongoQueryPanel/mongo-result-state";
-import type { MongoResultViewMode } from "@/components/MongoQueryPanel/MongoQueryToolbar";
-import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 import { StageCard } from "./StageCard";
 import { StagePreview } from "./StagePreview";
 import { PipelineCodeView } from "./PipelineCodeView";
 import { nanoid } from "nanoid";
-import {
-  DEFAULT_STAGE_TEMPLATES,
-  parseAggregationStages,
-} from "./utils";
+import { DEFAULT_STAGE_TEMPLATES } from "./utils";
 
 // ---------------------------------------------------------------------------
 // Quick-add stage buttons shown in the toolbar
@@ -81,10 +74,7 @@ export const MongoAggregationView = memo(function MongoAggregationView({
   onOpenExplain,
 }: MongoAggregationViewProps) {
   const [selectedStageIndex, setSelectedStageIndex] = useState(0);
-  const [fullResult, setFullResult] = useState<ReturnType<typeof normalizeMongoResult> | null>(null);
-  const [fullResultViewMode, setFullResultViewMode] = useState<MongoResultViewMode>("data");
-  const [executionTime, setExecutionTime] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [autoPreview, setAutoPreview] = useState(true);
 
   // -- Derived state ---------------------------------------------------------
 
@@ -230,44 +220,13 @@ export const MongoAggregationView = memo(function MongoAggregationView({
     [stageEnabled, updateStages],
   );
 
-  const runAggregation = useCallback(async () => {
-    const enabledStages = stages.filter((_, i) => stageEnabled[i] !== false);
-    const parsed = parseAggregationStages(enabledStages);
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
+  // "Run" selects the last stage — the unified preview panel shows full pipeline output
+  const runFullPipeline = useCallback(() => {
+    if (stages.length > 0) {
+      setSelectedStageIndex(stages.length - 1);
+      setAutoPreview(true);
     }
-
-    setError(null);
-    const start = performance.now();
-    try {
-      const adapter = new MongoDBAdapter(connectionId);
-      const documents = await adapter.aggregate(
-        collection,
-        parsed.pipeline,
-        database,
-      );
-      setFullResult(
-        normalizeMongoResult({
-          operation: "aggregate",
-          result: documents,
-          collection,
-        }),
-      );
-      setFullResultViewMode("data");
-      setExecutionTime(Math.round(performance.now() - start));
-    } catch (runError) {
-      setFullResult(
-        normalizeMongoResult({
-          operation: "aggregate",
-          error: runError,
-          collection,
-        }),
-      );
-      setFullResultViewMode("json");
-      setExecutionTime(Math.round(performance.now() - start));
-    }
-  }, [collection, connectionId, database, stages, stageEnabled]);
+  }, [stages.length]);
 
   // -- Render ----------------------------------------------------------------
 
@@ -332,7 +291,7 @@ export const MongoAggregationView = memo(function MongoAggregationView({
           <Button
             size="sm"
             className="gap-1"
-            onClick={() => void runAggregation()}
+            onClick={runFullPipeline}
           >
             <IconPlayerPlay className="h-3.5 w-3.5" />
             Run
@@ -348,13 +307,6 @@ export const MongoAggregationView = memo(function MongoAggregationView({
           </Button>
         </div>
       </div>
-
-      {/* Error banner */}
-      {error ? (
-        <div className="border-b border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
 
       {/* Main content */}
       <div className="min-h-0 flex-1">
@@ -418,7 +370,10 @@ export const MongoAggregationView = memo(function MongoAggregationView({
                   stages={stages}
                   stageEnabled={stageEnabled}
                   selectedStageIndex={selectedStageIndex}
+                  totalStages={stages.length}
                   tabId={tabId}
+                  autoPreview={autoPreview}
+                  onAutoPreviewChange={setAutoPreview}
                 />
               </div>
             </ResizablePanel>
@@ -426,46 +381,6 @@ export const MongoAggregationView = memo(function MongoAggregationView({
         )}
       </div>
 
-      {/* Full pipeline results (shown after Run) */}
-      {fullResult ? (
-        <div className="flex-none border-t" style={{ height: "35%" }}>
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-2">
-              <span className="text-sm font-semibold">Full Pipeline Results</span>
-              <Tabs
-                value={fullResultViewMode}
-                onValueChange={(value) => {
-                  setFullResultViewMode(value as MongoResultViewMode);
-                }}
-              >
-                <TabsList className="h-6 p-0.5">
-                  <TabsTrigger value="data" className="h-5 px-2 text-xs">
-                    Data
-                  </TabsTrigger>
-                  <TabsTrigger value="json" className="h-5 px-2 text-xs">
-                    JSON
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-            <div className="min-h-0 flex-1">
-              <MongoResultViewer
-                result={fullResult}
-                viewMode={fullResultViewMode}
-                connectionId={connectionId}
-                database={database}
-                gridId={`mongo-aggregation:${tabId}`}
-                executionTime={executionTime}
-                onClearResults={() => {
-                  setFullResult(null);
-                  setExecutionTime(null);
-                }}
-                className="h-full"
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 });
