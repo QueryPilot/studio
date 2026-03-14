@@ -1,0 +1,58 @@
+import type { GridColumnV2 } from "@/components/DataGrid/types";
+
+export const structureColumns: GridColumnV2[] = [
+  {
+    id: "field",
+    field: "field",
+    title: "Field",
+    name: "Field",
+    width: 200,
+    minWidth: 120,
+    maxWidth: 400,
+  } as GridColumnV2,
+  {
+    id: "typeDistribution",
+    field: "typeDistribution",
+    title: "Type Distribution",
+    name: "Type Distribution",
+    width: 220,
+    minWidth: 140,
+    maxWidth: 350,
+  } as GridColumnV2,
+  {
+    id: "present",
+    field: "present",
+    title: "Present %",
+    name: "Present %",
+    width: 80,
+    minWidth: 60,
+    maxWidth: 120,
+  } as GridColumnV2,
+  {
+    id: "nullPct",
+    field: "nullPct",
+    title: "Null %",
+    name: "Null %",
+    width: 70,
+    minWidth: 50,
+    maxWidth: 100,
+  } as GridColumnV2,
+  {
+    id: "samples",
+    field: "samples",
+    title: "Sample Values",
+    name: "Sample Values",
+    width: 220,
+    minWidth: 100,
+    maxWidth: 400,
+  } as GridColumnV2,
+  {
+    id: "validator",
+    field: "validator",
+    title: "Validator",
+    name: "Validator",
+    width: 100,
+    minWidth: 60,
+    maxWidth: 160,
+  } as GridColumnV2,
+];
