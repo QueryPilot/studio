@@ -1345,6 +1345,7 @@ export function useKeyValueData(
     setKeyTTL,
     deleteCurrentKey,
     createEditCommand,
+    createTreeEditCommand: () => null,
     createInsertCommand,
     createDeleteCommand,
     commandFactory,
