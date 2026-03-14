@@ -273,11 +273,11 @@ export const StagePreview = memo(function StagePreview({
           value={viewMode}
           onValueChange={(value) => setViewMode(value as MongoResultViewMode)}
         >
-          <TabsList className="h-5 p-0.5">
-            <TabsTrigger value="data" className="h-4 px-1.5 text-[10px]">
+          <TabsList size="xs">
+            <TabsTrigger value="data" size="xs">
               Data
             </TabsTrigger>
-            <TabsTrigger value="json" className="h-4 px-1.5 text-[10px]">
+            <TabsTrigger value="json" size="xs">
               JSON
             </TabsTrigger>
           </TabsList>
