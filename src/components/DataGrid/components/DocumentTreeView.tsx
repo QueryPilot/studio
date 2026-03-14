@@ -11,14 +11,7 @@
  * - Inline editing for leaf values and structured JSON editing for objects/arrays
  */
 
-import {
-  memo,
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-} from "react";
+import { memo, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   IconChevronRight,
   IconChevronDown,
@@ -205,9 +198,43 @@ interface InlineEditProps {
   onCancel: () => void;
 }
 
+/** Build a template document from an existing document, replacing values with defaults */
+function buildInsertTemplate(
+  sample: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const doc: Record<string, unknown> = { _id: generateObjectId() };
+  if (!sample) return doc;
+
+  for (const [key, value] of Object.entries(sample)) {
+    if (key === "_id") continue;
+    doc[key] = getDefaultValue(value);
+  }
+  return doc;
+}
+
+function getDefaultValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return "";
+  if (typeof value === "number") return 0;
+  if (typeof value === "boolean") return false;
+  if (Array.isArray(value)) return [];
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if ("$oid" in obj) return generateObjectId();
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      result[k] = getDefaultValue(v);
+    }
+    return result;
+  }
+  return null;
+}
+
 /** Generate a random MongoDB-style ObjectId (24-char hex) */
 function generateObjectId(): string {
-  const timestamp = Math.floor(Date.now() / 1000).toString(16).padStart(8, "0");
+  const timestamp = Math.floor(Date.now() / 1000)
+    .toString(16)
+    .padStart(8, "0");
   const random = Array.from({ length: 16 }, () =>
     Math.floor(Math.random() * 16).toString(16),
   ).join("");
@@ -233,13 +260,21 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") { e.preventDefault(); save(); }
-      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        save();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
     },
     [save, onCancel],
   );
 
-  useEffect(() => { inputRef.current?.select(); }, []);
+  useEffect(() => {
+    inputRef.current?.select();
+  }, []);
 
   const isValid = /^[a-fA-F0-9]{24}$/.test(draft.trim());
 
@@ -249,7 +284,9 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
         ref={inputRef}
         autoFocus
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+        }}
         onKeyDown={handleKeyDown}
         onBlur={save}
         className={cn(
@@ -274,14 +311,20 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
       </button>
       <button
         type="button"
-        onMouseDown={(e) => { e.preventDefault(); save(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          save();
+        }}
         className="text-muted-foreground hover:text-foreground"
       >
         <IconCheck className="size-3" />
       </button>
       <button
         type="button"
-        onMouseDown={(e) => { e.preventDefault(); onCancel(); }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onCancel();
+        }}
         className="text-muted-foreground hover:text-foreground"
       >
         <IconX className="size-3" />
@@ -299,9 +342,7 @@ const InlineEdit = memo(function InlineEdit({
   const isStructured = type === "object" || type === "array";
 
   if (isStructured) {
-    return (
-      <InlineJsonEdit value={value} onSave={onSave} onCancel={onCancel} />
-    );
+    return <InlineJsonEdit value={value} onSave={onSave} onCancel={onCancel} />;
   }
 
   if (type === "objectId") {
@@ -435,6 +476,7 @@ const InlineJsonEdit = memo(function InlineJsonEdit({
           value={draft}
           onChange={setDraft}
           extensions={extensions}
+          theme="none"
           basicSetup={false}
           height="120px"
           autoFocus
@@ -545,7 +587,9 @@ const TreeValueNode = memo(function TreeValueNode({
               :
             </span>
             {!expanded && (
-              <span className={cn("font-mono text-[11px] truncate", colorClass)}>
+              <span
+                className={cn("font-mono text-[11px] truncate", colorClass)}
+              >
                 {formatValuePreview(value)}
               </span>
             )}
@@ -695,10 +739,14 @@ const DocumentCard = memo(function DocumentCard({
   const handleCopy = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      writeClipboardText(JSON.stringify(document, null, 2)).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }).catch(() => {});
+      writeClipboardText(JSON.stringify(document, null, 2))
+        .then(() => {
+          setCopied(true);
+          setTimeout(() => {
+            setCopied(false);
+          }, 1500);
+        })
+        .catch(() => {});
     },
     [document],
   );
@@ -711,13 +759,10 @@ const DocumentCard = memo(function DocumentCard({
     [onDocumentUndo],
   );
 
-  const handleEditDoc = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      setEditingDoc(true);
-    },
-    [],
-  );
+  const handleEditDoc = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingDoc(true);
+  }, []);
 
   const handleDocSave = useCallback(
     (newDoc: Record<string, unknown>) => {
@@ -750,124 +795,140 @@ const DocumentCard = memo(function DocumentCard({
   return (
     <ContextMenu>
       <ContextMenuTrigger className="block">
-    <Collapsible
-      open={expanded}
-      onOpenChange={() => toggleExpanded()}
-      className="rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border group/card"
-    >
-      {/* Header */}
-      <div className="relative flex items-center">
-        <CollapsibleTrigger
-          className="flex items-center gap-2 px-3 py-2 flex-1 min-w-0 text-left hover:bg-muted/30 transition-colors"
+        <Collapsible
+          open={expanded}
+          onOpenChange={() => {
+            toggleExpanded();
+          }}
+          className="rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border group/card"
         >
-          <IconChevronRight
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
-              expanded && "rotate-90",
-            )}
-          />
-          <span
-            className={cn(
-              "font-mono text-xs font-medium shrink-0",
-              BSON_TEXT_CLASSES.objectId,
-            )}
-          >
-            {displayId}
-          </span>
-          {!expanded && (
-            <span className="font-mono text-[11px] text-muted-foreground truncate pr-20">
-              {previewText}
-            </span>
-          )}
-        </CollapsibleTrigger>
-
-        {/* Action buttons — absolutely positioned to avoid layout shift */}
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity bg-card rounded px-1">
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-            title="Copy document as JSON"
-          >
-            {copied ? <IconCheck className="size-3.5" /> : <IconCopy className="size-3.5" />}
-          </button>
-          {editable && (
-            <button
-              type="button"
-              onClick={handleEditDoc}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              title="Edit document as JSON"
-            >
-              <IconCode className="size-3.5" />
-            </button>
-          )}
-          {hasStagedEdits && (
-            <button
-              type="button"
-              onClick={handleUndo}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              title="Undo changes"
-            >
-              <IconArrowBackUp className="size-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Full-document JSON editor */}
-      {editingDoc && (
-        <div className="border-t border-border/50 p-2">
-          <DocumentJsonEditor
-            document={document}
-            themeMode={themeMode}
-            onSave={handleDocSave}
-            onCancel={() => setEditingDoc(false)}
-          />
-        </div>
-      )}
-
-      {/* Animated field tree */}
-      {!editingDoc && (
-        <CollapsibleContent>
-          <div className="border-t border-border/50 px-3 py-2">
-            {entries.map(([key, value]) => (
-              <TreeValueNode
-                key={key}
-                fieldKey={key}
-                value={value}
-                depth={0}
-                fieldPath={key}
-                expandKeyPrefix={docKey}
-                editable={editable}
-                onFieldEdit={onFieldEdit}
-                expandedPaths={expandedPaths}
-                onToggleExpand={onToggleExpand}
+          {/* Header */}
+          <div className="relative flex items-center">
+            <CollapsibleTrigger className="flex items-center gap-2 px-3 py-2 flex-1 min-w-0 text-left hover:bg-muted/30 transition-colors">
+              <IconChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+                  expanded && "rotate-90",
+                )}
               />
-            ))}
+              <span
+                className={cn(
+                  "font-mono text-xs font-medium shrink-0",
+                  BSON_TEXT_CLASSES.objectId,
+                )}
+              >
+                {displayId}
+              </span>
+              {!expanded && (
+                <span className="font-mono text-[11px] text-muted-foreground truncate pr-20">
+                  {previewText}
+                </span>
+              )}
+            </CollapsibleTrigger>
+
+            {/* Action buttons — absolutely positioned to avoid layout shift */}
+            <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity bg-card rounded px-1">
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="Copy document as JSON"
+              >
+                {copied ? (
+                  <IconCheck className="size-3.5" />
+                ) : (
+                  <IconCopy className="size-3.5" />
+                )}
+              </button>
+              {editable && (
+                <button
+                  type="button"
+                  onClick={handleEditDoc}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  title="Edit document as JSON"
+                >
+                  <IconCode className="size-3.5" />
+                </button>
+              )}
+              {hasStagedEdits && (
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  title="Undo changes"
+                >
+                  <IconArrowBackUp className="size-3.5" />
+                </button>
+              )}
+            </div>
           </div>
-        </CollapsibleContent>
-      )}
-    </Collapsible>
+
+          {/* Full-document JSON editor */}
+          {editingDoc && (
+            <div className="border-t border-border/50 p-2">
+              <DocumentJsonEditor
+                document={document}
+                themeMode={themeMode}
+                onSave={handleDocSave}
+                onCancel={() => {
+                  setEditingDoc(false);
+                }}
+              />
+            </div>
+          )}
+
+          {/* Animated field tree */}
+          {!editingDoc && (
+            <CollapsibleContent>
+              <div className="border-t border-border/50 px-3 py-2">
+                {entries.map(([key, value]) => (
+                  <TreeValueNode
+                    key={key}
+                    fieldKey={key}
+                    value={value}
+                    depth={0}
+                    fieldPath={key}
+                    expandKeyPrefix={docKey}
+                    editable={editable}
+                    onFieldEdit={onFieldEdit}
+                    expandedPaths={expandedPaths}
+                    onToggleExpand={onToggleExpand}
+                  />
+                ))}
+              </div>
+            </CollapsibleContent>
+          )}
+        </Collapsible>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onClick={() => {
-          writeClipboardText(JSON.stringify(document, null, 2)).catch(() => {});
-        }}>
+        <ContextMenuItem
+          onClick={() => {
+            writeClipboardText(JSON.stringify(document, null, 2)).catch(
+              () => {},
+            );
+          }}
+        >
           <IconCopy className="size-3.5" />
           Copy Document
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => {
-          const id = document._id;
-          const idStr = id ? formatObjectId(id) : "";
-          writeClipboardText(idStr).catch(() => {});
-        }}>
+        <ContextMenuItem
+          onClick={() => {
+            const id = document._id;
+            const idStr = id ? formatObjectId(id) : "";
+            writeClipboardText(idStr).catch(() => {});
+          }}
+        >
           <IconCopy className="size-3.5" />
           Copy _id
         </ContextMenuItem>
         {editable && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => setEditingDoc(true)}>
+            <ContextMenuItem
+              onClick={() => {
+                setEditingDoc(true);
+              }}
+            >
               <IconCode className="size-3.5" />
               Edit as JSON
             </ContextMenuItem>
@@ -886,7 +947,10 @@ const DocumentCard = memo(function DocumentCard({
             {onDeleteDocument && (
               <>
                 <ContextMenuSeparator />
-                <ContextMenuItem variant="destructive" onClick={onDeleteDocument}>
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={onDeleteDocument}
+                >
                   <IconTrash className="size-3.5" />
                   Delete Document
                 </ContextMenuItem>
@@ -919,10 +983,18 @@ const DocumentJsonEditor = memo(function DocumentJsonEditor({
     [themeMode],
   );
 
+  // Force re-render when theme changes by using it as key
+  const themeKey = themeMode;
+  void themeKey;
+
   const handleSave = useCallback(() => {
     try {
       const parsed = JSON.parse(draft) as Record<string, unknown>;
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        Array.isArray(parsed)
+      ) {
         setError("Must be a JSON object");
         return;
       }
@@ -951,17 +1023,17 @@ const DocumentJsonEditor = memo(function DocumentJsonEditor({
     <div onKeyDown={handleKeyDown}>
       <div className="border border-border rounded overflow-hidden">
         <CodeMirror
+          key={themeMode}
           value={draft}
           onChange={setDraft}
           extensions={extensions}
+          theme="none"
           basicSetup={false}
           height="240px"
           autoFocus
         />
       </div>
-      {error && (
-        <div className="text-xs text-destructive mt-1">{error}</div>
-      )}
+      {error && <div className="text-xs text-destructive mt-1">{error}</div>}
       <div className="flex items-center gap-1 mt-1.5">
         <button
           type="button"
@@ -1013,7 +1085,9 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   );
 
   // Lifted expand state — persists across virtualizer mount/unmount cycles
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
+    () => new Set(),
+  );
   const toggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev);
@@ -1061,7 +1135,9 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   const makeUndoHandler = useCallback(
     (docIndex: number) => {
       if (!onDocumentUndo) return undefined;
-      return () => { onDocumentUndo(docIndex); };
+      return () => {
+        onDocumentUndo(docIndex);
+      };
     },
     [onDocumentUndo],
   );
@@ -1069,7 +1145,9 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   const makeDeleteHandler = useCallback(
     (docIndex: number) => {
       if (!onDeleteDocument) return undefined;
-      return () => { onDeleteDocument(docIndex); };
+      return () => {
+        onDeleteDocument(docIndex);
+      };
     },
     [onDeleteDocument],
   );
@@ -1089,79 +1167,94 @@ export const DocumentTreeView = memo(function DocumentTreeView({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger className={cn("overflow-auto h-full block", className)} ref={parentRef}>
-      {/* Insert document editor — shown at top */}
-      {showInsertEditor && (
-        <div className="p-2 pb-0">
-          <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
-            <div className="flex items-center gap-2 mb-1.5">
-              <IconPlus className="size-3.5 text-primary" />
-              <span className="text-xs font-medium">Insert Document</span>
-            </div>
-            <DocumentJsonEditor
-              document={{ _id: generateObjectId() }}
-              themeMode={insertThemeMode}
-              onSave={handleInsertSave}
-              onCancel={() => setShowInsertEditor(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      <div
-        className="p-2"
-        style={{
-          height: `${virtualizer.getTotalSize()}px`,
-          position: "relative",
-        }}
+      <ContextMenuTrigger
+        className={cn("overflow-auto h-full block", className)}
+        ref={parentRef}
       >
-        {virtualItems.map((virtualRow) => {
-          const doc = documents[virtualRow.index];
-          if (!doc) return null;
-
-          return (
-            <div
-              key={virtualRow.key}
-              data-index={virtualRow.index}
-              ref={virtualizer.measureElement}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualRow.start}px)`,
-                paddingBottom: "6px",
-              }}
-            >
-              <DocumentCard
-                document={doc}
-                index={virtualRow.index}
-                editable={editable}
-                hasStagedEdits={stagedDocIds ? stagedDocIds.has(String(virtualRow.key)) : false}
-                onFieldEdit={makeFieldEditHandler(virtualRow.index)}
-                onDocumentUndo={makeUndoHandler(virtualRow.index)}
-                onDeleteDocument={makeDeleteHandler(virtualRow.index)}
-                onOpenInsertEditor={() => setShowInsertEditor(true)}
-                expandedPaths={expandedPaths}
-                onToggleExpand={toggleExpand}
-                docKey={String(virtualRow.key)}
+        {/* Insert document editor — shown at top */}
+        {showInsertEditor && (
+          <div className="pb-0">
+            <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5">
+                <IconPlus className="size-3.5 text-primary" />
+                <span className="text-xs font-medium">Insert Document</span>
+              </div>
+              <DocumentJsonEditor
+                document={buildInsertTemplate(documents[0])}
+                themeMode={insertThemeMode}
+                onSave={handleInsertSave}
+                onCancel={() => {
+                  setShowInsertEditor(false);
+                }}
               />
             </div>
-          );
-        })}
-      </div>
+          </div>
+        )}
 
-      {/* Loading indicator for infinite scroll */}
-      {isLoadingMore && (
-        <div className="flex items-center justify-center py-3 text-muted-foreground">
-          <IconLoader2 className="size-4 animate-spin mr-2" />
-          <span className="text-xs">Loading more documents...</span>
+        <div
+          className="p-2"
+          style={{
+            height: `${virtualizer.getTotalSize()}px`,
+            position: "relative",
+          }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const doc = documents[virtualRow.index];
+            if (!doc) return null;
+
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                  paddingBottom: "6px",
+                }}
+              >
+                <DocumentCard
+                  document={doc}
+                  index={virtualRow.index}
+                  editable={editable}
+                  hasStagedEdits={
+                    stagedDocIds
+                      ? stagedDocIds.has(String(virtualRow.key))
+                      : false
+                  }
+                  onFieldEdit={makeFieldEditHandler(virtualRow.index)}
+                  onDocumentUndo={makeUndoHandler(virtualRow.index)}
+                  onDeleteDocument={makeDeleteHandler(virtualRow.index)}
+                  onOpenInsertEditor={() => {
+                    setShowInsertEditor(true);
+                  }}
+                  expandedPaths={expandedPaths}
+                  onToggleExpand={toggleExpand}
+                  docKey={String(virtualRow.key)}
+                />
+              </div>
+            );
+          })}
         </div>
-      )}
+
+        {/* Loading indicator for infinite scroll */}
+        {isLoadingMore && (
+          <div className="flex items-center justify-center py-3 text-muted-foreground">
+            <IconLoader2 className="size-4 animate-spin mr-2" />
+            <span className="text-xs">Loading more documents...</span>
+          </div>
+        )}
       </ContextMenuTrigger>
       <ContextMenuContent>
         {editable && onInsertDocument && (
-          <ContextMenuItem onClick={() => setShowInsertEditor(true)}>
+          <ContextMenuItem
+            onClick={() => {
+              setShowInsertEditor(true);
+            }}
+          >
             <IconPlus className="size-3.5" />
             Insert Document
           </ContextMenuItem>
