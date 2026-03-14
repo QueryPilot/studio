@@ -247,15 +247,18 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
   onCancel,
 }: Omit<InlineEditProps, "type">) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelledRef = useRef(false);
   const raw = formatObjectId(value);
   const [draft, setDraft] = useState(raw);
 
   const save = useCallback(() => {
+    if (cancelledRef.current) return;
     const trimmed = draft.trim();
+    if (trimmed === raw) { onCancel(); return; }
     if (/^[a-fA-F0-9]{24}$/.test(trimmed)) {
       onSave(trimmed);
     }
-  }, [draft, onSave]);
+  }, [draft, raw, onSave, onCancel]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -265,6 +268,7 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        cancelledRef.current = true;
         onCancel();
       }
     },
@@ -368,12 +372,20 @@ const InlinePrimitiveEdit = memo(function InlinePrimitiveEdit({
   onCancel,
 }: InlineEditProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cancelledRef = useRef(false);
   const [draft, setDraft] = useState(() => valueToEditString(value));
+  const originalStr = valueToEditString(value);
 
   const save = useCallback(() => {
+    if (cancelledRef.current) return;
+    // Only stage if value actually changed
+    if (draft === originalStr) {
+      onCancel();
+      return;
+    }
     const parsed = parseEditedValue(draft, type);
     onSave(parsed);
-  }, [draft, onSave, type]);
+  }, [draft, originalStr, onSave, onCancel, type]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -383,6 +395,7 @@ const InlinePrimitiveEdit = memo(function InlinePrimitiveEdit({
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        cancelledRef.current = true;
         onCancel();
       }
     },
