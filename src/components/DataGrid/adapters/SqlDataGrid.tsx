@@ -1239,6 +1239,30 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
                   .map((cmd) => cmd.id);
                 if (idsToUnstage.length > 0) unstageCommands(idsToUnstage);
               }}
+              onInsertDocument={!isReadOnly && commandFactory ? (doc) => {
+                const cmd = commandFactory.createInsertCommand?.(doc);
+                if (cmd) stageCommand(cmd);
+              } : undefined}
+              onDeleteDocument={!isReadOnly && commandFactory ? (docIndex) => {
+                const doc = plainDocuments[docIndex];
+                if (!doc || !configuredIdentityColumns.length) return;
+                const primaryKeys: Record<string, JsonValue> = {};
+                for (const col of configuredIdentityColumns) {
+                  primaryKeys[col] = (doc[col] ?? null) as JsonValue;
+                }
+                const cmd: CrudCommand = {
+                  id: nanoid(),
+                  type: "data.delete",
+                  target: { connectionId, database: database ?? "", schema, table },
+                  payload: { primaryKeys },
+                  metadata: {
+                    timestamp: new Date().toISOString(),
+                    description: "Delete row",
+                  },
+                  state: "staged",
+                };
+                stageCommand(cmd);
+              } : undefined}
             />
           ) : (
             <DocumentJsonView
