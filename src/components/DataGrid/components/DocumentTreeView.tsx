@@ -974,7 +974,9 @@ const DocumentCard = memo(function DocumentCard({
         )}
         {editable && (
           <>
-            <ContextMenuSeparator />
+            {(allowStructuralEdits || onOpenInsertEditor || hasStagedEdits || onDeleteDocument) && (
+              <ContextMenuSeparator />
+            )}
             {allowStructuralEdits && (
               <ContextMenuItem
                 onClick={() => {

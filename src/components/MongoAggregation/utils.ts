@@ -69,25 +69,6 @@ export function parseAggregationStages(
   return { ok: true, pipeline };
 }
 
-/** Swap two stages in a pipeline by index. */
-export function swapStages(
-  stages: string[],
-  fromIndex: number,
-  toIndex: number,
-): string[] {
-  const fromValue = stages[fromIndex];
-  const toValue = stages[toIndex];
-
-  if (fromValue === undefined || toValue === undefined) {
-    return stages;
-  }
-
-  const nextStages = [...stages];
-  nextStages[fromIndex] = toValue;
-  nextStages[toIndex] = fromValue;
-  return nextStages;
-}
-
 // ---------------------------------------------------------------------------
 // Stage color mapping — each operator gets a unique color scheme
 // ---------------------------------------------------------------------------
