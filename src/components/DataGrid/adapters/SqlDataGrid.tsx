@@ -1246,6 +1246,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
             <DocumentTreeView
               documents={documentsWithStagedEdits}
               className="min-h-0 flex-1 px-1.5"
+              gridId={gridId}
               identifierFields={configuredIdentityColumns.length > 0 ? configuredIdentityColumns : undefined}
               hasMore={hasNextPage}
               isLoadingMore={isFetchingNextPage}
