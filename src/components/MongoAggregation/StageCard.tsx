@@ -21,7 +21,6 @@ interface StageCardProps {
   stageJson: string;
   enabled: boolean;
   selected: boolean;
-  outputSummary?: { docCount: number; timeMs: number } | null;
   onJsonChange: (json: string) => void;
   onEnabledChange: (enabled: boolean) => void;
   onDelete: () => void;
@@ -38,7 +37,6 @@ export const StageCard = memo(function StageCard({
   stageJson,
   enabled,
   selected,
-  outputSummary,
   onJsonChange,
   onEnabledChange,
   onDelete,
@@ -161,13 +159,6 @@ export const StageCard = memo(function StageCard({
         />
       </div>
 
-      {/* Footer — per-stage output summary */}
-      {outputSummary ? (
-        <div className="flex items-center gap-3 border-t px-3 py-1 text-[11px] text-muted-foreground">
-          <span>{outputSummary.docCount} docs</span>
-          <span>{outputSummary.timeMs}ms</span>
-        </div>
-      ) : null}
     </div>
   );
 });

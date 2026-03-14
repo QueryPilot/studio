@@ -304,10 +304,9 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     );
   }, [gridRows, searchQuery]);
 
-  // ---- Auto-stage when new row is valid ----
+  // ---- Explicit stage handler for inline new row ----
 
-  useEffect(() => {
-    if (!showNewRow) return;
+  const handleStageNewIndex = useCallback(() => {
     if (!newIndexName.trim() || pendingKeys.length === 0) return;
 
     const keys: Record<string, 1 | -1 | "text"> = {};
@@ -358,7 +357,6 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     setNewSparse(false);
     setNewTtl("");
   }, [
-    showNewRow,
     newIndexName,
     pendingKeys,
     newUnique,
@@ -971,6 +969,14 @@ export const MongoIndexesView = memo(function MongoIndexesView({
               }}
             >
               Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              disabled={!newIndexName.trim() || pendingKeys.length === 0}
+              onClick={handleStageNewIndex}
+            >
+              Stage
             </Button>
           </div>
         </div>
