@@ -246,6 +246,21 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     [pathKey],
   );
 
+  // Deduplicate raw documents by _id (pagination can produce overlaps)
+  const dedupedRawDocuments = useMemo(() => {
+    const seen = new Set<string>();
+    return data.rawDocuments.filter((doc) => {
+      const id = doc._id;
+      if (id === undefined || id === null) return true; // keep docs without _id
+      const key = typeof id === "object" && id !== null && "$oid" in id
+        ? String((id as Record<string, unknown>).$oid)
+        : String(id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [data.rawDocuments]);
+
   // Client-side search text for tree/JSON views (active when filter mode is "search")
   const clientSearchText = useMemo(() => {
     if (documentFilter?.mode === "search" && "searchText" in documentFilter) {
@@ -256,12 +271,12 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   // Filter rawDocuments for tree/JSON views using the client search text
   const filteredRawDocuments = useMemo(() => {
-    if (!clientSearchText) return data.rawDocuments;
+    if (!clientSearchText) return dedupedRawDocuments;
     const q = clientSearchText.toLowerCase();
-    return data.rawDocuments.filter((doc) =>
+    return dedupedRawDocuments.filter((doc) =>
       JSON.stringify(doc).toLowerCase().includes(q),
     );
-  }, [data.rawDocuments, clientSearchText]);
+  }, [dedupedRawDocuments, clientSearchText]);
 
   const filteredRows = useGridSearchWorker(
     data.rows,
@@ -487,7 +502,12 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               onValueChange={quickFilter.setValue}
               onModeChange={handleModeChange}
               onSubmit={handleFilterSubmit}
-              onClear={quickFilter.clear}
+              onClear={() => {
+                quickFilter.clear();
+                setDocumentFilter(undefined);
+                setFilterError(null);
+                onAppliedFilterChange?.({ text: "", filter: undefined, error: null });
+              }}
               error={filterError}
               explanation={quickFilter.aiExplanation}
               isLoading={false}
