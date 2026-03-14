@@ -388,7 +388,7 @@ export const Panel: React.FC<PanelProps> = React.memo(
           focusPanel(panelId);
         }}
       >
-        <div className="panel-header flex items-center justify-between bg-secondary">
+        <div className="panel-header flex items-center justify-between bg-muted">
           <div className="overflow-x-auto relative scrollbar-none">
             <div
               ref={tabsContainerRef}

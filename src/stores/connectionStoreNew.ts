@@ -399,6 +399,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       id: crypto.randomUUID(),
       name: database, // Use database name as connection name
       database: database,
+      default_schema: undefined, // Clear so it derives from new database
       group: groupName,
     };
 

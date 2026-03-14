@@ -223,7 +223,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                     isActive && isFocused,
                   "bg-background/60 z-10 sticky left-0 right-0 text-muted-foreground":
                     isActive && !isFocused,
-                  "bg-secondary text-muted-foreground/60": !isActive,
+                  "bg-muted text-muted-foreground/60": !isActive,
                   "hover:bg-background/80": !isActive && !isFocused,
                   "opacity-50": isDragging,
                 },

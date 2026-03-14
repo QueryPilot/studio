@@ -257,8 +257,8 @@ export function ConnectionCard({
                   )}
                 </div>
 
-                {/* Bottom row: group tag */}
-                {profile.group && (
+                {/* Bottom row: group tag (hide if it just repeats host:port) */}
+                {profile.group && profile.group !== `${profile.host}:${profile.port}` && (
                   <div className="mt-1.5 flex items-center gap-2">
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                       {profile.group}
