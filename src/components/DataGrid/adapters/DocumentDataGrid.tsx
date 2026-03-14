@@ -22,7 +22,6 @@ import {
 } from "@tabler/icons-react";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
-import { FlattenControl } from "../components/FlattenControl";
 import { DocumentTreeView } from "../components/DocumentTreeView";
 import { DocumentJsonView } from "../components/DocumentJsonView";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
@@ -211,8 +210,8 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const [filterError, setFilterError] = useState<string | null>(
     () => initialFilterState.error,
   );
-  const [flattenMode, setFlattenMode] = useState(false);
-  const [flattenDepth, setFlattenDepth] = useState(3);
+  const flattenMode = false;
+  const flattenDepth = 3;
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
     useDocumentGridInspectorState(gridId);
   const [nestedSearch, setNestedSearch] = useState({ term: "", pathKey: "" });
@@ -369,16 +368,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   const activeViewMode = viewMode ?? "table";
 
-  const flattenControl = activeViewMode === "table" ? (
-    <FlattenControl
-      enabled={flattenMode}
-      depth={flattenDepth}
-      onToggle={() => {
-        setFlattenMode((prev) => !prev);
-      }}
-      onDepthChange={setFlattenDepth}
-    />
-  ) : null;
+  const flattenControl = null;
 
   const inspectorToggle = (
     <Button
