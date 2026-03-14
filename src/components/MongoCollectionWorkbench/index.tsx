@@ -18,8 +18,8 @@ import {
   type MongoCollectionViewType,
   type MongoWorkbenchState,
 } from "@/types/mongoWorkbench";
+import { MongoStructureView } from "@/components/MongoStructure";
 import {
-  MongoStructureView,
   MongoIndexesView,
   MongoAggregationView,
 } from "./_legacy";
