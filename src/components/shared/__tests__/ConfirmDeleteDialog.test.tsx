@@ -16,7 +16,7 @@ describe("ConfirmDeleteDialog", () => {
 
     const deleteButton = screen.getByRole("button", { name: "Delete" });
     expect(deleteButton).toHaveClass("bg-destructive");
-    expect(deleteButton).toHaveClass("text-white");
+    expect(deleteButton).toHaveClass("text-destructive-foreground");
   });
 
   it("supports custom label and extra content", () => {
