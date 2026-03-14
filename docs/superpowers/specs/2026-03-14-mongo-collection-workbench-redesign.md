@@ -20,6 +20,17 @@ Consistency-first with Compass-inspired enhancements, executed together. Align a
 
 Break the monolith `MongoCollectionWorkbench.tsx` (1,906 lines) into focused modules mirroring the SQL side:
 
+**Current → New module mapping:**
+
+| Current (inline in monolith) | New Module |
+|-----|------|
+| `MongoCollectionWorkbench` (main) | `MongoCollectionWorkbench/index.tsx` |
+| `MongoStructureView` + `SchemaNodeView` + `StatCard` | `MongoStructure/` |
+| `MongoIndexesView` | `MongoIndexes/` |
+| `MongoAggregationView` | `MongoAggregation/` |
+| `MongoValidationView` | `MongoValidation/` |
+| `MongoExplainView` + `renderExplainNode` | `MongoExplain/` |
+
 ```
 src/components/
   MongoCollectionWorkbench/
@@ -28,11 +39,11 @@ src/components/
     index.tsx              (DataGridBase + schema analytics)
     columns.ts             (column definitions)
     SchemaFieldCell.tsx     (type bar custom cell renderer)
-    utils.ts               (tree building, formatting)
+    utils.ts               (tree building, formatting, buildSchemaTree, etc.)
   MongoIndexes/
     index.tsx              (DataGridBase, inline add row)
     columns.ts             (column definitions)
-    commandFactory.ts      (CRUD command builders)
+    commandFactory.ts      (CRUD command builders: buildMongoCommand, normalizeIndexOptionsForCrud, etc.)
     IndexKeyCell.tsx        (tag-chip cell renderer for keys)
     IndexPropertiesCell.tsx (toggleable badge renderer)
   MongoAggregation/
@@ -40,11 +51,13 @@ src/components/
     StageCard.tsx           (individual stage with editor + controls)
     StagePreview.tsx        (intermediate output panel)
     PipelineCodeView.tsx    (raw JSON array editor)
+    utils.ts               (parseAggregationStages, DEFAULT_STAGE_TEMPLATES, etc.)
   MongoValidation/
     index.tsx              (CodeMirror editor + status panel)
   MongoExplain/
     index.tsx              (toolbar + stats + tree)
     ExplainTree.tsx         (visual node tree component)
+    utils.ts               (getExplainSummary, etc.)
 ```
 
 Utility functions (`toJsonValue`, `normalizeIndexOptionsForCrud`, `buildMongoCommand`, `parseAggregationStages`, etc.) move to respective module `utils.ts` files. Shared types stay in `src/types/mongoWorkbench.ts`.
@@ -58,11 +71,11 @@ Add icons from `@tabler/icons-react` (same library as SQL tabs) to all MongoDB t
 | Data | `IconTable` | Same as SQL Data tab |
 | Structure | `IconAssembly` | Same as SQL Structure tab |
 | Indexes | `IconBookmark` | Same as SQL Indexes tab |
-| Aggregation | `IconPipeline` | MongoDB-specific |
-| Validation | `IconShieldCheck` | MongoDB-specific |
-| Explain | `IconZoomScan` | MongoDB-specific |
+| Aggregation | `IconArrowsShuffle` | MongoDB-specific (verified in @tabler/icons-react) |
+| Validation | `IconShieldCheck` | MongoDB-specific (verified: used in GlobalChangesDialog) |
+| Explain | `IconFilter` | MongoDB-specific (verified: used in ExplainViewer) |
 
-Tab bar styling aligns with SQL: `<div className="flex-none pb-1 pt-1.5 bg-background">` with same padding, same `Tabs/TabsList/TabsTrigger` components, same keyboard shortcut support.
+Tab bar styling aligns with SQL: `<div className="flex-none pb-1 pt-1.5 bg-background">` with same padding, same `Tabs/TabsList/TabsTrigger` components, same keyboard shortcut support (`enableShortcuts={true}`, `tabGroupId`). The 6 MongoDB tabs use the same `tabIndex` numbering (0-5) as the SQL tabs — no shortcut conflicts since tab groups are scoped by `tabGroupId`.
 
 ### 3. Data View — Three View Modes
 
@@ -83,9 +96,11 @@ Add a segmented control toggle in the Data tab toolbar: **Table | Tree | JSON**.
 - Syntax highlighting, line numbers
 - Reuses existing CodeMirror setup from the query editor
 
-All three modes share the same data source (`useDocumentData` hook). Switching modes does not re-fetch — it re-renders loaded documents in the new format. The filter bar, pagination, and CRUD operations remain above the view toggle.
+**Delegation mechanism**: `DocumentDataGrid` receives a `viewMode: "table" | "tree" | "json"` prop (default `"table"`). Internally, `DocumentDataGrid` always runs `useDocumentData` to fetch documents. When `viewMode` is `"table"`, it renders the existing `BaseDataGrid` as before. When `viewMode` is `"tree"` or `"json"`, it hides the grid (`display: none` to preserve grid state) and renders `DocumentTreeView` or `DocumentJsonView` as a sibling, passing the raw `documents` array from `useDocumentData`. The filter bar, pagination, quick filter, and CRUD toolbar remain part of `DocumentDataGrid` and are always visible regardless of view mode — only the content area below switches.
 
-The view mode preference persists per-tab in `workbenchState`.
+The view mode toggle (segmented control) renders inside `DocumentDataGrid`'s toolbar area, next to the existing quick filter.
+
+The view mode preference persists per-tab in `workbenchState.dataViewMode` (type: `"table" | "tree" | "json"`, default: `"table"`).
 
 ### 4. Structure View — DataGrid + Type Bars
 
@@ -112,7 +127,7 @@ Replace the tree-of-divs with a DataGridBase-powered schema view.
 - `date`: #ec4899 (pink)
 - `null`: #888888 (gray)
 
-**Tree-grid behavior**: Object/array fields have an expand/collapse arrow. Click to show/hide child fields as indented rows below. Expand state is local (not persisted).
+**Tree-grid behavior** (flatten-on-expand approach): The DataGridBase does not natively support tree-grid rows. Instead, the schema data is flattened into a row array. Object/array fields include an expand/collapse arrow rendered in the `SchemaFieldCell`. When a user clicks expand, the component inserts child field rows into the flat array at the correct position (with increased `depth` metadata for indentation). When collapsed, those child rows are removed. The `depth` value drives left padding in the Field cell. This is the same technique used by tree-table implementations on top of flat grids — no modifications to `DataGridBase` or Glide Data Grid internals needed. Expand state is local (not persisted).
 
 **Toolbar**: Sample size input, max depth input, Refresh button. Stats cards (Docs Sampled, Fields, Validator) display inline in the toolbar area.
 
@@ -133,12 +148,15 @@ Replace card-based list and inline form with a DataGridBase grid matching SQL's 
 | Size | Text | Index size from collection stats |
 | Actions | Custom | "Drop" / "Unstage" action links |
 
-**Inline creation flow:**
-1. Click `+ Add Index` in toolbar → appends a new editable row at the bottom (green left border highlight)
-2. Name cell auto-focuses with text input
+**Inline creation flow and crudStore interaction:**
+1. Click `+ Add Index` in toolbar → appends a new editable row at the bottom (green left border highlight). This row is **local-only UI state** (managed via `useState` in the MongoIndexes component), not yet in crudStore.
+2. Name cell auto-focuses with text input.
 3. Keys cell: click `+` to open inline popover (field name input + direction select: Asc/Desc/Text + Add button). Each key added appears as a removable chip. Supports N-key compound indexes.
 4. Properties cell: click badge labels to toggle on/off. TTL opens a small seconds input.
-5. Row shows as staged (green highlight). Click "Unstage" to remove.
+5. When the row has a valid name and at least one key, it is **automatically staged** to `crudStore` via `stageCommand()` with type `"document.index.create"` (same command type as current implementation). The row remains visible in the grid with a `staged` badge and green highlight.
+6. Click "Unstage" to remove from crudStore and delete the row. Click "Apply Changes" in the status bar to execute all staged commands.
+
+Note: This differs from SQL's `TableIndexes` which uses a review dialog. The MongoDB side renders staged rows visually in the grid for a more inline experience, consistent with how the current `MongoIndexesView` stages commands. The underlying crudStore flow (`stageCommand` / `unstageCommand` / `Apply Changes`) is identical.
 
 **Toolbar**: Search input (filters by name), `+ Add Index` button, `Refresh` button. Status bar at bottom: `N indexes | M staged` with `Apply Changes` / `Discard` buttons (using `TableActionsToolbar` pattern from SQL side).
 
@@ -167,7 +185,7 @@ Replace textarea-based stages with a card-based pipeline builder inspired by Com
 - Runs the pipeline up to and including the selected stage via `MongoDBAdapter.aggregate()`
 - Preview area has its own Table/JSON toggle (reuses `MongoResultViewer`)
 - Header shows: "Stage N Output" + stage type + doc count
-- Preview auto-updates when the selected stage's content changes (debounced)
+- Preview auto-updates when the selected stage's content changes (debounced 500ms). In-flight requests are cancelled via `AbortController` when new input arrives. If the aggregate call fails, the preview panel shows the error message inline (same error styling as existing: `border-destructive/30 bg-destructive/5 text-destructive`).
 
 **Toolbar**:
 - Stage template buttons: `+ $match`, `+ $group`, `+ $sort`, `+ $project`, `+ $limit`, `+ More...` (dropdown for $unwind, $lookup, $addFields, $bucket, $facet, etc.)
@@ -175,7 +193,11 @@ Replace textarea-based stages with a card-based pipeline builder inspired by Com
 - Run button: executes the full pipeline, shows final results in the preview panel
 - Explain button: navigates to Explain tab with `explainSource: "aggregation"`
 
-**State persistence**: Stage content persists in `workbenchState.aggregationStages[]` as before. Stage enabled/disabled state added as new field `aggregationStageEnabled: boolean[]`.
+**Drag-and-drop reordering**: Uses `@dnd-kit/core` and `@dnd-kit/sortable` (already installed in the project). Wrap stage cards in `SortableContext` with `verticalListSortingStrategy`. Each `StageCard` uses `useSortable()` for the drag handle.
+
+**State persistence**: Stage content persists in `workbenchState.aggregationStages[]` as before. New fields added to `MongoWorkbenchState`:
+- `aggregationStageEnabled: boolean[]` — per-stage enable/disable state
+- `aggregationViewMode: "visual" | "code"` — Visual/Code toggle preference (default: `"visual"`)
 
 ### 7. Validation View — CodeMirror + Status Panel
 
@@ -223,6 +245,10 @@ Replace nested divs with a proper visual execution tree.
 
 **Raw JSON view**: Toggle to see the full raw explain output in a CodeMirror instance (read-only, JSON mode). Same as current but with syntax highlighting.
 
+## Error Handling
+
+All views follow the existing error pattern from the current monolith: `const [error, setError] = useState<string | null>(null)` with try/catch around async operations. Error display uses the established styling: `<div className="rounded border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>`. Loading states use `<Loader2 className="animate-spin" />` (from lucide-react, already used throughout the app). No new error patterns introduced.
+
 ## Backend Changes
 
 No backend changes required. All features use existing `MongoDBAdapter` methods:
@@ -266,9 +292,10 @@ The per-stage preview feature works by running `aggregate()` with only the first
 ## Files Modified
 
 - `src/components/MongoCollectionWorkbench.tsx` → Deleted, replaced by `MongoCollectionWorkbench/index.tsx`
+- `src/components/__tests__/MongoCollectionWorkbench.test.tsx` → Update import paths from old monolith to new module structure
 - `src/components/Workbench/PanelContentRenderer.tsx` → Import path update only
-- `src/types/mongoWorkbench.ts` → Add `dataViewMode`, `aggregationStageEnabled` fields to `MongoWorkbenchState`
-- `src/components/DataGrid/adapters/DocumentDataGrid.tsx` → Add `viewMode` prop and toggle UI, delegate to TreeView/JsonView
+- `src/types/mongoWorkbench.ts` → Add fields to `MongoWorkbenchState`: `dataViewMode: "table" | "tree" | "json"` (default `"table"`), `aggregationStageEnabled: boolean[]`, `aggregationViewMode: "visual" | "code"` (default `"visual"`)
+- `src/components/DataGrid/adapters/DocumentDataGrid.tsx` → Add `viewMode` prop, render toggle in toolbar, conditionally render TreeView/JsonView as sibling to hidden grid
 
 ## Files Created
 
@@ -286,8 +313,10 @@ The per-stage preview feature works by running `aggregate()` with only the first
 - `src/components/MongoAggregation/StageCard.tsx`
 - `src/components/MongoAggregation/StagePreview.tsx`
 - `src/components/MongoAggregation/PipelineCodeView.tsx`
+- `src/components/MongoAggregation/utils.ts`
 - `src/components/MongoValidation/index.tsx`
 - `src/components/MongoExplain/index.tsx`
 - `src/components/MongoExplain/ExplainTree.tsx`
+- `src/components/MongoExplain/utils.ts`
 - `src/components/DataGrid/components/DocumentTreeView.tsx`
 - `src/components/DataGrid/components/DocumentJsonView.tsx`
