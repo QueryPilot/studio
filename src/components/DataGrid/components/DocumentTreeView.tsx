@@ -485,14 +485,14 @@ const InlineJsonEdit = memo(function InlineJsonEdit({
         <button
           type="button"
           onClick={save}
-          className="text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Save (Cmd+Enter)
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Cancel (Esc)
         </button>
@@ -792,13 +792,15 @@ const DocumentCard = memo(function DocumentCard({
 
   const handleDocSave = useCallback(
     (newDoc: Record<string, unknown>) => {
-      // Apply each changed field as an individual edit
+      // Fields to skip during edit (PK fields shouldn't be modified)
+      const skipFields = new Set(identifierFields ?? ["_id"]);
+
       const oldEntries = Object.entries(document);
       const newEntries = Object.entries(newDoc);
 
       // Update changed fields
       for (const [key, newVal] of newEntries) {
-        if (key === "_id") continue; // Don't edit _id
+        if (skipFields.has(key)) continue;
         const oldVal = document[key];
         if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
           onFieldEdit?.(key, newVal);
@@ -807,7 +809,7 @@ const DocumentCard = memo(function DocumentCard({
 
       // Handle removed fields (set to null — MongoDB $unset would be better but this works for staging)
       for (const [key] of oldEntries) {
-        if (key === "_id") continue;
+        if (skipFields.has(key)) continue;
         if (!(key in newDoc)) {
           onFieldEdit?.(key, null);
         }
@@ -815,7 +817,7 @@ const DocumentCard = memo(function DocumentCard({
 
       setEditingDoc(false);
     },
-    [document, onFieldEdit],
+    [document, onFieldEdit, identifierFields],
   );
 
   return (
@@ -937,16 +939,18 @@ const DocumentCard = memo(function DocumentCard({
           <IconCopy className="size-3.5" />
           Copy Document
         </ContextMenuItem>
-        <ContextMenuItem
-          onClick={() => {
-            const id = document._id;
-            const idStr = id ? formatObjectId(id) : "";
-            writeClipboardText(idStr).catch(() => {});
-          }}
-        >
-          <IconCopy className="size-3.5" />
-          Copy _id
-        </ContextMenuItem>
+        {"_id" in document && (
+          <ContextMenuItem
+            onClick={() => {
+              const id = document._id;
+              const idStr = id ? formatObjectId(id) : "";
+              writeClipboardText(idStr).catch(() => {});
+            }}
+          >
+            <IconCopy className="size-3.5" />
+            Copy _id
+          </ContextMenuItem>
+        )}
         {editable && (
           <>
             <ContextMenuSeparator />
@@ -1064,14 +1068,14 @@ const DocumentJsonEditor = memo(function DocumentJsonEditor({
         <button
           type="button"
           onClick={handleSave}
-          className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Save (Cmd+Enter)
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Cancel (Esc)
         </button>
@@ -1150,7 +1154,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
     if (lastItem && lastItem.index >= documents.length - 5) {
       onLoadMore();
     }
-  });
+  }, [hasMore, isLoadingMore, onLoadMore, documents.length, virtualizer]);
 
   // Memoize per-document edit handlers so cards don't re-render unnecessarily
   const makeFieldEditHandler = useCallback(
