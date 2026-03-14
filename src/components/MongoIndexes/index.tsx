@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -10,11 +11,11 @@ import {
   type Item,
   type CustomCell,
   type CustomRenderer,
+  type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -23,11 +24,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { IconSearch, IconPlus, IconRefresh } from "@tabler/icons-react";
+import { IconCopy, IconTrash, IconArrowBackUp } from "@tabler/icons-react";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import type { MongoIndexInfo, MongoIndexOptions } from "@/adapters/types/mongodb";
 import { useCrudStore } from "@/stores/crudStore";
@@ -43,6 +47,7 @@ import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/Text
 import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
+import { writeClipboardText } from "@/lib/clipboard";
 import { toast } from "sonner";
 import { indexColumns } from "./columns";
 import { IndexKeyCellRenderer } from "./IndexKeyCell";
@@ -76,6 +81,7 @@ interface IndexRow {
   stagedCommandId?: string;
   isPendingDrop: boolean;
   dropCommandId?: string;
+  isNewRow?: boolean;
 }
 
 interface PendingKey {
@@ -94,6 +100,21 @@ const STAGED_DROP_THEME = {
   bgCell: "rgba(239, 68, 68, 0.06)", // red tint
 };
 
+const NEW_ROW_THEME = {
+  bgCell: "rgba(34, 197, 94, 0.10)", // stronger green tint for inline new row
+};
+
+// ---------------------------------------------------------------------------
+// Helper: format keys as MongoDB spec string
+// ---------------------------------------------------------------------------
+
+function formatKeySpec(keys: Record<string, 1 | -1 | "text">): string {
+  const entries = Object.entries(keys)
+    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : String(v)}`)
+    .join(", ");
+  return `{ ${entries} }`;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -107,8 +128,8 @@ export const MongoIndexesView = memo(function MongoIndexesView({
   const [searchQuery, setSearchQuery] = useState("");
   const [usageByName, setUsageByName] = useState<Record<string, number>>({});
 
-  // Add-index popover state
-  const [addPopoverOpen, setAddPopoverOpen] = useState(false);
+  // Inline new row state
+  const [showNewRow, setShowNewRow] = useState(false);
   const [newIndexName, setNewIndexName] = useState("");
   const [pendingKeys, setPendingKeys] = useState<PendingKey[]>([]);
   const [newKeyField, setNewKeyField] = useState("");
@@ -124,11 +145,15 @@ export const MongoIndexesView = memo(function MongoIndexesView({
   // Review dialog state
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
 
-  // Key editor popover state
+  // Key editor popover state (for staged rows and inline new row)
   const [keyEditorOpen, setKeyEditorOpen] = useState(false);
   const [keyEditorRowIndex, setKeyEditorRowIndex] = useState<number | null>(null);
   const [editKeyField, setEditKeyField] = useState("");
   const [editKeyDirection, setEditKeyDirection] = useState<"1" | "-1" | "text">("1");
+
+  // Context menu state
+  const hoveredRowRef = useRef<IndexRow | null>(null);
+  const [contextMenuRow, setContextMenuRow] = useState<IndexRow | null>(null);
 
   // Crud store
   const stageCommand = useCrudStore((state) => state.stageCommand);
@@ -232,12 +257,116 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     return result;
   }, [indexes, stagedCommands, usageByName]);
 
+  // ---- Build grid rows (existing + staged + inline new row) ----
+
+  const gridRows = useMemo<IndexRow[]>(() => {
+    const base = rows;
+
+    if (!showNewRow) return base;
+
+    // Build the keys object from pendingKeys
+    const keys: Record<string, 1 | -1 | "text"> = {};
+    for (const pk of pendingKeys) {
+      if (pk.field.trim()) {
+        keys[pk.field.trim()] =
+          pk.direction === "text" ? "text" : pk.direction === "-1" ? -1 : 1;
+      }
+    }
+
+    const hasTextKey = Object.values(keys).some((v) => v === "text");
+
+    const newRow: IndexRow = {
+      name: newIndexName,
+      keys,
+      unique: newUnique,
+      sparse: newSparse,
+      expireAfterSeconds: newTtl.trim()
+        ? (() => {
+            const ttl = Number(newTtl);
+            return !Number.isNaN(ttl) && ttl > 0 ? ttl : undefined;
+          })()
+        : undefined,
+      isTextIndex: hasTextKey,
+      isStaged: true,
+      isPendingDrop: false,
+      isNewRow: true,
+    };
+
+    return [...base, newRow];
+  }, [rows, showNewRow, newIndexName, pendingKeys, newUnique, newSparse, newTtl]);
+
   // Filter rows by search
   const filteredRows = useMemo(() => {
-    if (!searchQuery.trim()) return rows;
+    if (!searchQuery.trim()) return gridRows;
     const query = searchQuery.toLowerCase();
-    return rows.filter((row) => row.name.toLowerCase().includes(query));
-  }, [rows, searchQuery]);
+    return gridRows.filter(
+      (row) => row.isNewRow || row.name.toLowerCase().includes(query),
+    );
+  }, [gridRows, searchQuery]);
+
+  // ---- Auto-stage when new row is valid ----
+
+  useEffect(() => {
+    if (!showNewRow) return;
+    if (!newIndexName.trim() || pendingKeys.length === 0) return;
+
+    const keys: Record<string, 1 | -1 | "text"> = {};
+    for (const pk of pendingKeys) {
+      if (pk.field.trim()) {
+        keys[pk.field.trim()] =
+          pk.direction === "text" ? "text" : pk.direction === "-1" ? -1 : 1;
+      }
+    }
+
+    if (Object.keys(keys).length === 0) return;
+
+    const options: MongoIndexOptions = {
+      name: newIndexName.trim(),
+      unique: newUnique,
+      sparse: newSparse,
+    };
+
+    if (newTtl.trim()) {
+      const ttl = Number(newTtl);
+      if (!Number.isNaN(ttl) && ttl > 0) {
+        options.expireAfterSeconds = ttl;
+      }
+    }
+
+    const command = buildMongoCommand<DocumentIndexCreatePayload>(
+      "document.index.create",
+      target,
+      {
+        definition: {
+          name: newIndexName.trim(),
+          keys,
+          options: normalizeIndexOptionsForCrud(options),
+        },
+      },
+      `Create MongoDB index ${newIndexName.trim()}`,
+      newIndexName.trim(),
+    );
+    stageCommand(command);
+
+    // Reset the inline row
+    setShowNewRow(false);
+    setNewIndexName("");
+    setPendingKeys([]);
+    setNewKeyField("");
+    setNewKeyDirection("1");
+    setNewUnique(false);
+    setNewSparse(false);
+    setNewTtl("");
+  }, [
+    showNewRow,
+    newIndexName,
+    pendingKeys,
+    newUnique,
+    newSparse,
+    newTtl,
+    stageCommand,
+    target,
+  ]);
 
   // ---- Column sizing ----
 
@@ -274,6 +403,18 @@ export const MongoIndexesView = memo(function MongoIndexesView({
           kind: GridCellKind.Text,
           data: "",
           displayData: "",
+          readonly: true,
+          allowOverlay: false,
+        } as const;
+      }
+
+      // New inline row -- show placeholder text for name
+      if (row.isNewRow && column.field === "name") {
+        const display = row.name || "(enter name)";
+        return {
+          kind: GridCellKind.Text,
+          data: row.name,
+          displayData: display,
           readonly: true,
           allowOverlay: false,
         } as const;
@@ -359,6 +500,15 @@ export const MongoIndexesView = memo(function MongoIndexesView({
         }
 
         case "actions": {
+          if (row.isNewRow) {
+            return {
+              kind: GridCellKind.Text,
+              data: "Cancel",
+              displayData: "Cancel",
+              readonly: true,
+              allowOverlay: false,
+            } as const;
+          }
           if (row.isStaged) {
             return {
               kind: GridCellKind.Text,
@@ -405,6 +555,7 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     (row: number) => {
       const data = filteredRows[row];
       if (!data) return undefined;
+      if (data.isNewRow) return NEW_ROW_THEME;
       if (data.isStaged) return STAGED_CREATE_THEME;
       if (data.isPendingDrop) return STAGED_DROP_THEME;
       return undefined;
@@ -423,6 +574,18 @@ export const MongoIndexesView = memo(function MongoIndexesView({
 
       // Actions column
       if (column.field === "actions") {
+        if (row.isNewRow) {
+          // Cancel the inline new row
+          setShowNewRow(false);
+          setNewIndexName("");
+          setPendingKeys([]);
+          setNewKeyField("");
+          setNewKeyDirection("1");
+          setNewUnique(false);
+          setNewSparse(false);
+          setNewTtl("");
+          return;
+        }
         if (row.isStaged && row.stagedCommandId) {
           unstageCommand(row.stagedCommandId);
           return;
@@ -438,8 +601,8 @@ export const MongoIndexesView = memo(function MongoIndexesView({
         return;
       }
 
-      // Keys column click for staged rows -- open key editor
-      if (column.field === "keys" && row.isStaged) {
+      // Keys column click for staged rows or new row -- open key editor
+      if (column.field === "keys" && (row.isStaged || row.isNewRow)) {
         setKeyEditorRowIndex(rowIndex);
         setEditKeyField("");
         setEditKeyDirection("1");
@@ -455,7 +618,21 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     if (!editKeyField.trim() || keyEditorRowIndex === null) return;
 
     const row = filteredRows[keyEditorRowIndex];
-    if (!row?.isStaged || !row.stagedCommandId) return;
+    if (!row) return;
+
+    // Handle new inline row
+    if (row.isNewRow) {
+      setPendingKeys((prev) => [
+        ...prev,
+        { field: editKeyField.trim(), direction: editKeyDirection },
+      ]);
+      setEditKeyField("");
+      setEditKeyDirection("1");
+      // Keep the editor open for more keys
+      return;
+    }
+
+    if (!row.isStaged || !row.stagedCommandId) return;
 
     // Remove old staged command and re-stage with updated keys
     const cmd = stagedCommands.find((c) => c.id === row.stagedCommandId);
@@ -501,51 +678,11 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     unstageCommand,
   ]);
 
-  // ---- Stage create ----
+  // ---- Handle add index (inline row) ----
 
-  const handleStageCreate = useCallback(() => {
-    const keys: Record<string, 1 | -1 | "text"> = {};
-    for (const pk of pendingKeys) {
-      if (pk.field.trim()) {
-        keys[pk.field.trim()] =
-          pk.direction === "text" ? "text" : pk.direction === "-1" ? -1 : 1;
-      }
-    }
-
-    if (!newIndexName.trim() || Object.keys(keys).length === 0) {
-      toast.error("Provide an index name and at least one key");
-      return;
-    }
-
-    const options: MongoIndexOptions = {
-      name: newIndexName.trim(),
-      unique: newUnique,
-      sparse: newSparse,
-    };
-
-    if (newTtl.trim()) {
-      const ttl = Number(newTtl);
-      if (!Number.isNaN(ttl) && ttl > 0) {
-        options.expireAfterSeconds = ttl;
-      }
-    }
-
-    const command = buildMongoCommand<DocumentIndexCreatePayload>(
-      "document.index.create",
-      target,
-      {
-        definition: {
-          name: newIndexName.trim(),
-          keys,
-          options: normalizeIndexOptionsForCrud(options),
-        },
-      },
-      `Create MongoDB index ${newIndexName.trim()}`,
-      newIndexName.trim(),
-    );
-    stageCommand(command);
-
-    // Reset form
+  const handleAddIndex = useCallback(() => {
+    if (showNewRow) return; // already showing
+    setShowNewRow(true);
     setNewIndexName("");
     setPendingKeys([]);
     setNewKeyField("");
@@ -553,8 +690,7 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     setNewUnique(false);
     setNewSparse(false);
     setNewTtl("");
-    setAddPopoverOpen(false);
-  }, [newIndexName, newSparse, newTtl, newUnique, pendingKeys, stageCommand, target]);
+  }, [showNewRow]);
 
   // ---- Stage drop ----
 
@@ -580,7 +716,7 @@ export const MongoIndexesView = memo(function MongoIndexesView({
       cmd.type === "document.index.drop",
   ).length;
 
-  // ---- Add pending key ----
+  // ---- Handle add pending key for inline new row ----
 
   const handleAddPendingKey = useCallback(() => {
     if (!newKeyField.trim()) return;
@@ -591,6 +727,63 @@ export const MongoIndexesView = memo(function MongoIndexesView({
     setNewKeyField("");
     setNewKeyDirection("1");
   }, [newKeyField, newKeyDirection]);
+
+  // ---- Item hover for context menu ----
+
+  const handleItemHovered = useCallback(
+    (args: GridMouseEventArgs) => {
+      if (args.kind === "cell") {
+        hoveredRowRef.current = filteredRows[args.location[1]] ?? null;
+      } else {
+        hoveredRowRef.current = null;
+      }
+    },
+    [filteredRows],
+  );
+
+  // ---- Context menu handlers ----
+
+  const handleContextMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) {
+        setContextMenuRow(hoveredRowRef.current ?? null);
+      } else {
+        setContextMenuRow(null);
+      }
+    },
+    [],
+  );
+
+  const handleCopyName = useCallback(() => {
+    if (!contextMenuRow) return;
+    void writeClipboardText(contextMenuRow.name).then(() => {
+      toast.success("Copied index name");
+    });
+  }, [contextMenuRow]);
+
+  const handleCopyKeySpec = useCallback(() => {
+    if (!contextMenuRow) return;
+    const spec = formatKeySpec(contextMenuRow.keys);
+    void writeClipboardText(spec).then(() => {
+      toast.success("Copied key spec");
+    });
+  }, [contextMenuRow]);
+
+  const handleContextStageDrop = useCallback(() => {
+    if (!contextMenuRow || contextMenuRow.name === "_id_") return;
+    setDeleteTarget(contextMenuRow.name);
+    setDeleteDialogOpen(true);
+  }, [contextMenuRow]);
+
+  const handleContextUnstage = useCallback(() => {
+    if (!contextMenuRow) return;
+    if (contextMenuRow.isStaged && contextMenuRow.stagedCommandId) {
+      unstageCommand(contextMenuRow.stagedCommandId);
+    }
+    if (contextMenuRow.isPendingDrop && contextMenuRow.dropCommandId) {
+      unstageCommand(contextMenuRow.dropCommandId);
+    }
+  }, [contextMenuRow, unstageCommand]);
 
   // ---- Render ----
 
@@ -604,150 +797,23 @@ export const MongoIndexesView = memo(function MongoIndexesView({
           }}
           onDiscard={() => {
             discardChanges(tableKey);
+            setShowNewRow(false);
             toast.success("Changes discarded");
           }}
           pendingChangesCount={pendingCount}
           inline
         />
 
-        <Popover open={addPopoverOpen} onOpenChange={setAddPopoverOpen}>
-          <PopoverTrigger className="inline-flex items-center justify-center gap-1 rounded-md border border-input bg-background px-2.5 text-xs font-medium shadow-xs hover:bg-accent hover:text-accent-foreground h-7 cursor-pointer">
-            <IconPlus className="mr-1 h-3 w-3" />
-            Add Index
-          </PopoverTrigger>
-          <PopoverContent className="w-80" align="start">
-            <div className="grid gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="mongo-new-index-name" className="text-xs">
-                  Index name
-                </Label>
-                <Input
-                  id="mongo-new-index-name"
-                  value={newIndexName}
-                  onChange={(e) => {
-                    setNewIndexName(e.target.value);
-                  }}
-                  className="h-8"
-                  placeholder="idx_field_asc"
-                />
-              </div>
-
-              {/* Keys list */}
-              {pendingKeys.length > 0 ? (
-                <div className="space-y-1">
-                  <Label className="text-xs">Keys</Label>
-                  <div className="flex flex-wrap gap-1">
-                    {pendingKeys.map((pk, i) => (
-                      <span
-                        key={`${pk.field}-${String(i)}`}
-                        className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-2 py-0.5 font-mono text-xs text-blue-600"
-                      >
-                        {pk.field}: {pk.direction}
-                        <button
-                          type="button"
-                          className="ml-1 text-blue-400 hover:text-blue-600"
-                          onClick={() => {
-                            setPendingKeys((prev) =>
-                              prev.filter((_, idx) => idx !== i),
-                            );
-                          }}
-                        >
-                          x
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Add key row */}
-              <div className="flex gap-1.5">
-                <Input
-                  value={newKeyField}
-                  onChange={(e) => {
-                    setNewKeyField(e.target.value);
-                  }}
-                  placeholder="field name"
-                  className="h-8 flex-1 text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddPendingKey();
-                    }
-                  }}
-                />
-                <Select
-                  value={newKeyDirection}
-                  onValueChange={(v) => {
-                    setNewKeyDirection(v as "1" | "-1" | "text");
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-20 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">Asc</SelectItem>
-                    <SelectItem value="-1">Desc</SelectItem>
-                    <SelectItem value="text">Text</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  onClick={handleAddPendingKey}
-                >
-                  +
-                </Button>
-              </div>
-
-              {/* Options */}
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5">
-                  <Checkbox
-                    id="mongo-new-index-unique"
-                    checked={newUnique}
-                    onCheckedChange={setNewUnique}
-                  />
-                  <Label htmlFor="mongo-new-index-unique" className="text-xs">
-                    Unique
-                  </Label>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Checkbox
-                    id="mongo-new-index-sparse"
-                    checked={newSparse}
-                    onCheckedChange={setNewSparse}
-                  />
-                  <Label htmlFor="mongo-new-index-sparse" className="text-xs">
-                    Sparse
-                  </Label>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="mongo-new-index-ttl" className="text-xs">
-                  TTL (seconds)
-                </Label>
-                <Input
-                  id="mongo-new-index-ttl"
-                  type="number"
-                  min={0}
-                  value={newTtl}
-                  onChange={(e) => {
-                    setNewTtl(e.target.value);
-                  }}
-                  className="h-8"
-                  placeholder="Optional"
-                />
-              </div>
-
-              <Button size="sm" onClick={handleStageCreate}>
-                Stage Create
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={handleAddIndex}
+          disabled={showNewRow}
+        >
+          <IconPlus className="mr-1 h-3 w-3" />
+          Add Index
+        </Button>
 
         <Button
           variant="ghost"
@@ -774,6 +840,142 @@ export const MongoIndexesView = memo(function MongoIndexesView({
         </div>
       </div>
 
+      {/* Inline new row editor (rendered above the grid) */}
+      {showNewRow ? (
+        <div className="mx-2 mb-1.5 rounded-md border border-green-500/30 bg-green-500/5 p-2">
+          <div className="flex items-center gap-2">
+            {/* Name input */}
+            <Input
+              value={newIndexName}
+              onChange={(e) => {
+                setNewIndexName(e.target.value);
+              }}
+              placeholder="Index name"
+              className="h-7 w-40 text-xs"
+              autoFocus
+            />
+
+            {/* Pending keys display */}
+            {pendingKeys.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {pendingKeys.map((pk, i) => (
+                  <span
+                    key={`${pk.field}-${String(i)}`}
+                    className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] text-blue-600"
+                  >
+                    {pk.field}: {pk.direction}
+                    <button
+                      type="button"
+                      className="ml-0.5 text-blue-400 hover:text-blue-600"
+                      onClick={() => {
+                        setPendingKeys((prev) =>
+                          prev.filter((_, idx) => idx !== i),
+                        );
+                      }}
+                    >
+                      x
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Add key inline */}
+            <Input
+              value={newKeyField}
+              onChange={(e) => {
+                setNewKeyField(e.target.value);
+              }}
+              placeholder="field"
+              className="h-7 w-24 text-xs"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddPendingKey();
+                }
+              }}
+            />
+            <Select
+              value={newKeyDirection}
+              onValueChange={(v) => {
+                setNewKeyDirection(v as "1" | "-1" | "text");
+              }}
+            >
+              <SelectTrigger className="h-7 w-16 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Asc</SelectItem>
+                <SelectItem value="-1">Desc</SelectItem>
+                <SelectItem value="text">Text</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={handleAddPendingKey}
+            >
+              <IconPlus className="h-3 w-3" />
+            </Button>
+
+            {/* Properties toggles */}
+            <div className="flex items-center gap-1.5 ml-1">
+              <Button
+                size="sm"
+                variant={newUnique ? "default" : "outline"}
+                className="h-6 px-2 text-[10px]"
+                onClick={() => {
+                  setNewUnique((v) => !v);
+                }}
+              >
+                unique
+              </Button>
+              <Button
+                size="sm"
+                variant={newSparse ? "default" : "outline"}
+                className="h-6 px-2 text-[10px]"
+                onClick={() => {
+                  setNewSparse((v) => !v);
+                }}
+              >
+                sparse
+              </Button>
+              <Input
+                value={newTtl}
+                onChange={(e) => {
+                  setNewTtl(e.target.value);
+                }}
+                placeholder="TTL"
+                type="number"
+                min={0}
+                className="h-7 w-16 text-xs"
+              />
+            </div>
+
+            <div className="flex-1" />
+
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => {
+                setShowNewRow(false);
+                setNewIndexName("");
+                setPendingKeys([]);
+                setNewKeyField("");
+                setNewKeyDirection("1");
+                setNewUnique(false);
+                setNewSparse(false);
+                setNewTtl("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {/* Grid or status */}
       <div className="relative min-h-0 flex-1">
         {loading ? (
@@ -789,18 +991,67 @@ export const MongoIndexesView = memo(function MongoIndexesView({
             {searchQuery ? "No indexes match the filter." : "No indexes found."}
           </div>
         ) : (
-          <DataGridBase
-            columns={sizedColumns}
-            rowCount={filteredRows.length}
-            getCellContent={getCellContent}
-            customRenderers={customRenderers}
-            getRowThemeOverride={getRowThemeOverride}
-            rowSelect="none"
-            columnSelect="none"
-            onColumnResize={handleColumnResize}
-            onColumnResizeEnd={handleColumnResizeEnd}
-            onCellClicked={handleCellClicked}
-          />
+          <ContextMenu onOpenChange={handleContextMenuOpenChange}>
+            <ContextMenuTrigger className="h-full w-full block">
+              <DataGridBase
+                columns={sizedColumns}
+                rowCount={filteredRows.length}
+                getCellContent={getCellContent}
+                customRenderers={customRenderers}
+                getRowThemeOverride={getRowThemeOverride}
+                rowSelect="none"
+                columnSelect="none"
+                onColumnResize={handleColumnResize}
+                onColumnResizeEnd={handleColumnResizeEnd}
+                onCellClicked={handleCellClicked}
+                onItemHovered={handleItemHovered}
+              />
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-56 text-xs p-1">
+              {contextMenuRow && !contextMenuRow.isNewRow ? (
+                <>
+                  {/* Copy index name */}
+                  <ContextMenuItem onClick={handleCopyName}>
+                    <IconCopy className="text-foreground" />
+                    <span className="flex-1">Copy Index Name</span>
+                  </ContextMenuItem>
+
+                  {/* Copy key spec */}
+                  <ContextMenuItem onClick={handleCopyKeySpec}>
+                    <IconCopy className="text-foreground" />
+                    <span className="flex-1">Copy Key Spec</span>
+                  </ContextMenuItem>
+
+                  <ContextMenuSeparator />
+
+                  {/* Stage Drop (for existing non-_id_ indexes) */}
+                  {!contextMenuRow.isStaged &&
+                    !contextMenuRow.isPendingDrop &&
+                    contextMenuRow.name !== "_id_" ? (
+                    <ContextMenuItem
+                      variant="destructive"
+                      onClick={handleContextStageDrop}
+                    >
+                      <IconTrash />
+                      <span className="flex-1">Stage Drop</span>
+                    </ContextMenuItem>
+                  ) : null}
+
+                  {/* Unstage (for staged or pending drop rows) */}
+                  {contextMenuRow.isStaged || contextMenuRow.isPendingDrop ? (
+                    <ContextMenuItem onClick={handleContextUnstage}>
+                      <IconArrowBackUp className="text-foreground" />
+                      <span className="flex-1">Unstage</span>
+                    </ContextMenuItem>
+                  ) : null}
+                </>
+              ) : (
+                <ContextMenuItem disabled>
+                  <span className="text-muted-foreground">No actions</span>
+                </ContextMenuItem>
+              )}
+            </ContextMenuContent>
+          </ContextMenu>
         )}
 
         {/* Key editor popover -- positioned absolutely over the grid */}
