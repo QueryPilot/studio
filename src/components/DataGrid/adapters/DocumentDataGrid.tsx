@@ -45,6 +45,8 @@ import { useQuickFilter } from "../hooks/useQuickFilter";
 import type { FilterColumnInfo } from "@/utils/filterParser";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import type { FilterMode } from "@/utils/filterParser";
+import type { CrudCommand, JsonValue } from "@/types/crud";
+import { nanoid } from "nanoid";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 import type { InspectorTab } from "../components/inspector";
@@ -742,6 +744,28 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               if (idsToUnstage.length > 0) {
                 unstageCommands(idsToUnstage);
               }
+            }}
+            onInsertDocument={() => {
+              const cmd = data.createInsertCommand({});
+              stageCommand(cmd);
+            }}
+            onDeleteDocument={(docIndex) => {
+              const doc = dedupedRawDocuments[docIndex];
+              if (!doc) return;
+              const docId = doc._id;
+              if (docId === undefined || docId === null) return;
+              const deleteCmd: CrudCommand = {
+                id: nanoid(),
+                type: "data.delete",
+                target: { connectionId, database, table: collection },
+                payload: { primaryKeys: { _id: docId as JsonValue } },
+                metadata: {
+                  timestamp: new Date().toISOString(),
+                  description: `Delete document`,
+                },
+                state: "staged",
+              };
+              stageCommand(deleteCmd);
             }}
           />
           <DataGridStatusBar
