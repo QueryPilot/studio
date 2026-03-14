@@ -1088,10 +1088,8 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   }
 
   return (
-    <div
-      ref={parentRef}
-      className={cn("overflow-auto h-full", className)}
-    >
+    <ContextMenu>
+      <ContextMenuTrigger className={cn("overflow-auto h-full block", className)} ref={parentRef}>
       {/* Insert document editor — shown at top */}
       {showInsertEditor && (
         <div className="p-2 pb-0">
@@ -1160,6 +1158,15 @@ export const DocumentTreeView = memo(function DocumentTreeView({
           <span className="text-xs">Loading more documents...</span>
         </div>
       )}
-    </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {editable && onInsertDocument && (
+          <ContextMenuItem onClick={() => setShowInsertEditor(true)}>
+            <IconPlus className="size-3.5" />
+            Insert Document
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
