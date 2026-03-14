@@ -19,7 +19,7 @@ import {
   type MongoWorkbenchState,
 } from "@/types/mongoWorkbench";
 import { MongoStructureView } from "@/components/MongoStructure";
-import { MongoAggregationView } from "./_legacy";
+import { MongoAggregationView } from "@/components/MongoAggregation";
 import { MongoIndexesView } from "@/components/MongoIndexes";
 import { MongoValidationView } from "@/components/MongoValidation";
 import { MongoExplainView } from "@/components/MongoExplain";
