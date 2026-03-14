@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-base-to-string */
 /**
  * DocumentDataGrid - MongoDB document browser using the unified BaseDataGrid architecture
  *
@@ -252,9 +253,10 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     return data.rawDocuments.filter((doc) => {
       const id = doc._id;
       if (id === undefined || id === null) return true; // keep docs without _id
-      const key = typeof id === "object" && id !== null && "$oid" in id
-        ? String((id as Record<string, unknown>).$oid)
-        : String(id);
+      const key =
+        typeof id === "object" && id !== null && "$oid" in id
+          ? String((id as Record<string, unknown>).$oid)
+          : String(id);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -506,7 +508,11 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
                 quickFilter.clear();
                 setDocumentFilter(undefined);
                 setFilterError(null);
-                onAppliedFilterChange?.({ text: "", filter: undefined, error: null });
+                onAppliedFilterChange?.({
+                  text: "",
+                  filter: undefined,
+                  error: null,
+                });
               }}
               error={filterError}
               explanation={quickFilter.aiExplanation}
@@ -542,20 +548,26 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   // Apply staged edits to raw documents for tree/JSON views
   const documentsWithStagedEdits = useMemo(() => {
-    if (!stagedCommands || stagedCommands.length === 0) return filteredRawDocuments;
+    if (!stagedCommands || stagedCommands.length === 0)
+      return filteredRawDocuments;
 
     // Collect edits by document _id: Map<idString, Map<fieldPath, newValue>>
     const editsByDoc = new Map<string, Map<string, unknown>>();
     for (const cmd of stagedCommands) {
       if (cmd.type !== "data.update" || cmd.state !== "staged") continue;
-      const payload = cmd.payload as { primaryKeys?: Record<string, unknown>; column?: string; newValue?: unknown };
+      const payload = cmd.payload as {
+        primaryKeys?: Record<string, unknown>;
+        column?: string;
+        newValue?: unknown;
+      };
       const idVal = payload.primaryKeys?._id;
       if (idVal === undefined || idVal === null || !payload.column) continue;
-      const idKey = typeof idVal === "object" && idVal !== null && "$oid" in idVal
-        ? String((idVal as Record<string, unknown>).$oid)
-        : String(idVal);
+      const idKey =
+        typeof idVal === "object" && "$oid" in idVal
+          ? String((idVal as Record<string, unknown>).$oid)
+          : String(idVal);
       if (!editsByDoc.has(idKey)) editsByDoc.set(idKey, new Map());
-      editsByDoc.get(idKey)!.set(payload.column, payload.newValue);
+      editsByDoc.get(idKey)?.set(payload.column, payload.newValue);
     }
 
     if (editsByDoc.size === 0) return filteredRawDocuments;
@@ -563,14 +575,18 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     return filteredRawDocuments.map((doc) => {
       const idVal = doc._id;
       if (idVal === undefined || idVal === null) return doc;
-      const idKey = typeof idVal === "object" && idVal !== null && "$oid" in idVal
-        ? String((idVal as Record<string, unknown>).$oid)
-        : String(idVal);
+      const idKey =
+        typeof idVal === "object" && idVal !== null && "$oid" in idVal
+          ? String((idVal as Record<string, unknown>).$oid)
+          : String(idVal);
       const edits = editsByDoc.get(idKey);
       if (!edits) return doc;
 
       // Deep clone and apply edits
-      const patched = JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+      const patched = JSON.parse(JSON.stringify(doc)) as Record<
+        string,
+        unknown
+      >;
       for (const [fieldPath, newValue] of edits) {
         const parts = fieldPath.split(".");
         let target: Record<string, unknown> = patched;
@@ -590,6 +606,22 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       return patched;
     });
   }, [filteredRawDocuments, stagedCommands]);
+
+  // Set of document IDs that have staged edits (for showing undo button)
+  const stagedDocIds = useMemo(() => {
+    if (!stagedCommands || stagedCommands.length === 0) return undefined;
+    const ids = new Set<string>();
+    for (const cmd of stagedCommands) {
+      if (cmd.type !== "data.update" || cmd.state !== "staged") continue;
+      const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys?._id;
+      if (pk === undefined || pk === null) continue;
+      const key = typeof pk === "object" && "$oid" in pk
+        ? String((pk as Record<string, unknown>).$oid)
+        : String(pk);
+      ids.add(key);
+    }
+    return ids.size > 0 ? ids : undefined;
+  }, [stagedCommands]);
 
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;
@@ -671,29 +703,39 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             onLoadMore={data.fetchNextPage}
             editable={!readOnly}
             onFieldEdit={(docIndex, fieldPath, newValue) => {
-              const cmd = data.createTreeEditCommand(docIndex, fieldPath, newValue);
+              const cmd = data.createTreeEditCommand(
+                docIndex,
+                fieldPath,
+                newValue,
+              );
               if (cmd) {
                 stageCommand(cmd);
               }
             }}
+            stagedDocIds={stagedDocIds}
             onDocumentUndo={(docIndex) => {
               if (!stagedCommands) return;
               const doc = dedupedRawDocuments[docIndex];
               if (!doc) return;
               const docId = doc._id;
               if (docId === undefined || docId === null) return;
-              const idKey = typeof docId === "object" && docId !== null && "$oid" in docId
-                ? String((docId as Record<string, unknown>).$oid)
-                : String(docId);
+              const idKey =
+                typeof docId === "object" && docId !== null && "$oid" in docId
+                  ? String((docId as Record<string, unknown>).$oid)
+                  : String(docId);
               // Find all staged update commands for this document and unstage them
               const idsToUnstage = stagedCommands
                 .filter((cmd) => {
-                  if (cmd.type !== "data.update" || cmd.state !== "staged") return false;
-                  const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys?._id;
+                  if (cmd.type !== "data.update" || cmd.state !== "staged")
+                    return false;
+                  const pk = (
+                    cmd.payload as { primaryKeys?: Record<string, unknown> }
+                  ).primaryKeys?._id;
                   if (pk === undefined || pk === null) return false;
-                  const pkKey = typeof pk === "object" && pk !== null && "$oid" in pk
-                    ? String((pk as Record<string, unknown>).$oid)
-                    : String(pk);
+                  const pkKey =
+                    typeof pk === "object" && "$oid" in pk
+                      ? String((pk as Record<string, unknown>).$oid)
+                      : String(pk);
                   return pkKey === idKey;
                 })
                 .map((cmd) => cmd.id);

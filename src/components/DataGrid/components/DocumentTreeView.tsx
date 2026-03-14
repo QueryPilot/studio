@@ -57,6 +57,8 @@ export interface DocumentTreeViewProps {
   onLoadMore?: () => void;
   /** Unstage all pending edits for a document by index */
   onDocumentUndo?: (docIndex: number) => void;
+  /** Set of document IDs (string) that have staged edits */
+  stagedDocIds?: Set<string>;
   onFieldEdit?: (
     docIndex: number,
     fieldPath: string,
@@ -631,6 +633,7 @@ interface DocumentCardProps {
   document: Record<string, unknown>;
   index: number;
   editable: boolean;
+  hasStagedEdits: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
   onDocumentUndo?: () => void;
   expandedPaths: Set<string>;
@@ -643,6 +646,7 @@ const DocumentCard = memo(function DocumentCard({
   document,
   index,
   editable,
+  hasStagedEdits,
   onFieldEdit,
   onDocumentUndo,
   expandedPaths,
@@ -769,24 +773,24 @@ const DocumentCard = memo(function DocumentCard({
             {copied ? <IconCheck className="size-3.5" /> : <IconCopy className="size-3.5" />}
           </button>
           {editable && (
-            <>
-              <button
-                type="button"
-                onClick={handleEditDoc}
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                title="Edit document as JSON"
-              >
-                <IconCode className="size-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleUndo}
-                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-                title="Undo changes"
-              >
-                <IconArrowBackUp className="size-3.5" />
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={handleEditDoc}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              title="Edit document as JSON"
+            >
+              <IconCode className="size-3.5" />
+            </button>
+          )}
+          {hasStagedEdits && (
+            <button
+              type="button"
+              onClick={handleUndo}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              title="Undo changes"
+            >
+              <IconArrowBackUp className="size-3.5" />
+            </button>
           )}
         </div>
       </div>
@@ -923,6 +927,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   onLoadMore,
   onFieldEdit,
   onDocumentUndo,
+  stagedDocIds,
   editable = false,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -1029,6 +1034,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                 document={doc}
                 index={virtualRow.index}
                 editable={editable}
+                hasStagedEdits={stagedDocIds ? stagedDocIds.has(String(virtualRow.key)) : false}
                 onFieldEdit={makeFieldEditHandler(virtualRow.index)}
                 onDocumentUndo={makeUndoHandler(virtualRow.index)}
                 expandedPaths={expandedPaths}
