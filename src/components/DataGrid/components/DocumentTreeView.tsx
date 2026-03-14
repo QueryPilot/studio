@@ -566,10 +566,7 @@ const DocumentCard = memo(function DocumentCard({
       open={expanded}
       onOpenChange={() => toggleExpanded()}
       className={cn(
-        "rounded-lg border bg-card text-card-foreground overflow-hidden transition-colors",
-        expanded
-          ? "border-border bg-muted/10"
-          : "border-border/50 hover:border-border",
+        "rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border",
       )}
     >
       {/* Header */}
