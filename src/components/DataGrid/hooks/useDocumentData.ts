@@ -1474,6 +1474,7 @@ export function useDocumentData(
     getCurrentDocumentId,
     totalCount,
     schemaSample,
+    rawDocuments: documents as Record<string, unknown>[],
     createEditCommand,
     createInsertCommand,
     createDeleteCommand,

@@ -16,10 +16,15 @@ import {
   IconLayoutSidebarRightExpand,
   IconSearch,
   IconX,
+  IconTable,
+  IconListTree,
+  IconBraces,
 } from "@tabler/icons-react";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { BreadcrumbNav } from "../components/BreadcrumbNav";
 import { FlattenControl } from "../components/FlattenControl";
+import { DocumentTreeView } from "../components/DocumentTreeView";
+import { DocumentJsonView } from "../components/DocumentJsonView";
 import { useDocumentData } from "../hooks/useDocumentData";
 import type {
   GridActivationEvent,
@@ -42,6 +47,7 @@ import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 import type { InspectorTab } from "../components/inspector";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   buildDocumentCell,
   detectDocumentValueType,
@@ -69,6 +75,8 @@ interface DocumentDataGridBaseProps {
   sortGridId?: string;
 }
 
+export type DocumentDataViewMode = "table" | "tree" | "json";
+
 export interface DocumentCollectionDataGridProps extends DocumentDataGridBaseProps {
   mode?: "collection";
   /** Collection name */
@@ -83,6 +91,10 @@ export interface DocumentCollectionDataGridProps extends DocumentDataGridBasePro
     filter: DocumentFilter | undefined;
     error: string | null;
   }) => void;
+  /** Active data view mode (table, tree, or json) */
+  viewMode?: DocumentDataViewMode;
+  /** Callback when the user switches view mode */
+  onViewModeChange?: (mode: DocumentDataViewMode) => void;
 }
 
 export interface DocumentResultDataGridProps extends DocumentDataGridBaseProps {
@@ -174,6 +186,8 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   pageSize = 50,
   initialFilterText,
   onAppliedFilterChange,
+  viewMode,
+  onViewModeChange,
   className,
   focused,
   sortGridId,
@@ -377,6 +391,29 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     </Button>
   );
 
+  const activeViewMode = viewMode ?? "table";
+
+  const viewModeToggle = onViewModeChange ? (
+    <Tabs
+      value={activeViewMode}
+      onValueChange={(v) => {
+        onViewModeChange(v as DocumentDataViewMode);
+      }}
+    >
+      <TabsList size="sm" className="h-7 p-0.5">
+        <TabsTrigger value="table" className="h-6 px-2 text-xs">
+          <IconTable className="size-3" /> Table
+        </TabsTrigger>
+        <TabsTrigger value="tree" className="h-6 px-2 text-xs">
+          <IconListTree className="size-3" /> Tree
+        </TabsTrigger>
+        <TabsTrigger value="json" className="h-6 px-2 text-xs">
+          <IconBraces className="size-3" /> JSON
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  ) : null;
+
   const topToolbar = (
     <div className="flex flex-col gap-1.5 mb-1.5 p-1">
       {/* Row 1: BreadcrumbNav (only when drilled in) */}
@@ -446,11 +483,13 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               clientSideFiltering={false}
             />
           </div>
+          {viewModeToggle}
           {flattenControl}
           {inspectorToggle}
         </div>
       ) : data.currentPath.length === 0 ? (
         <div className="flex justify-end gap-2">
+          {viewModeToggle}
           {flattenControl}
           {inspectorToggle}
         </div>
@@ -478,52 +517,68 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   }, [connectionId, collection, data]);
 
   return (
-    <BaseDataGrid
-      gridId={gridId}
-      sortGridId={sortGridId}
-      rows={data.currentPath.length > 0 ? filteredRows : data.rows}
-      columns={data.columns}
-      getCellContent={data.getCellContent}
-      isLoading={isLoading}
-      isLoadingMore={data.isLoadingMore}
-      error={errorMessage}
-      hasMore={data.hasMore}
-      onLoadMore={data.fetchNextPage}
-      loadMoreMinRows={pageSize}
-      estimatedTotal={data.totalCount}
-      isEstimatedCount={false}
-      executionTime={data.executionTime}
-      onCellActivated={handleCellActivated}
-      onCellClicked={handleCellClicked}
-      // Command factory for CRUD operations (insert/delete documents)
-      // Returns undefined when in nested path (read-only mode)
-      commandFactory={data.commandFactory}
-      topToolbar={topToolbar}
-      inspectorOpen={showInspector}
-      onInspectorOpenChange={setShowInspector}
-      inspectorDefaultTab={inspectorTab}
-      onInspectorTabChange={setInspectorTab}
-      showInspectorToggleButton={false}
-      enableHoverCellIcons={false}
-      connectionId={connectionId}
-      database={database}
-      tableName={collection}
-      paradigm="document"
-      enableFiltering={false} // Keep false - has custom QuickFilter
-      enableSorting={true} // ✅ ENABLE - Collections can be sorted by any field
-      enableExport={true}
-      enableRowPinning={true} // ✅ ENABLE - Keep reference documents visible
-      enableColumnManagement={true} // ✅ ENABLE - Hide/show/reorder columns for wide documents
-      enableClipboard={true} // ✅ ENABLE - Copy/paste document data
-      enableFillOperations={!readOnly} // ✅ ENABLE - Bulk cell updates (disabled in nested paths)
-      enableStagedChanges={!readOnly} // Disable staging toolbar for read-only nested views
-      readOnly={readOnly}
-      onRefetch={data.refetch}
-      onReconnect={handleReconnect}
-      focused={focused}
-      externalQuickFilterRef={quickFilterRef}
-      className={cn("document-datagrid", className)}
-    />
+    <>
+      <div style={{ display: activeViewMode === "table" ? undefined : "none" }} className={cn("h-full", className)}>
+        <BaseDataGrid
+          gridId={gridId}
+          sortGridId={sortGridId}
+          rows={data.currentPath.length > 0 ? filteredRows : data.rows}
+          columns={data.columns}
+          getCellContent={data.getCellContent}
+          isLoading={isLoading}
+          isLoadingMore={data.isLoadingMore}
+          error={errorMessage}
+          hasMore={data.hasMore}
+          onLoadMore={data.fetchNextPage}
+          loadMoreMinRows={pageSize}
+          estimatedTotal={data.totalCount}
+          isEstimatedCount={false}
+          executionTime={data.executionTime}
+          onCellActivated={handleCellActivated}
+          onCellClicked={handleCellClicked}
+          // Command factory for CRUD operations (insert/delete documents)
+          // Returns undefined when in nested path (read-only mode)
+          commandFactory={data.commandFactory}
+          topToolbar={topToolbar}
+          inspectorOpen={showInspector}
+          onInspectorOpenChange={setShowInspector}
+          inspectorDefaultTab={inspectorTab}
+          onInspectorTabChange={setInspectorTab}
+          showInspectorToggleButton={false}
+          enableHoverCellIcons={false}
+          connectionId={connectionId}
+          database={database}
+          tableName={collection}
+          paradigm="document"
+          enableFiltering={false} // Keep false - has custom QuickFilter
+          enableSorting={true}
+          enableExport={true}
+          enableRowPinning={true}
+          enableColumnManagement={true}
+          enableClipboard={true}
+          enableFillOperations={!readOnly}
+          enableStagedChanges={!readOnly}
+          readOnly={readOnly}
+          onRefetch={data.refetch}
+          onReconnect={handleReconnect}
+          focused={focused}
+          externalQuickFilterRef={quickFilterRef}
+          className="document-datagrid h-full"
+        />
+      </div>
+      {activeViewMode === "tree" && (
+        <div className={cn("flex flex-col h-full", className)}>
+          <div className="flex-none">{topToolbar}</div>
+          <DocumentTreeView documents={data.rawDocuments} className="min-h-0 flex-1" />
+        </div>
+      )}
+      {activeViewMode === "json" && (
+        <div className={cn("flex flex-col h-full", className)}>
+          <div className="flex-none">{topToolbar}</div>
+          <DocumentJsonView documents={data.rawDocuments} className="min-h-0 flex-1" />
+        </div>
+      )}
+    </>
   );
 });
 

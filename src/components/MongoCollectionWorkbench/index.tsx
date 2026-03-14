@@ -199,6 +199,10 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
             onAppliedFilterChange={(state) => {
               updateWorkbenchState({ filterText: state.text });
             }}
+            viewMode={workbenchState.dataViewMode}
+            onViewModeChange={(mode) => {
+              updateWorkbenchState({ dataViewMode: mode });
+            }}
           />
         ) : null}
 
