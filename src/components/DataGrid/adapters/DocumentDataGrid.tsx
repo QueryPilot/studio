@@ -25,6 +25,7 @@ import { BreadcrumbNav } from "../components/BreadcrumbNav";
 import { FlattenControl } from "../components/FlattenControl";
 import { DocumentTreeView } from "../components/DocumentTreeView";
 import { DocumentJsonView } from "../components/DocumentJsonView";
+import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { useDocumentData } from "../hooks/useDocumentData";
 import type {
   GridActivationEvent,
@@ -581,12 +582,24 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               console.log("Edit:", docIndex, fieldPath, newValue);
             }}
           />
+          <DataGridStatusBar
+            loadedRows={data.rawDocuments.length}
+            estimatedTotal={data.totalCount}
+            hasMore={data.hasMore}
+            executionTime={data.executionTime}
+          />
         </div>
       )}
       {activeViewMode === "json" && (
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
           <DocumentJsonView documents={data.rawDocuments} className="min-h-0 flex-1" />
+          <DataGridStatusBar
+            loadedRows={data.rawDocuments.length}
+            estimatedTotal={data.totalCount}
+            hasMore={data.hasMore}
+            executionTime={data.executionTime}
+          />
         </div>
       )}
     </>
