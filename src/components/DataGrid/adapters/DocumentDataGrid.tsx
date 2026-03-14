@@ -745,8 +745,8 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
                 unstageCommands(idsToUnstage);
               }
             }}
-            onInsertDocument={() => {
-              const cmd = data.createInsertCommand({});
+            onInsertDocument={(doc) => {
+              const cmd = data.createInsertCommand(doc);
               stageCommand(cmd);
             }}
             onDeleteDocument={(docIndex) => {
