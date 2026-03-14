@@ -30,9 +30,9 @@ import {
   MongoStructureView,
   MongoIndexesView,
   MongoAggregationView,
-  MongoValidationView,
   MongoExplainView,
 } from "./_legacy";
+import { MongoValidationView } from "@/components/MongoValidation";
 
 interface MongoCollectionWorkbenchProps {
   panelId: string;

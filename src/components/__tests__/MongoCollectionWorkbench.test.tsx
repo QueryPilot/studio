@@ -192,7 +192,7 @@ describe("MongoCollectionWorkbench", () => {
     expect(container.querySelectorAll('[data-slot="checkbox"]')).toHaveLength(2);
   });
 
-  it("uses shared selects and textarea in the validation view", async () => {
+  it("uses shared selects and codemirror editor in the validation view", async () => {
     const { container } = renderWorkbench("validation");
 
     await waitFor(() => {
@@ -201,6 +201,7 @@ describe("MongoCollectionWorkbench", () => {
 
     expect(container.querySelector("select")).toBeNull();
     expect(container.querySelectorAll('[data-slot="select-trigger"]')).toHaveLength(2);
-    expect(screen.getByLabelText("Validator JSON")).toHaveAttribute("data-slot", "textarea");
+    // Validation JSON is now edited with CodeMirror instead of a plain textarea
+    expect(container.querySelector(".cm-editor")).toBeTruthy();
   });
 });
