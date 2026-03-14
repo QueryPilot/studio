@@ -65,6 +65,8 @@ export interface DocumentTreeViewProps {
   onDeleteDocument?: (docIndex: number) => void;
   /** Set of document IDs (string) that have staged edits */
   stagedDocIds?: Set<string>;
+  /** Field names to use as row identifier in card headers (e.g. PK columns for SQL) */
+  identifierFields?: string[];
   onFieldEdit?: (
     docIndex: number,
     fieldPath: string,
@@ -689,6 +691,7 @@ interface DocumentCardProps {
   index: number;
   editable: boolean;
   hasStagedEdits: boolean;
+  identifierFields?: string[];
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
   onDocumentUndo?: () => void;
   onDeleteDocument?: () => void;
@@ -704,6 +707,7 @@ const DocumentCard = memo(function DocumentCard({
   index,
   editable,
   hasStagedEdits,
+  identifierFields,
   onFieldEdit,
   onDocumentUndo,
   onDeleteDocument,
@@ -730,8 +734,25 @@ const DocumentCard = memo(function DocumentCard({
     onToggleExpand(cardPath);
   }, [cardPath, onToggleExpand]);
 
-  const idValue = document._id;
-  const displayId = idValue ? truncateId(idValue) : `Doc ${index + 1}`;
+  // Build display ID from identifier fields (PK for SQL, _id for MongoDB)
+  const displayId = useMemo(() => {
+    // Try identifierFields first (SQL PK / user-selected columns)
+    if (identifierFields && identifierFields.length > 0) {
+      const parts = identifierFields
+        .map((f) => {
+          const val = document[f];
+          if (val === undefined || val === null) return null;
+          return String(val);
+        })
+        .filter(Boolean);
+      if (parts.length > 0) return parts.join(" · ");
+    }
+    // Fall back to _id (MongoDB)
+    const idValue = document._id;
+    if (idValue) return truncateId(idValue);
+    // Last resort
+    return `Row ${index + 1}`;
+  }, [document, identifierFields, index]);
 
   const entries = Object.entries(document);
 
@@ -1074,6 +1095,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   onInsertDocument,
   onDeleteDocument,
   stagedDocIds,
+  identifierFields,
   editable = false,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -1230,6 +1252,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                   document={doc}
                   index={virtualRow.index}
                   editable={editable}
+                  identifierFields={identifierFields}
                   hasStagedEdits={
                     stagedDocIds
                       ? stagedDocIds.has(String(virtualRow.key))
