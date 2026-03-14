@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     }),
     stageCommand: vi.fn(),
     unstageCommand: vi.fn(),
+    discardChanges: vi.fn(),
     getTableKey: vi.fn(
       (target: { connectionId?: string; database?: string; table?: string }) =>
         `${target.connectionId ?? ""}:${target.database ?? ""}:${target.table ?? ""}`,
@@ -72,6 +73,7 @@ vi.mock("@/stores/crudStore", () => ({
     selector: (state: {
       stageCommand: typeof mocks.stageCommand;
       unstageCommand: typeof mocks.unstageCommand;
+      discardChanges: typeof mocks.discardChanges;
       getTableKey: typeof mocks.getTableKey;
       stagedCommands: Map<string, unknown[]>;
     }) => unknown,
@@ -79,6 +81,7 @@ vi.mock("@/stores/crudStore", () => ({
     selector({
       stageCommand: mocks.stageCommand,
       unstageCommand: mocks.unstageCommand,
+      discardChanges: mocks.discardChanges,
       getTableKey: mocks.getTableKey,
       stagedCommands: new Map(),
     }),
@@ -118,6 +121,10 @@ vi.mock("@/components/DataGrid", () => ({
 
 vi.mock("@/components/MongoQueryPanel/MongoResultViewer", () => ({
   MongoResultViewer: () => <div data-testid="mongo-result-viewer" />,
+}));
+
+vi.mock("@/components/GlobalChangesDialog", () => ({
+  GlobalChangesDialog: () => null,
 }));
 
 const baseMetadata: TabMetadata = {
@@ -179,17 +186,16 @@ describe("MongoCollectionWorkbench", () => {
     expect(screen.getByLabelText("Max depth")).toHaveAttribute("data-slot", "input");
   });
 
-  it("uses shared selects and checkboxes in the indexes view", async () => {
-    const { container } = renderWorkbench("indexes");
+  it("renders the indexes view with DataGrid-based layout", async () => {
+    renderWorkbench("indexes");
 
     await waitFor(() => {
       expect(mocks.listIndexes).toHaveBeenCalled();
     });
 
-    expect(screen.getByLabelText("Index name")).toHaveAttribute("data-slot", "input");
-    expect(container.querySelector("select")).toBeNull();
-    expect(container.querySelectorAll('[data-slot="select-trigger"]')).toHaveLength(2);
-    expect(container.querySelectorAll('[data-slot="checkbox"]')).toHaveLength(2);
+    // The new MongoIndexesView renders toolbar buttons and a search input
+    expect(screen.getByPlaceholderText("Filter indexes...")).toHaveAttribute("data-slot", "input");
+    expect(screen.getByText("Add Index")).toBeInTheDocument();
   });
 
   it("uses shared selects and codemirror editor in the validation view", async () => {
