@@ -9,7 +9,7 @@ export const indexColumns: GridColumnV2[] = [
     width: 180,
     minWidth: 100,
     maxWidth: 300,
-  },
+  } as GridColumnV2,
   {
     id: "keys",
     field: "keys",
@@ -18,7 +18,7 @@ export const indexColumns: GridColumnV2[] = [
     width: 220,
     minWidth: 140,
     maxWidth: 400,
-  },
+  } as GridColumnV2,
   {
     id: "properties",
     field: "properties",
@@ -27,7 +27,7 @@ export const indexColumns: GridColumnV2[] = [
     width: 120,
     minWidth: 80,
     maxWidth: 200,
-  },
+  } as GridColumnV2,
   {
     id: "usage",
     field: "usage",
@@ -36,7 +36,7 @@ export const indexColumns: GridColumnV2[] = [
     width: 80,
     minWidth: 60,
     maxWidth: 120,
-  },
+  } as GridColumnV2,
   {
     id: "size",
     field: "size",
@@ -45,7 +45,7 @@ export const indexColumns: GridColumnV2[] = [
     width: 80,
     minWidth: 60,
     maxWidth: 120,
-  },
+  } as GridColumnV2,
   {
     id: "actions",
     field: "actions",
@@ -54,5 +54,5 @@ export const indexColumns: GridColumnV2[] = [
     width: 90,
     minWidth: 70,
     maxWidth: 120,
-  },
+  } as GridColumnV2,
 ];

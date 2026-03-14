@@ -1,28 +1,8 @@
 import { memo, useCallback, useMemo } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { json as jsonLang } from "@codemirror/lang-json";
-import { bracketMatching } from "@codemirror/language";
-import { history, historyKeymap, defaultKeymap } from "@codemirror/commands";
-import { keymap, EditorView } from "@codemirror/view";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
-
-// ---------------------------------------------------------------------------
-// CodeMirror extensions
-// ---------------------------------------------------------------------------
-
-const JSON_EXTENSIONS = [
-  jsonLang(),
-  bracketMatching(),
-  history(),
-  keymap.of([...historyKeymap, ...defaultKeymap]),
-  EditorView.theme({
-    ".cm-scroller": {
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      fontSize: "12px",
-    },
-  }),
-];
+import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
 
 // ---------------------------------------------------------------------------
 // Props

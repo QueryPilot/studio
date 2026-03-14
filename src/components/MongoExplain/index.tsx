@@ -30,51 +30,10 @@ import type {
 } from "@/adapters/types/mongodb";
 import { parseDocumentFilter } from "@/utils/documentFilterParser";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
+import { parseAggregationStages } from "@/components/MongoAggregation/utils";
 
 import { getExplainSummary, getSortObject } from "./utils";
 import { ExplainTree } from "./ExplainTree";
-
-// ---------------------------------------------------------------------------
-// Local helpers
-// ---------------------------------------------------------------------------
-
-type AggregationParseResult =
-  | { ok: true; pipeline: object[] }
-  | { ok: false; error: string };
-
-function parseAggregationStages(stages: string[]): AggregationParseResult {
-  const pipeline: object[] = [];
-
-  for (let index = 0; index < stages.length; index += 1) {
-    const stageText = stages[index]?.trim() ?? "";
-    if (!stageText) {
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stageText);
-    } catch (error) {
-      return {
-        ok: false,
-        error: `Stage ${index + 1} has invalid JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      };
-    }
-
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {
-        ok: false,
-        error: `Stage ${index + 1} must be a JSON object`,
-      };
-    }
-
-    pipeline.push(parsed);
-  }
-
-  return { ok: true, pipeline };
-}
 
 // ---------------------------------------------------------------------------
 // CodeMirror extensions for read-only JSON display
