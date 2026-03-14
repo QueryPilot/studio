@@ -1091,7 +1091,6 @@ export const DocumentTreeView = memo(function DocumentTreeView({
     <div
       ref={parentRef}
       className={cn("overflow-auto h-full", className)}
-      style={{ contain: "strict" }}
     >
       {/* Insert document editor — shown at top */}
       {showInsertEditor && (
