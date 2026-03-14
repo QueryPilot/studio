@@ -17,6 +17,11 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -360,54 +365,64 @@ export const MongoAggregationView = memo(function MongoAggregationView({
             Add a stage to begin building a pipeline.
           </div>
         ) : (
-          <div className="grid h-full min-h-0 grid-cols-2 gap-0">
+          <ResizablePanelGroup
+            orientation="horizontal"
+            className="h-full min-h-0"
+            autoSaveId={`mongo-aggregation-${tabId}`}
+          >
             {/* Left: stage cards */}
-            <div className="min-h-0 overflow-y-auto border-r p-3">
-              <DndContext
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={stageIds}
-                  strategy={verticalListSortingStrategy}
+            <ResizablePanel id="agg-stages" defaultSize="40" minSize="25">
+              <div className="h-full min-h-0 overflow-y-auto p-3">
+                <DndContext
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
                 >
-                  <div className="space-y-2">
-                    {stages.map((stageJson, index) => (
-                      <StageCard
-                        key={stageIds[index]}
-                        id={stageIds[index] ?? `stage-${index}`}
-                        index={index}
-                        stageJson={stageJson}
-                        enabled={stageEnabled[index] !== false}
-                        selected={selectedStageIndex === index}
-                        onJsonChange={(json) => {
-                          handleStageJsonChange(index, json);
-                        }}
-                        onEnabledChange={(enabled) => {
-                          handleStageEnabledChange(index, enabled);
-                        }}
-                        onDelete={() => { handleDeleteStage(index); }}
-                        onSelect={() => { setSelectedStageIndex(index); }}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            </div>
+                  <SortableContext
+                    items={stageIds}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {stages.map((stageJson, index) => (
+                        <StageCard
+                          key={stageIds[index]}
+                          id={stageIds[index] ?? `stage-${index}`}
+                          index={index}
+                          stageJson={stageJson}
+                          enabled={stageEnabled[index] !== false}
+                          selected={selectedStageIndex === index}
+                          onJsonChange={(json) => {
+                            handleStageJsonChange(index, json);
+                          }}
+                          onEnabledChange={(enabled) => {
+                            handleStageEnabledChange(index, enabled);
+                          }}
+                          onDelete={() => { handleDeleteStage(index); }}
+                          onSelect={() => { setSelectedStageIndex(index); }}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </div>
+            </ResizablePanel>
+
+            <ResizableHandle />
 
             {/* Right: stage preview */}
-            <div className="min-h-0 p-3">
-              <StagePreview
-                connectionId={connectionId}
-                database={database}
-                collection={collection}
-                stages={stages}
-                stageEnabled={stageEnabled}
-                selectedStageIndex={selectedStageIndex}
-                tabId={tabId}
-              />
-            </div>
-          </div>
+            <ResizablePanel id="agg-preview" defaultSize="60" minSize="25">
+              <div className="h-full min-h-0 p-3">
+                <StagePreview
+                  connectionId={connectionId}
+                  database={database}
+                  collection={collection}
+                  stages={stages}
+                  stageEnabled={stageEnabled}
+                  selectedStageIndex={selectedStageIndex}
+                  tabId={tabId}
+                />
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         )}
       </div>
 
