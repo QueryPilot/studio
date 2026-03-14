@@ -310,11 +310,12 @@ export function SidebarItem({
           }}
           title={isExpanded ? "Collapse partitions" : "Show partitions"}
         >
-          {isExpanded ? (
-            <IconChevronDown className="h-3 w-3 text-muted-foreground" />
-          ) : (
-            <IconChevronRight className="h-3 w-3 text-muted-foreground" />
-          )}
+          <IconChevronRight
+            className={cn(
+              "h-3 w-3 text-muted-foreground transition-transform duration-150",
+              isExpanded && "rotate-90",
+            )}
+          />
         </button>
       )}
       {rowCount != null && rowCount > 0 && (
@@ -400,6 +401,7 @@ export function DraggableSidebarItem({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      className="transition-opacity duration-100"
       style={{ opacity: isDragging ? 0.4 : 1 }}
     >
       {children}

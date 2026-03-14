@@ -615,22 +615,22 @@ export function WorkspaceTitleBar({
   };
 
   const getStatusColor = () => {
-    if (isConnecting) return "text-yellow-500";
+    if (isConnecting) return "text-status-warn";
 
     // IconCheck if connection is active before showing gray
     if (!connectionHealth) {
       return databaseService.isConnectionActive(connectionId)
-        ? "text-yellow-500" // Still connecting (waiting for health check)
+        ? "text-status-warn" // Still connecting (waiting for health check)
         : "text-muted-foreground"; // Actually disconnected
     }
 
     switch (connectionHealth.status) {
       case "ready":
-        return "text-green-500";
+        return "text-status-ok";
       case "degraded":
-        return "text-yellow-500";
+        return "text-status-warn";
       case "error":
-        return "text-red-500 font-semibold";
+        return "text-status-error font-semibold";
       default:
         return "text-muted-foreground";
     }
@@ -747,7 +747,7 @@ export function WorkspaceTitleBar({
 
   return (
     <div
-      className="relative flex items-center justify-between h-8"
+      className="relative grid grid-cols-[1fr_auto_1fr] items-center h-8"
       data-tauri-drag-region
     >
       {/* Commit Progress Bar - Windows 11 style with 3 layers */}
@@ -775,7 +775,7 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2.5 pl-20">
+      <div className="flex items-center gap-2.5 pl-20" data-tauri-drag-region>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -874,7 +874,7 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
-      <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
+      <div className="flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
         {/* Workspace Name (multi-connection workspace) */}
         {workspaceConnectionCount > 1 ? (
           <>
@@ -922,7 +922,9 @@ export function WorkspaceTitleBar({
                 )}
                 data-tauri-drag-region
               >
-                {selectedDatabase || connection?.database || "Loading..."}
+                {selectedDatabase || connection?.database || (
+                  <span className="inline-block w-20 h-3 rounded bg-muted animate-pulse" />
+                )}
               </span>
               <span
                 className="text-muted-foreground whitespace-nowrap hidden lg:inline text-[10px]"
@@ -936,7 +938,10 @@ export function WorkspaceTitleBar({
             {/* Connection Details - Hidden on smaller screens */}
             {connection?.host && (
               <>
-                <div className="h-3 w-px bg-foreground/10 dark:bg-border shrink-0 hidden xl:block" />
+                <div
+                  className="h-3 w-px bg-foreground/10 dark:bg-border shrink-0 hidden xl:block"
+                  data-tauri-drag-region
+                />
                 <span
                   className="text-muted-foreground truncate min-w-0 hidden xl:inline text-[10px]"
                   data-tauri-drag-region
@@ -956,10 +961,10 @@ export function WorkspaceTitleBar({
         <div
           className={cn(
             "flex items-center gap-1 px-1.5 py-0.5 rounded-full transition-all whitespace-nowrap shrink-0",
-            connectionHealth?.status === "ready" && "bg-green-500/10",
-            connectionHealth?.status === "degraded" && "bg-yellow-500/10",
+            connectionHealth?.status === "ready" && "bg-status-ok/10",
+            connectionHealth?.status === "degraded" && "bg-status-warn/10",
             connectionHealth?.status === "error" &&
-              "bg-red-500/20 border border-red-500/30 animate-pulse",
+              "bg-status-error/20 border border-status-error/30 animate-pulse",
             (!connectionHealth || isConnecting) && "bg-muted-foreground/10",
           )}
           title={connectionHealth?.error || "Connection status"}
@@ -981,7 +986,7 @@ export function WorkspaceTitleBar({
               variant="ghost"
               size="sm"
               onClick={handleReconnect}
-              className="h-5 px-1.5 text-xs gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 shrink-0"
+              className="h-5 px-1.5 text-xs gap-1 bg-status-error/10 hover:bg-status-error/20 text-status-error border border-status-error/20 shrink-0"
             >
               <IconRotate className="h-2.5 w-2.5" />
               <span className="hidden sm:inline">Reconnect</span>
@@ -990,7 +995,7 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Right Section */}
-      <div className="flex items-center gap-2.5 pr-3">
+      <div className="flex items-center gap-2.5 pr-3 justify-self-end">
         <Button
           variant="ghost"
           size="icon-sm"

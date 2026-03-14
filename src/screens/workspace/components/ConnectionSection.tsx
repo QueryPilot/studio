@@ -1922,7 +1922,7 @@ export const ConnectionSection = forwardRef<
 
           {/* Status indicator */}
           <span
-            className={cn("h-2 w-2 rounded-full shrink-0", statusColor)}
+            className={cn("h-2 w-2 rounded-full shrink-0 transition-colors duration-300", statusColor)}
             title={status}
           />
         </ContextMenuTrigger>

@@ -138,7 +138,7 @@ export function MainContent() {
 
   if (contentMode === "form") {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto animate-in fade-in duration-150">
         <ConnectionForm />
       </div>
     );
@@ -146,7 +146,7 @@ export function MainContent() {
 
   if (contentMode === "workspace-form") {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto animate-in fade-in duration-150">
         <WorkspaceForm />
       </div>
     );
@@ -154,7 +154,7 @@ export function MainContent() {
 
   if (contentMode === "workspace-list") {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto animate-in fade-in duration-150">
         <WorkspacesSection />
       </div>
     );
@@ -162,7 +162,7 @@ export function MainContent() {
 
   if (contentMode === "workspace-detail") {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto animate-in fade-in duration-150">
         <WorkspaceDetailView />
       </div>
     );

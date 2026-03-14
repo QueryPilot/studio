@@ -219,7 +219,7 @@ export function StatsHeader() {
 
         {/* Suggestions dropdown */}
         {isOpen && (
-          <div className="absolute top-full left-0 mt-1 w-[280px] bg-popover text-popover-foreground rounded-lg shadow-md ring-1 ring-foreground/10 z-50 p-2 space-y-2">
+          <div className="absolute top-full left-0 mt-0.5 w-[280px] bg-popover text-popover-foreground rounded-lg shadow-lg ring-1 ring-foreground/10 z-50 p-2 space-y-2 animate-in fade-in-0 zoom-in-95 duration-100">
             <div className="text-xs font-medium text-muted-foreground px-1">
               Filter by type
             </div>

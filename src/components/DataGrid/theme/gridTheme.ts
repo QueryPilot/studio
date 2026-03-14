@@ -67,12 +67,12 @@ export const createDataGridTheme = (appTheme: string): Partial<Theme> => {
     lineHeight: 1.5,
 
     fontFamily: [
-      "Noto Sans Variable",
-      "Noto Sans",
       "-apple-system",
       "BlinkMacSystemFont",
       "Segoe UI",
-      "Helvetica",
+      "Noto Sans Variable",
+      "Noto Sans",
+      "Helvetica Neue",
       "Arial",
       "sans-serif",
     ].join(", "),

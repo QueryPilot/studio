@@ -168,7 +168,7 @@ export function ConnectionCard({
               className={cn(
                 "group relative rounded-md border bg-card overflow-hidden",
                 "transition-all duration-150 cursor-pointer outline-none",
-                "hover:bg-accent/50 focus:bg-accent focus:ring-1 focus:ring-primary",
+                "hover:bg-accent/50 focus:bg-accent focus:ring-2 focus:ring-primary/50 active:bg-accent/80 active:scale-[0.97]",
                 selectionMode && isSelected && "ring-2 ring-primary bg-primary/5",
               )}
               onClick={handleClick}
@@ -338,7 +338,7 @@ export function ConnectionCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation();
                     }}

@@ -382,13 +382,13 @@ export function FKPreviewPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed z-50 w-[400px] rounded-lg bg-muted text-popover-foreground shadow border border-border animate-in fade-in-0 zoom-in-95 duration-100"
+      className="fixed z-50 w-[400px] rounded-lg bg-popover text-popover-foreground shadow-lg border border-border animate-in fade-in-0 zoom-in-95 duration-100"
       style={{
         top: position.top,
         left: position.left,
       }}
     >
-      <div className="border-b px-3 py-1.5 bg-muted/40 flex items-center justify-between gap-2 rounded-t-lg">
+      <div className="border-b px-3 py-1.5 bg-muted/50 flex items-center justify-between gap-2 rounded-t-lg">
         <div className="font-medium text-xs text-muted-foreground">
           {fkReference.referenced_schema}.{fkReference.referenced_table}
         </div>
@@ -419,7 +419,7 @@ export function FKPreviewPopover({
         </div>
       </div>
 
-      <div className="max-h-[300px] overflow-y-auto p-2 bg-muted rounded-b-lg">
+      <div className="max-h-[300px] overflow-y-auto p-2 rounded-b-lg">
         {isLoading && (
           <div className="space-y-2">
             {[...Array(5)].map((_, i) => (
@@ -471,7 +471,7 @@ export function FKPreviewPopover({
                               ? "Click to remove embedding"
                               : "Embed this column"
                           }
-                          className={isEmbedded ? "text-green-600" : ""}
+                          className={isEmbedded ? "text-status-ok" : ""}
                         >
                           {isEmbedded ? (
                             <IconCheck className="h-3 w-3" />
@@ -482,7 +482,7 @@ export function FKPreviewPopover({
                       )}
                     </div>
                   </div>
-                  <div className="relative group rounded-md bg-input/35 border border-border">
+                  <div className="relative group rounded-md bg-muted/40 border border-border">
                     <div className="text-xs font-mono break-all line-clamp-5 p-2 pr-8">
                       {rawValue === "NULL" ? (
                         <span className="text-muted-foreground/50 italic">
@@ -520,7 +520,7 @@ export function FKPreviewPopover({
                       }}
                     >
                       {copiedColumn === col.name ? (
-                        <IconCheck className="text-green-600" />
+                        <IconCheck className="text-status-ok" />
                       ) : (
                         <IconCopy />
                       )}

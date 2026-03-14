@@ -31,7 +31,7 @@ const getMeasurementContext = (): CanvasRenderingContext2D | null => {
 export const truncateTextToWidth = (
   text: string,
   maxWidth: number,
-  font: string = "400 12px Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif",
+  font: string = "400 12px -apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica Neue, Arial, sans-serif",
 ): string => {
   if (!text) return text;
 
