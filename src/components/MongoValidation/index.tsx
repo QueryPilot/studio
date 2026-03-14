@@ -1,9 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { json as jsonLang } from "@codemirror/lang-json";
-import { bracketMatching } from "@codemirror/language";
-import { history, historyKeymap, defaultKeymap } from "@codemirror/commands";
-import { keymap, EditorView } from "@codemirror/view";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -16,29 +12,13 @@ import {
 } from "@/components/ui/select";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
+import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import type { MongoCollectionMetadata } from "@/adapters/types/mongodb";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand, CrudCommandTarget, DocumentValidationUpdatePayload } from "@/types/crud";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 import { buildMongoCommand } from "@/components/MongoIndexes/commandFactory";
-
-// ---------------------------------------------------------------------------
-// CodeMirror extensions for JSON editing
-// ---------------------------------------------------------------------------
-
-const JSON_EXTENSIONS = [
-  jsonLang(),
-  bracketMatching(),
-  history(),
-  keymap.of([...historyKeymap, ...defaultKeymap]),
-  EditorView.theme({
-    ".cm-scroller": {
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      fontSize: "12px",
-    },
-  }),
-];
 
 const EMPTY_COMMANDS: CrudCommand[] = [];
 
