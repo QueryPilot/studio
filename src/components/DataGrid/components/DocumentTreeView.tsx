@@ -146,9 +146,7 @@ function formatValuePreview(value: unknown): string {
     }
     return `{${keys.length} fields}`;
   }
-  return typeof value === "object"
-    ? JSON.stringify(value)
-    : String(value as string | number | boolean);
+  return String(value);
 }
 
 function truncateId(value: unknown): string {
@@ -718,7 +716,14 @@ const DocumentCard = memo(function DocumentCard({
   const expanded = expandedPaths.has(cardPath);
   const [editingDoc, setEditingDoc] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { resolvedTheme } = useTheme();
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
   const themeMode = resolvedTheme === "dark" ? "dark" : "light";
 
   const toggleExpanded = useCallback(() => {
@@ -742,7 +747,7 @@ const DocumentCard = memo(function DocumentCard({
       writeClipboardText(JSON.stringify(document, null, 2))
         .then(() => {
           setCopied(true);
-          setTimeout(() => {
+          copyTimerRef.current = setTimeout(() => {
             setCopied(false);
           }, 1500);
         })
@@ -1107,7 +1112,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   const virtualizer = useVirtualizer({
     count: documents.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 42,
+    estimateSize: () => 48,
     overscan: 8,
     getItemKey: (index) => {
       const doc = documents[index];
@@ -1116,14 +1121,14 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   });
 
   // Infinite scroll: load more when scrolling near the bottom
-  const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => {
     if (!hasMore || isLoadingMore || !onLoadMore) return;
-    const lastItem = virtualItems.at(-1);
+    const items = virtualizer.getVirtualItems();
+    const lastItem = items.at(-1);
     if (lastItem && lastItem.index >= documents.length - 5) {
       onLoadMore();
     }
-  }, [virtualItems, hasMore, isLoadingMore, onLoadMore, documents.length]);
+  });
 
   // Memoize per-document edit handlers so cards don't re-render unnecessarily
   const makeFieldEditHandler = useCallback(
@@ -1203,7 +1208,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
             position: "relative",
           }}
         >
-          {virtualItems.map((virtualRow) => {
+          {virtualizer.getVirtualItems().map((virtualRow) => {
             const doc = documents[virtualRow.index];
             if (!doc) return null;
 

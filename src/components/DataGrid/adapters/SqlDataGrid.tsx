@@ -1065,19 +1065,25 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   // Convert SQL rows to plain objects for tree/JSON views
   const plainDocuments = useMemo(() => {
     if (viewMode === "table") return [];
+    // Build field -> column name map
+    const fieldToName = new Map<string, string>();
+    for (const col of columns) {
+      fieldToName.set(col.field, col.title ?? col.field);
+    }
     return rows.map((row) => {
       const doc: Record<string, unknown> = {};
-      for (const [key, cell] of Object.entries(row)) {
-        if (key.startsWith("__")) continue;
+      for (const [field, cell] of Object.entries(row)) {
+        if (field.startsWith("__")) continue;
+        const name = fieldToName.get(field) ?? field;
         if (cell && typeof cell === "object" && "value" in cell) {
-          doc[key] = (cell as { value: unknown }).value;
+          doc[name] = (cell as { value: unknown }).value;
         } else {
-          doc[key] = cell;
+          doc[name] = cell;
         }
       }
       return doc;
     });
-  }, [rows, viewMode]);
+  }, [rows, columns, viewMode]);
 
   // --- Loading States ---
   if (isLoading) {
