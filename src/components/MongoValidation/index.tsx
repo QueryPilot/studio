@@ -21,7 +21,7 @@ import type { MongoCollectionMetadata } from "@/adapters/types/mongodb";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand, CrudCommandTarget, DocumentValidationUpdatePayload } from "@/types/crud";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
-import { buildMongoCommand } from "@/components/MongoCollectionWorkbench/_legacy";
+import { buildMongoCommand } from "@/components/MongoIndexes/commandFactory";
 
 // ---------------------------------------------------------------------------
 // CodeMirror extensions for JSON editing

@@ -1,0 +1,58 @@
+import type { GridColumnV2 } from "@/components/DataGrid/types";
+
+export const indexColumns: GridColumnV2[] = [
+  {
+    id: "name",
+    field: "name",
+    title: "Name",
+    name: "Name",
+    width: 180,
+    minWidth: 100,
+    maxWidth: 300,
+  },
+  {
+    id: "keys",
+    field: "keys",
+    title: "Keys",
+    name: "Keys",
+    width: 220,
+    minWidth: 140,
+    maxWidth: 400,
+  },
+  {
+    id: "properties",
+    field: "properties",
+    title: "Properties",
+    name: "Properties",
+    width: 120,
+    minWidth: 80,
+    maxWidth: 200,
+  },
+  {
+    id: "usage",
+    field: "usage",
+    title: "Usage",
+    name: "Usage",
+    width: 80,
+    minWidth: 60,
+    maxWidth: 120,
+  },
+  {
+    id: "size",
+    field: "size",
+    title: "Size",
+    name: "Size",
+    width: 80,
+    minWidth: 60,
+    maxWidth: 120,
+  },
+  {
+    id: "actions",
+    field: "actions",
+    title: "Actions",
+    name: "Actions",
+    width: 90,
+    minWidth: 70,
+    maxWidth: 120,
+  },
+];
