@@ -1,6 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconLoader2 } from "@tabler/icons-react";
+import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { MongoResultViewer } from "@/components/MongoQueryPanel/MongoResultViewer";
 import { normalizeMongoResult } from "@/components/MongoQueryPanel/mongo-result-state";
 import type { MongoResultViewMode } from "@/components/MongoQueryPanel/MongoQueryToolbar";
@@ -18,7 +21,10 @@ interface StagePreviewProps {
   stages: string[];
   stageEnabled: boolean[];
   selectedStageIndex: number;
+  totalStages: number;
   tabId: string;
+  autoPreview: boolean;
+  onAutoPreviewChange: (enabled: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -32,7 +38,10 @@ export const StagePreview = memo(function StagePreview({
   stages,
   stageEnabled,
   selectedStageIndex,
+  totalStages,
   tabId,
+  autoPreview,
+  onAutoPreviewChange,
 }: StagePreviewProps) {
   const [result, setResult] = useState<ReturnType<typeof normalizeMongoResult> | null>(null);
   const [resultViewMode, setResultViewMode] = useState<MongoResultViewMode>("data");
@@ -51,6 +60,8 @@ export const StagePreview = memo(function StagePreview({
     const stageJson = stages[selectedStageIndex];
     return stageJson ? detectStageType(stageJson) : "$stage";
   }, [stages, selectedStageIndex]);
+
+  const isFullPipeline = selectedStageIndex >= totalStages - 1;
 
   const runPreview = useCallback(async () => {
     const parsed = parseAggregationStages(partialStages);
@@ -83,7 +94,6 @@ export const StagePreview = memo(function StagePreview({
         database,
       );
 
-      // Abort if a newer run has started
       if (abortRef.current !== runId) return;
 
       setResult(
@@ -114,8 +124,10 @@ export const StagePreview = memo(function StagePreview({
     }
   }, [collection, connectionId, database, partialStages]);
 
-  // Debounce preview execution (500ms)
+  // Auto-preview: debounced execution when enabled
   useEffect(() => {
+    if (!autoPreview) return;
+
     const timer = setTimeout(() => {
       void runPreview();
     }, 500);
@@ -123,37 +135,68 @@ export const StagePreview = memo(function StagePreview({
     return () => {
       clearTimeout(timer);
     };
-  }, [runPreview]);
+  }, [autoPreview, runPreview]);
+
+  // Header label
+  const headerLabel = isFullPipeline
+    ? `Full Pipeline · ${totalStages} stage${totalStages === 1 ? "" : "s"}`
+    : `Stage ${selectedStageIndex + 1} Output · ${stageType}`;
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded border">
       {/* Header */}
-      <div className="flex flex-none items-center justify-between border-b bg-muted/20 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">
-            Stage {selectedStageIndex + 1} Output
+      <div className="flex flex-none items-center justify-between gap-2 border-b bg-muted/20 px-3 py-1.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-semibold truncate">
+            {headerLabel}
           </span>
-          <span className="text-xs text-muted-foreground">{stageType}</span>
           {loading && (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            <IconLoader2 className="h-3.5 w-3.5 flex-none animate-spin text-muted-foreground" />
           )}
         </div>
 
-        <Tabs
-          value={resultViewMode}
-          onValueChange={(value) => {
-            setResultViewMode(value as MongoResultViewMode);
-          }}
-        >
-          <TabsList className="h-6 p-0.5">
-            <TabsTrigger value="data" className="h-5 px-2 text-xs">
-              Data
-            </TabsTrigger>
-            <TabsTrigger value="json" className="h-5 px-2 text-xs">
-              JSON
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-2 flex-none">
+          {!autoPreview && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-2 text-xs"
+              onClick={() => void runPreview()}
+              disabled={loading}
+            >
+              <IconPlayerPlay className="h-3 w-3" />
+              Preview
+            </Button>
+          )}
+
+          <div className="flex items-center gap-1.5">
+            <Switch
+              id="auto-preview"
+              checked={autoPreview}
+              onCheckedChange={onAutoPreviewChange}
+              className="scale-75"
+            />
+            <Label htmlFor="auto-preview" className="text-[10px] text-muted-foreground cursor-pointer">
+              Auto
+            </Label>
+          </div>
+
+          <Tabs
+            value={resultViewMode}
+            onValueChange={(value) => {
+              setResultViewMode(value as MongoResultViewMode);
+            }}
+          >
+            <TabsList className="h-6 p-0.5">
+              <TabsTrigger value="data" className="h-5 px-2 text-xs">
+                Data
+              </TabsTrigger>
+              <TabsTrigger value="json" className="h-5 px-2 text-xs">
+                JSON
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {/* Error display */}
@@ -163,22 +206,33 @@ export const StagePreview = memo(function StagePreview({
         </div>
       ) : null}
 
+      {/* Empty state when auto-preview is off and no result yet */}
+      {!result && !loading && !error ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          {autoPreview
+            ? "Select a stage to preview its output."
+            : "Click a stage, then click Preview to see its output."}
+        </div>
+      ) : null}
+
       {/* Results */}
-      <div className="min-h-0 flex-1">
-        <MongoResultViewer
-          result={result}
-          viewMode={resultViewMode}
-          connectionId={connectionId}
-          database={database}
-          gridId={`mongo-agg-preview:${tabId}:${selectedStageIndex}`}
-          executionTime={executionTime}
-          onClearResults={() => {
-            setResult(null);
-            setExecutionTime(null);
-          }}
-          className="h-full"
-        />
-      </div>
+      {(result || loading) ? (
+        <div className="min-h-0 flex-1">
+          <MongoResultViewer
+            result={result}
+            viewMode={resultViewMode}
+            connectionId={connectionId}
+            database={database}
+            gridId={`mongo-agg-preview:${tabId}:${selectedStageIndex}`}
+            executionTime={executionTime}
+            onClearResults={() => {
+              setResult(null);
+              setExecutionTime(null);
+            }}
+            className="h-full"
+          />
+        </div>
+      ) : null}
     </div>
   );
 });
