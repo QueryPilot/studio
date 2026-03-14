@@ -1,12 +1,4 @@
 import { memo, useCallback, useEffect, useMemo } from "react";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DocumentDataGrid } from "@/components/DataGrid";
 import {
@@ -30,9 +22,9 @@ import {
   MongoStructureView,
   MongoIndexesView,
   MongoAggregationView,
-  MongoExplainView,
 } from "./_legacy";
 import { MongoValidationView } from "@/components/MongoValidation";
+import { MongoExplainView } from "@/components/MongoExplain";
 
 interface MongoCollectionWorkbenchProps {
   panelId: string;
@@ -187,33 +179,6 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          {activeView === "explain" ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Label htmlFor="mongo-explain-source" className="text-xs text-muted-foreground">
-                Source
-              </Label>
-              <Select
-                value={workbenchState.explainSource ?? "data"}
-                onValueChange={(value) => {
-                  updateWorkbenchState({
-                    explainSource: value as MongoWorkbenchState["explainSource"],
-                  });
-                }}
-              >
-                <SelectTrigger
-                  id="mongo-explain-source"
-                  size="sm"
-                  className="w-44"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="data">Current Data Query</SelectItem>
-                  <SelectItem value="aggregation">Aggregation Draft</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -279,6 +244,7 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
             database={database}
             collection={collection}
             workbenchState={workbenchState}
+            onWorkbenchStateChange={updateWorkbenchState}
             sortGridId={sortGridId}
           />
         ) : null}
