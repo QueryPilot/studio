@@ -72,6 +72,8 @@ export interface DocumentTreeViewProps {
     newValue: unknown,
   ) => void;
   editable?: boolean;
+  /** Allow adding/removing fields via JSON editor. False for SQL (fixed schema). Default: true */
+  allowStructuralEdits?: boolean;
 }
 
 // ============================================================================
@@ -705,6 +707,7 @@ interface DocumentCardProps {
   editable: boolean;
   hasStagedEdits: boolean;
   identifierFields?: string[];
+  allowStructuralEdits: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
   onDocumentUndo?: () => void;
   onDeleteDocument?: () => void;
@@ -721,6 +724,7 @@ const DocumentCard = memo(function DocumentCard({
   editable,
   hasStagedEdits,
   identifierFields,
+  allowStructuralEdits,
   onFieldEdit,
   onDocumentUndo,
   onDeleteDocument,
@@ -881,7 +885,7 @@ const DocumentCard = memo(function DocumentCard({
                   <IconCopy className="size-3.5" />
                 )}
               </button>
-              {editable && (
+              {editable && allowStructuralEdits && (
                 <button
                   type="button"
                   onClick={handleEditDoc}
@@ -967,14 +971,16 @@ const DocumentCard = memo(function DocumentCard({
         {editable && (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem
-              onClick={() => {
-                setEditingDoc(true);
-              }}
-            >
-              <IconCode className="size-3.5" />
-              Edit as JSON
-            </ContextMenuItem>
+            {allowStructuralEdits && (
+              <ContextMenuItem
+                onClick={() => {
+                  setEditingDoc(true);
+                }}
+              >
+                <IconCode className="size-3.5" />
+                Edit as JSON
+              </ContextMenuItem>
+            )}
             {onOpenInsertEditor && (
               <ContextMenuItem onClick={onOpenInsertEditor}>
                 <IconPlus className="size-3.5" />
@@ -1114,6 +1120,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   stagedDocIds,
   identifierFields,
   editable = false,
+  allowStructuralEdits = true,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [showInsertEditor, setShowInsertEditor] = useState(false);
@@ -1277,6 +1284,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                   index={virtualRow.index}
                   editable={editable}
                   identifierFields={identifierFields}
+                  allowStructuralEdits={allowStructuralEdits}
                   hasStagedEdits={
                     stagedDocIds
                       ? stagedDocIds.has(String(virtualRow.key))
