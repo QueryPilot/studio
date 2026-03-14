@@ -26,6 +26,7 @@ import { DocumentTreeView } from "../components/DocumentTreeView";
 import { DocumentJsonView } from "../components/DocumentJsonView";
 import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import { useDocumentData } from "../hooks/useDocumentData";
+import { useCrudStore } from "@/stores/crudStore";
 import type {
   GridActivationEvent,
   GridColumnV2,
@@ -492,6 +493,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   );
 
   const readOnly = false;
+  const stageCommand = useCrudStore((s) => s.stageCommand);
 
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;
@@ -512,70 +514,71 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   return (
     <>
-      <div
-        style={{ display: activeViewMode === "table" ? undefined : "none" }}
-        className={cn("h-full", className)}
-      >
-        <BaseDataGrid
-          gridId={gridId}
-          sortGridId={sortGridId}
-          rows={data.currentPath.length > 0 ? filteredRows : data.rows}
-          columns={data.columns}
-          getCellContent={data.getCellContent}
-          isLoading={isLoading}
-          isLoadingMore={data.isLoadingMore}
-          error={errorMessage}
-          hasMore={data.hasMore}
-          onLoadMore={data.fetchNextPage}
-          loadMoreMinRows={pageSize}
-          estimatedTotal={data.totalCount}
-          isEstimatedCount={false}
-          executionTime={data.executionTime}
-          onCellActivated={handleCellActivated}
-          onCellClicked={handleCellClicked}
-          // Command factory for CRUD operations (insert/delete documents)
-          // Returns undefined when in nested path (read-only mode)
-          commandFactory={data.commandFactory}
-          topToolbar={topToolbar}
-          inspectorOpen={showInspector}
-          onInspectorOpenChange={setShowInspector}
-          inspectorDefaultTab={inspectorTab}
-          onInspectorTabChange={setInspectorTab}
-          showInspectorToggleButton={false}
-          enableHoverCellIcons={false}
-          connectionId={connectionId}
-          database={database}
-          tableName={collection}
-          paradigm="document"
-          enableFiltering={false} // Keep false - has custom QuickFilter
-          enableSorting={true}
-          enableExport={true}
-          enableRowPinning={true}
-          enableColumnManagement={true}
-          enableClipboard={true}
-          enableFillOperations={!readOnly}
-          enableStagedChanges={!readOnly}
-          readOnly={readOnly}
-          onRefetch={data.refetch}
-          onReconnect={handleReconnect}
-          focused={focused}
-          externalQuickFilterRef={quickFilterRef}
-          className="document-datagrid h-full"
-        />
-      </div>
+      {activeViewMode === "table" ? (
+        <div className={cn("h-full", className)}>
+          <BaseDataGrid
+            gridId={gridId}
+            sortGridId={sortGridId}
+            rows={data.currentPath.length > 0 ? filteredRows : data.rows}
+            columns={data.columns}
+            getCellContent={data.getCellContent}
+            isLoading={isLoading}
+            isLoadingMore={data.isLoadingMore}
+            error={errorMessage}
+            hasMore={data.hasMore}
+            onLoadMore={data.fetchNextPage}
+            loadMoreMinRows={pageSize}
+            estimatedTotal={data.totalCount}
+            isEstimatedCount={false}
+            executionTime={data.executionTime}
+            onCellActivated={handleCellActivated}
+            onCellClicked={handleCellClicked}
+            // Command factory for CRUD operations (insert/delete documents)
+            // Returns undefined when in nested path (read-only mode)
+            commandFactory={data.commandFactory}
+            topToolbar={topToolbar}
+            inspectorOpen={showInspector}
+            onInspectorOpenChange={setShowInspector}
+            inspectorDefaultTab={inspectorTab}
+            onInspectorTabChange={setInspectorTab}
+            showInspectorToggleButton={false}
+            enableHoverCellIcons={false}
+            connectionId={connectionId}
+            database={database}
+            tableName={collection}
+            paradigm="document"
+            enableFiltering={false} // Keep false - has custom QuickFilter
+            enableSorting={true}
+            enableExport={true}
+            enableRowPinning={true}
+            enableColumnManagement={true}
+            enableClipboard={true}
+            enableFillOperations={!readOnly}
+            enableStagedChanges={!readOnly}
+            readOnly={readOnly}
+            onRefetch={data.refetch}
+            onReconnect={handleReconnect}
+            focused={focused}
+            externalQuickFilterRef={quickFilterRef}
+            className="document-datagrid h-full"
+          />
+        </div>
+      ) : null}
       {activeViewMode === "tree" && (
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
           <DocumentTreeView
             documents={data.rawDocuments}
-            className="min-h-0 flex-1"
+            className="min-h-0 flex-1 px-1.5"
             hasMore={data.hasMore}
             isLoadingMore={data.isLoadingMore}
             onLoadMore={data.fetchNextPage}
-            editable={true}
+            editable={!readOnly}
             onFieldEdit={(docIndex, fieldPath, newValue) => {
-              // TODO: Wire to CRUD store in a future task
-              console.log("Edit:", docIndex, fieldPath, newValue);
+              const cmd = data.createTreeEditCommand(docIndex, fieldPath, newValue);
+              if (cmd) {
+                stageCommand(cmd);
+              }
             }}
           />
           <DataGridStatusBar

@@ -39,6 +39,8 @@ export interface BaseDataHookResult {
 
   // CRUD helpers (legacy - use commandFactory instead)
   createEditCommand: (event: GridEditCommitEvent) => CrudCommand | null;
+  /** Create a staged edit command from tree view (docIndex + dotted fieldPath + newValue) */
+  createTreeEditCommand: (docIndex: number, fieldPath: string, newValue: unknown) => CrudCommand | null;
   createInsertCommand: (values: Record<string, unknown>) => CrudCommand;
   createDeleteCommand: (row: GridRowModel) => CrudCommand;
 

@@ -1414,6 +1414,54 @@ export function useDocumentData(
     return ["_id"];
   }, [isNestedSingleObject, isArrayLevel]);
 
+  // Tree view edit: build a data.update command from docIndex + fieldPath + newValue
+  const createTreeEditCommand = useCallback(
+    (docIndex: number, fieldPath: string, newValue: unknown): CrudCommand | null => {
+      const doc = documents[docIndex];
+      if (!doc) return null;
+
+      // Get the document _id
+      const idRaw = (doc as Record<string, unknown>)._id;
+      if (idRaw === undefined || idRaw === null) {
+        logger.warn("document-data", "Cannot create tree edit command: no document _id");
+        return null;
+      }
+      const docId = idRaw as JsonValue;
+
+      // Resolve old value by walking the field path
+      const pathParts = fieldPath.split(".");
+      let oldVal: unknown = doc;
+      for (const part of pathParts) {
+        if (oldVal && typeof oldVal === "object") {
+          oldVal = (oldVal as Record<string, unknown>)[part];
+        } else {
+          oldVal = undefined;
+          break;
+        }
+      }
+
+      const payload: DataUpdatePayload = {
+        column: fieldPath,
+        primaryKeys: { _id: docId },
+        oldValue: (oldVal === undefined ? null : oldVal) as JsonValue,
+        newValue: newValue as JsonValue,
+      };
+
+      return {
+        id: nanoid(),
+        type: "data.update",
+        target: { connectionId, database, table: collection },
+        payload,
+        metadata: {
+          timestamp: new Date().toISOString(),
+          description: `Update ${fieldPath}`,
+        },
+        state: "staged",
+      };
+    },
+    [documents, connectionId, database, collection],
+  );
+
   // CrudCommandFactory for BaseDataGrid integration
   // Available at all depths — edit commands build correct nested field paths.
   // Insert/delete are only meaningful at root level.
@@ -1476,6 +1524,7 @@ export function useDocumentData(
     schemaSample,
     rawDocuments: documents as Record<string, unknown>[],
     createEditCommand,
+    createTreeEditCommand,
     createInsertCommand,
     createDeleteCommand,
     commandFactory,
