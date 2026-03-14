@@ -30,6 +30,11 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import CodeMirror from "@uiw/react-codemirror";
 import { cn } from "@/lib/utils";
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
@@ -353,6 +358,8 @@ interface TreeValueNodeProps {
   fieldPath: string;
   editable: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
+  expandedPaths: Set<string>;
+  onToggleExpand: (path: string) => void;
 }
 
 /** Renders a single key-value pair within the tree */
@@ -363,16 +370,18 @@ const TreeValueNode = memo(function TreeValueNode({
   fieldPath,
   editable,
   onFieldEdit,
+  expandedPaths,
+  onToggleExpand,
 }: TreeValueNodeProps) {
-  const [expanded, setExpanded] = useState(false);
+  const expanded = expandedPaths.has(fieldPath);
   const [editing, setEditing] = useState(false);
   const type = detectBsonType(value);
   const colorClass = BSON_TEXT_CLASSES[type];
   const isExpandable = type === "object" || type === "array";
 
   const toggleExpanded = useCallback(() => {
-    setExpanded((prev) => !prev);
-  }, []);
+    onToggleExpand(fieldPath);
+  }, [fieldPath, onToggleExpand]);
 
   const handleSave = useCallback(
     (newValue: unknown) => {
@@ -456,6 +465,8 @@ const TreeValueNode = memo(function TreeValueNode({
                 fieldPath={`${fieldPath}.${k}`}
                 editable={editable}
                 onFieldEdit={onFieldEdit}
+                expandedPaths={expandedPaths}
+                onToggleExpand={onToggleExpand}
               />
             ))}
           </div>
@@ -517,6 +528,9 @@ interface DocumentCardProps {
   index: number;
   editable: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
+  expandedPaths: Set<string>;
+  onToggleExpand: (path: string) => void;
+  docKey: string;
 }
 
 /** A single document card */
@@ -525,12 +539,16 @@ const DocumentCard = memo(function DocumentCard({
   index,
   editable,
   onFieldEdit,
+  expandedPaths,
+  onToggleExpand,
+  docKey,
 }: DocumentCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const cardPath = `__card__${docKey}`;
+  const expanded = expandedPaths.has(cardPath);
 
   const toggleExpanded = useCallback(() => {
-    setExpanded((prev) => !prev);
-  }, []);
+    onToggleExpand(cardPath);
+  }, [cardPath, onToggleExpand]);
 
   const idValue = document._id;
   const displayId = idValue ? truncateId(idValue) : `Doc ${index + 1}`;
@@ -544,7 +562,9 @@ const DocumentCard = memo(function DocumentCard({
     .join(", ");
 
   return (
-    <div
+    <Collapsible
+      open={expanded}
+      onOpenChange={() => toggleExpanded()}
       className={cn(
         "rounded-lg border bg-card text-card-foreground overflow-hidden transition-colors",
         expanded
@@ -553,16 +573,15 @@ const DocumentCard = memo(function DocumentCard({
       )}
     >
       {/* Header */}
-      <button
-        type="button"
-        onClick={toggleExpanded}
+      <CollapsibleTrigger
         className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-muted/30 transition-colors"
       >
-        {expanded ? (
-          <IconChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <IconChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+            expanded && "rotate-90",
+          )}
+        />
         <span
           className={cn(
             "font-mono text-xs font-medium shrink-0",
@@ -576,10 +595,10 @@ const DocumentCard = memo(function DocumentCard({
             {previewText}
           </span>
         )}
-      </button>
+      </CollapsibleTrigger>
 
-      {/* Expanded content */}
-      {expanded && (
+      {/* Animated content */}
+      <CollapsibleContent>
         <div className="border-t border-border/50 px-3 py-2">
           {entries.map(([key, value]) => (
             <TreeValueNode
@@ -587,14 +606,16 @@ const DocumentCard = memo(function DocumentCard({
               fieldKey={key}
               value={value}
               depth={0}
-              fieldPath={key}
+              fieldPath={`${docKey}:${key}`}
               editable={editable}
               onFieldEdit={onFieldEdit}
+              expandedPaths={expandedPaths}
+              onToggleExpand={onToggleExpand}
             />
           ))}
         </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 });
 
@@ -612,6 +633,20 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   editable = false,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Lifted expand state — persists across virtualizer mount/unmount cycles
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
+  const toggleExpand = useCallback((path: string) => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
 
   const virtualizer = useVirtualizer({
     count: documents.length,
@@ -694,6 +729,9 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                 index={virtualRow.index}
                 editable={editable}
                 onFieldEdit={makeFieldEditHandler(virtualRow.index)}
+                expandedPaths={expandedPaths}
+                onToggleExpand={toggleExpand}
+                docKey={String(virtualRow.key)}
               />
             </div>
           );

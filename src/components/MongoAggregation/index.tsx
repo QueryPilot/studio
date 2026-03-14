@@ -275,13 +275,13 @@ export const MongoAggregationView = memo(function MongoAggregationView({
         <div className="mx-1 h-5 w-px bg-border" />
 
         <Tabs value={viewMode} onValueChange={handleViewModeChange}>
-          <TabsList className="h-7 p-0.5">
-            <TabsTrigger value="visual" className="h-6 gap-1 px-2 text-xs">
-              <IconLayoutList className="h-3.5 w-3.5" />
+          <TabsList size="sm">
+            <TabsTrigger value="visual" size="sm">
+              <IconLayoutList />
               Visual
             </TabsTrigger>
-            <TabsTrigger value="code" className="h-6 gap-1 px-2 text-xs">
-              <IconCode className="h-3.5 w-3.5" />
+            <TabsTrigger value="code" size="sm">
+              <IconCode />
               Code
             </TabsTrigger>
           </TabsList>

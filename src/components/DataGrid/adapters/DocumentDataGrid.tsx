@@ -401,15 +401,15 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         onViewModeChange(v as DocumentDataViewMode);
       }}
     >
-      <TabsList size="sm" className="h-7 p-0.5">
-        <TabsTrigger value="table" className="h-6 px-2 text-xs">
-          <IconTable className="size-3" /> Table
+      <TabsList size="sm">
+        <TabsTrigger value="table" size="sm">
+          <IconTable /> Table
         </TabsTrigger>
-        <TabsTrigger value="tree" className="h-6 px-2 text-xs">
-          <IconListTree className="size-3" /> Tree
+        <TabsTrigger value="tree" size="sm">
+          <IconListTree /> Tree
         </TabsTrigger>
-        <TabsTrigger value="json" className="h-6 px-2 text-xs">
-          <IconBraces className="size-3" /> JSON
+        <TabsTrigger value="json" size="sm">
+          <IconBraces /> JSON
         </TabsTrigger>
       </TabsList>
     </Tabs>
