@@ -569,7 +569,18 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       {activeViewMode === "tree" && (
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
-          <DocumentTreeView documents={data.rawDocuments} className="min-h-0 flex-1" />
+          <DocumentTreeView
+            documents={data.rawDocuments}
+            className="min-h-0 flex-1"
+            hasMore={data.hasMore}
+            isLoadingMore={data.isLoadingMore}
+            onLoadMore={data.fetchNextPage}
+            editable={true}
+            onFieldEdit={(docIndex, fieldPath, newValue) => {
+              // TODO: Wire to CRUD store in a future task
+              console.log("Edit:", docIndex, fieldPath, newValue);
+            }}
+          />
         </div>
       )}
       {activeViewMode === "json" && (
