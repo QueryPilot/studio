@@ -532,6 +532,64 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const readOnly = false;
   const stageCommand = useCrudStore((s) => s.stageCommand);
 
+  // Get staged update commands for this collection to overlay on tree/JSON views
+  const tableKey = useMemo(
+    () => `${connectionId}:${database}:public:${collection}`,
+    [connectionId, database, collection],
+  );
+  const stagedCommands = useCrudStore((s) => s.stagedCommands.get(tableKey));
+
+  // Apply staged edits to raw documents for tree/JSON views
+  const documentsWithStagedEdits = useMemo(() => {
+    if (!stagedCommands || stagedCommands.length === 0) return filteredRawDocuments;
+
+    // Collect edits by document _id: Map<idString, Map<fieldPath, newValue>>
+    const editsByDoc = new Map<string, Map<string, unknown>>();
+    for (const cmd of stagedCommands) {
+      if (cmd.type !== "data.update" || cmd.state !== "staged") continue;
+      const payload = cmd.payload as { primaryKeys?: Record<string, unknown>; column?: string; newValue?: unknown };
+      const idVal = payload.primaryKeys?._id;
+      if (idVal === undefined || idVal === null || !payload.column) continue;
+      const idKey = typeof idVal === "object" && idVal !== null && "$oid" in idVal
+        ? String((idVal as Record<string, unknown>).$oid)
+        : String(idVal);
+      if (!editsByDoc.has(idKey)) editsByDoc.set(idKey, new Map());
+      editsByDoc.get(idKey)!.set(payload.column, payload.newValue);
+    }
+
+    if (editsByDoc.size === 0) return filteredRawDocuments;
+
+    return filteredRawDocuments.map((doc) => {
+      const idVal = doc._id;
+      if (idVal === undefined || idVal === null) return doc;
+      const idKey = typeof idVal === "object" && idVal !== null && "$oid" in idVal
+        ? String((idVal as Record<string, unknown>).$oid)
+        : String(idVal);
+      const edits = editsByDoc.get(idKey);
+      if (!edits) return doc;
+
+      // Deep clone and apply edits
+      const patched = JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+      for (const [fieldPath, newValue] of edits) {
+        const parts = fieldPath.split(".");
+        let target: Record<string, unknown> = patched;
+        for (let i = 0; i < parts.length - 1; i++) {
+          const part = parts[i]!;
+          if (target[part] && typeof target[part] === "object") {
+            target = target[part] as Record<string, unknown>;
+          } else {
+            break;
+          }
+        }
+        const lastPart = parts[parts.length - 1];
+        if (lastPart) {
+          target[lastPart] = newValue;
+        }
+      }
+      return patched;
+    });
+  }, [filteredRawDocuments, stagedCommands]);
+
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;
   const errorMessage = data.error ? data.error.message : null;
@@ -605,7 +663,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
           <DocumentTreeView
-            documents={filteredRawDocuments}
+            documents={documentsWithStagedEdits}
             className="min-h-0 flex-1 px-1.5"
             hasMore={data.hasMore}
             isLoadingMore={data.isLoadingMore}
@@ -630,7 +688,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
           <DocumentJsonView
-            documents={filteredRawDocuments}
+            documents={documentsWithStagedEdits}
             className="min-h-0 flex-1"
           />
           <DataGridStatusBar
