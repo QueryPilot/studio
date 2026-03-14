@@ -14,7 +14,6 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   IconChevronRight,
-  IconChevronDown,
   IconPencil,
   IconCheck,
   IconX,
@@ -566,21 +565,22 @@ const TreeValueNode = memo(function TreeValueNode({
         className="select-text group/node"
         style={{ paddingLeft: depth > 0 ? 16 : 0 }}
       >
-        <div className="flex items-center gap-1 py-0.5 hover:bg-muted/30 rounded">
+        <div className="flex items-center gap-1 py-0.5 rounded hover:bg-muted/30">
           <button
             type="button"
             onClick={toggleExpanded}
             className="flex items-center gap-1 flex-1 text-left min-w-0"
           >
-            {expanded ? (
-              <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
-            ) : (
-              <IconChevronRight className="size-3 shrink-0 text-muted-foreground" />
-            )}
+            <IconChevronRight
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+                expanded && "rotate-90",
+              )}
+            />
             <span className="font-mono text-[11px] text-foreground/80 shrink-0">
               {fieldKey}
             </span>
-            <span className="text-[10px] text-muted-foreground/60 shrink-0">
+            <span className="text-[11px] text-muted-foreground/60 shrink-0">
               {type}
             </span>
             <span className="text-[11px] text-muted-foreground shrink-0">
@@ -600,9 +600,9 @@ const TreeValueNode = memo(function TreeValueNode({
               onClick={() => {
                 setEditing(true);
               }}
-              className="opacity-0 group-hover/node:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0 transition-opacity"
+              className="opacity-0 group-hover/node:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0"
             >
-              <IconPencil className="size-3" />
+              <IconPencil className="size-3.5" />
             </button>
           )}
         </div>
@@ -644,10 +644,10 @@ const TreeValueNode = memo(function TreeValueNode({
       className="flex items-baseline gap-1 py-0.5 select-text group/leaf"
       style={{ paddingLeft: depth > 0 ? 16 : 0 }}
     >
-      <span className="ml-4 font-mono text-[11px] text-foreground/80 shrink-0">
+      <span className="ml-5 font-mono text-[11px] text-foreground/80 shrink-0">
         {fieldKey}
       </span>
-      <span className="text-[10px] text-muted-foreground/60 shrink-0">
+      <span className="text-[11px] text-muted-foreground/60 shrink-0">
         {type}
       </span>
       <span className="text-[11px] text-muted-foreground">:</span>
@@ -671,9 +671,9 @@ const TreeValueNode = memo(function TreeValueNode({
               onClick={() => {
                 setEditing(true);
               }}
-              className="opacity-0 group-hover/leaf:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0 transition-opacity"
+              className="opacity-0 group-hover/leaf:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0"
             >
-              <IconPencil className="size-3" />
+              <IconPencil className="size-3.5" />
             </button>
           )}
         </>
@@ -826,11 +826,11 @@ const DocumentCard = memo(function DocumentCard({
           onOpenChange={() => {
             toggleExpanded();
           }}
-          className="rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border group/card"
+          className="rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden hover:border-border group/card"
         >
           {/* Header */}
           <div className="relative flex items-center">
-            <CollapsibleTrigger className="flex items-center gap-2 px-3 py-2 flex-1 min-w-0 text-left hover:bg-muted/30 transition-colors">
+            <CollapsibleTrigger className="flex items-center gap-2 px-3 py-2 flex-1 min-w-0 text-left hover:bg-muted/30">
               <IconChevronRight
                 className={cn(
                   "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
