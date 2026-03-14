@@ -548,65 +548,83 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   );
   const stagedCommands = useCrudStore((s) => s.stagedCommands.get(tableKey));
 
-  // Apply staged edits to raw documents for tree/JSON views
+  // Apply staged edits + append staged inserts for tree/JSON views
   const documentsWithStagedEdits = useMemo(() => {
     if (!stagedCommands || stagedCommands.length === 0)
       return filteredRawDocuments;
 
-    // Collect edits by document _id: Map<idString, Map<fieldPath, newValue>>
+    // 1. Collect field edits by document _id
     const editsByDoc = new Map<string, Map<string, unknown>>();
+    // 2. Collect staged inserts
+    const stagedInserts: Record<string, unknown>[] = [];
+
     for (const cmd of stagedCommands) {
-      if (cmd.type !== "data.update" || cmd.state !== "staged") continue;
-      const payload = cmd.payload as {
-        primaryKeys?: Record<string, unknown>;
-        column?: string;
-        newValue?: unknown;
-      };
-      const idVal = payload.primaryKeys?._id;
-      if (idVal === undefined || idVal === null || !payload.column) continue;
-      const idKey =
-        typeof idVal === "object" && "$oid" in idVal
-          ? String((idVal as Record<string, unknown>).$oid)
-          : String(idVal);
-      if (!editsByDoc.has(idKey)) editsByDoc.set(idKey, new Map());
-      editsByDoc.get(idKey)?.set(payload.column, payload.newValue);
-    }
+      if (cmd.state !== "staged") continue;
 
-    if (editsByDoc.size === 0) return filteredRawDocuments;
+      if (cmd.type === "data.update") {
+        const payload = cmd.payload as {
+          primaryKeys?: Record<string, unknown>;
+          column?: string;
+          newValue?: unknown;
+        };
+        const idVal = payload.primaryKeys?._id;
+        if (idVal === undefined || idVal === null || !payload.column) continue;
+        const idKey =
+          typeof idVal === "object" && "$oid" in idVal
+            ? String((idVal as Record<string, unknown>).$oid)
+            : String(idVal);
+        if (!editsByDoc.has(idKey)) editsByDoc.set(idKey, new Map());
+        editsByDoc.get(idKey)?.set(payload.column, payload.newValue);
+      }
 
-    return filteredRawDocuments.map((doc) => {
-      const idVal = doc._id;
-      if (idVal === undefined || idVal === null) return doc;
-      const idKey =
-        typeof idVal === "object" && idVal !== null && "$oid" in idVal
-          ? String((idVal as Record<string, unknown>).$oid)
-          : String(idVal);
-      const edits = editsByDoc.get(idKey);
-      if (!edits) return doc;
-
-      // Deep clone and apply edits
-      const patched = JSON.parse(JSON.stringify(doc)) as Record<
-        string,
-        unknown
-      >;
-      for (const [fieldPath, newValue] of edits) {
-        const parts = fieldPath.split(".");
-        let target: Record<string, unknown> = patched;
-        for (let i = 0; i < parts.length - 1; i++) {
-          const part = parts[i]!;
-          if (target[part] && typeof target[part] === "object") {
-            target = target[part] as Record<string, unknown>;
-          } else {
-            break;
-          }
-        }
-        const lastPart = parts[parts.length - 1];
-        if (lastPart) {
-          target[lastPart] = newValue;
+      if (cmd.type === "data.insert") {
+        const payload = cmd.payload as { values?: Record<string, unknown> };
+        if (payload.values) {
+          stagedInserts.push(payload.values);
         }
       }
-      return patched;
-    });
+    }
+
+    // Apply edits to existing documents
+    let result = filteredRawDocuments;
+    if (editsByDoc.size > 0) {
+      result = filteredRawDocuments.map((doc) => {
+        const idVal = doc._id;
+        if (idVal === undefined || idVal === null) return doc;
+        const idKey =
+          typeof idVal === "object" && idVal !== null && "$oid" in idVal
+            ? String((idVal as Record<string, unknown>).$oid)
+            : String(idVal);
+        const edits = editsByDoc.get(idKey);
+        if (!edits) return doc;
+
+        const patched = JSON.parse(JSON.stringify(doc)) as Record<string, unknown>;
+        for (const [fieldPath, newValue] of edits) {
+          const parts = fieldPath.split(".");
+          let target: Record<string, unknown> = patched;
+          for (let i = 0; i < parts.length - 1; i++) {
+            const part = parts[i]!;
+            if (target[part] && typeof target[part] === "object") {
+              target = target[part] as Record<string, unknown>;
+            } else {
+              break;
+            }
+          }
+          const lastPart = parts[parts.length - 1];
+          if (lastPart) {
+            target[lastPart] = newValue;
+          }
+        }
+        return patched;
+      });
+    }
+
+    // Append staged inserts at the end
+    if (stagedInserts.length > 0) {
+      result = [...result, ...stagedInserts];
+    }
+
+    return result;
   }, [filteredRawDocuments, stagedCommands]);
 
   // Set of document IDs that have staged edits (for showing undo button)
