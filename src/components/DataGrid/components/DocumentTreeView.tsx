@@ -1349,6 +1349,55 @@ export const DocumentTreeView = memo(function DocumentTreeView({
             <span className="text-xs">Loading more documents...</span>
           </div>
         )}
+
+        {/* Expand/Collapse All — bottom-right floating */}
+        {documents.length > 0 && (
+          <div className="sticky bottom-2 flex justify-end pr-3 pointer-events-none">
+            <div className="pointer-events-auto flex items-center gap-1 bg-card border border-border/50 rounded-lg px-1.5 py-1 shadow-sm">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Expand all document cards
+                  setExpandedPaths((prev) => {
+                    const next = new Set(prev);
+                    const keys = virtualizer.getVirtualItems().map((v) => v.key);
+                    for (const key of keys) {
+                      next.add(`__card__${String(key)}`);
+                    }
+                    // Also expand all loaded docs not in view
+                    for (let i = 0; i < documents.length; i++) {
+                      const doc = documents[i];
+                      const key = doc?._id ? formatObjectId(doc._id) : (
+                        identifierFields?.length
+                          ? identifierFields.map((f) => String(doc?.[f] ?? "")).join("·")
+                          : `doc-${i}`
+                      );
+                      next.add(`__card__${key}`);
+                    }
+                    return next;
+                  });
+                }}
+                className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted/50"
+                title="Expand all"
+              >
+                Expand All
+              </button>
+              <span className="text-border">|</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedPaths(new Set());
+                }}
+                className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted/50"
+                title="Collapse all"
+              >
+                Collapse All
+              </button>
+            </div>
+          </div>
+        )}
       </ContextMenuTrigger>
       <ContextMenuContent>
         {editable && onInsertDocument && (

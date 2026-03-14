@@ -46,6 +46,7 @@ import type { FilterColumnInfo } from "@/utils/filterParser";
 import { QuickFilter, type QuickFilterRef } from "../components/QuickFilter";
 import type { FilterMode } from "@/utils/filterParser";
 import type { CrudCommand, JsonValue } from "@/types/crud";
+import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 import { nanoid } from "nanoid";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
@@ -540,6 +541,14 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     [connectionId, database, collection],
   );
   const stagedCommands = useCrudStore((s) => s.stagedCommands.get(tableKey));
+
+  // Refetch data after CRUD commit — ensures tree/JSON views show fresh data
+  // (BaseDataGrid has its own invalidation hook, but it's unmounted in tree/JSON mode)
+  useTableInvalidation(connectionId, database, undefined, collection, () => {
+    void data.refetch();
+    const { clearCommittedChanges } = useCrudStore.getState();
+    clearCommittedChanges(tableKey);
+  });
 
   // Apply staged edits + append staged inserts for tree/JSON views
   const documentsWithStagedEdits = useMemo(() => {
