@@ -3,7 +3,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -126,7 +125,6 @@ export const MongoIndexesView = memo(function MongoIndexesView({
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
 
   // Key editor popover state
-  const popoverAnchorRef = useRef<HTMLDivElement>(null);
   const [keyEditorOpen, setKeyEditorOpen] = useState(false);
   const [keyEditorRowIndex, setKeyEditorRowIndex] = useState<number | null>(null);
   const [editKeyField, setEditKeyField] = useState("");
@@ -777,7 +775,7 @@ export const MongoIndexesView = memo(function MongoIndexesView({
       </div>
 
       {/* Grid or status */}
-      <div className="relative min-h-0 flex-1" ref={popoverAnchorRef}>
+      <div className="relative min-h-0 flex-1">
         {loading ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             Loading indexes...

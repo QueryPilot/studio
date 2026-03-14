@@ -32,6 +32,7 @@ import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 import { StageCard } from "./StageCard";
 import { StagePreview } from "./StagePreview";
 import { PipelineCodeView } from "./PipelineCodeView";
+import { nanoid } from "nanoid";
 import {
   DEFAULT_STAGE_TEMPLATES,
   parseAggregationStages,
@@ -94,11 +95,24 @@ export const MongoAggregationView = memo(function MongoAggregationView({
 
   const viewMode = workbenchState.aggregationViewMode ?? "visual";
 
-  // Stable IDs for DnD — we use index-based IDs regenerated when the list changes
-  const stageIds = useMemo(
-    () => stages.map((_, i) => `stage-${i}`),
-    [stages],
+  // Stable IDs for DnD — persist across reorders so React doesn't remount StageCards.
+  // Kept in state (not a ref) so it participates in rendering without violating lint rules.
+  const [stageKeys, setStageKeys] = useState<string[]>(() =>
+    stages.map(() => nanoid(8)),
   );
+
+  // Sync length: grow with new IDs when stages are added externally, trim when removed.
+  const stageIds = useMemo(() => {
+    if (stageKeys.length === stages.length) return stageKeys;
+    if (stageKeys.length < stages.length) {
+      const grown = [
+        ...stageKeys,
+        ...Array.from({ length: stages.length - stageKeys.length }, () => nanoid(8)),
+      ];
+      return grown;
+    }
+    return stageKeys.slice(0, stages.length);
+  }, [stages.length, stageKeys]);
 
   // -- Callbacks -------------------------------------------------------------
 
@@ -119,6 +133,7 @@ export const MongoAggregationView = memo(function MongoAggregationView({
     (template: string) => {
       const nextStages = [...stages, template];
       const nextEnabled = [...stageEnabled, true];
+      setStageKeys((prev) => [...prev, nanoid(8)]);
       updateStages(nextStages, nextEnabled);
       setSelectedStageIndex(nextStages.length - 1);
     },
@@ -147,6 +162,7 @@ export const MongoAggregationView = memo(function MongoAggregationView({
     (index: number) => {
       const nextStages = stages.filter((_, i) => i !== index);
       const nextEnabled = stageEnabled.filter((_, i) => i !== index);
+      setStageKeys((prev) => prev.filter((_, i) => i !== index));
       updateStages(nextStages, nextEnabled);
       if (selectedStageIndex >= nextStages.length) {
         setSelectedStageIndex(Math.max(0, nextStages.length - 1));
@@ -170,6 +186,7 @@ export const MongoAggregationView = memo(function MongoAggregationView({
         oldIndex,
         newIndex,
       );
+      setStageKeys((prev) => arrayMove(prev, oldIndex, newIndex));
       updateStages(nextStages, nextEnabled);
 
       // Track the selected stage through reorder
@@ -271,14 +288,10 @@ export const MongoAggregationView = memo(function MongoAggregationView({
 
         {MORE_STAGES.length > 0 && (
           <DropdownMenu>
-            <DropdownMenuTrigger
-              render={(props) => (
-                <Button {...props} size="sm" variant="outline" className="gap-1 text-xs">
-                  <IconPlus className="h-3 w-3" />
-                  More...
-                </Button>
-              )}
-            />
+            <DropdownMenuTrigger render={<Button size="sm" variant="outline" className="gap-1 text-xs" />}>
+              <IconPlus className="h-3 w-3" />
+              More...
+            </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               {MORE_STAGES.map((name) => (
                 <DropdownMenuItem

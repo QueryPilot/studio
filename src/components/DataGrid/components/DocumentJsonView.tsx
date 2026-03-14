@@ -9,7 +9,7 @@ import { memo, useMemo } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { json as jsonLang } from "@codemirror/lang-json";
 import { bracketMatching } from "@codemirror/language";
-import { EditorView, type ViewUpdate } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
@@ -40,9 +40,6 @@ const JSON_BASE_EXTENSIONS = [
   EditorState.readOnly.of(true),
   EditorView.editable.of(false),
 ];
-
-// No-op change handler to satisfy CodeMirror type requirements
-const NOOP_CHANGE = (_value: string, _viewUpdate: ViewUpdate) => {};
 
 // ============================================================================
 // Component
@@ -86,7 +83,6 @@ export const DocumentJsonView = memo(function DocumentJsonView({
     <div className={cn("overflow-hidden", className)}>
       <CodeMirror
         value={jsonText}
-        onChange={NOOP_CHANGE}
         extensions={extensions}
         theme="none"
         height="100%"
