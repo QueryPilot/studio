@@ -79,6 +79,9 @@ export interface DocumentDataHookResult extends BaseDataHookResult {
   // Total count
   totalCount?: number;
   schemaSample?: DocumentSchemaSample;
+
+  /** Raw documents for alternative views (tree/JSON) */
+  rawDocuments: Record<string, unknown>[];
 }
 
 /**
