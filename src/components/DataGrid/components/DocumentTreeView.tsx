@@ -55,6 +55,8 @@ export interface DocumentTreeViewProps {
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
+  /** Unstage all pending edits for a document by index */
+  onDocumentUndo?: (docIndex: number) => void;
   onFieldEdit?: (
     docIndex: number,
     fieldPath: string,
@@ -630,7 +632,7 @@ interface DocumentCardProps {
   index: number;
   editable: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
-  onDocumentReplace?: (newDoc: Record<string, unknown>) => void;
+  onDocumentUndo?: () => void;
   expandedPaths: Set<string>;
   onToggleExpand: (path: string) => void;
   docKey: string;
@@ -642,7 +644,7 @@ const DocumentCard = memo(function DocumentCard({
   index,
   editable,
   onFieldEdit,
-  onDocumentReplace,
+  onDocumentUndo,
   expandedPaths,
   onToggleExpand,
   docKey,
@@ -683,11 +685,9 @@ const DocumentCard = memo(function DocumentCard({
   const handleUndo = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      // Undo all staged edits for this document by replacing with original
-      // The parent will handle this via onDocumentReplace with original data
-      onDocumentReplace?.(document);
+      onDocumentUndo?.();
     },
-    [document, onDocumentReplace],
+    [onDocumentUndo],
   );
 
   const handleEditDoc = useCallback(
@@ -922,6 +922,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   isLoadingMore,
   onLoadMore,
   onFieldEdit,
+  onDocumentUndo,
   editable = false,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -970,6 +971,14 @@ export const DocumentTreeView = memo(function DocumentTreeView({
       };
     },
     [onFieldEdit],
+  );
+
+  const makeUndoHandler = useCallback(
+    (docIndex: number) => {
+      if (!onDocumentUndo) return undefined;
+      return () => { onDocumentUndo(docIndex); };
+    },
+    [onDocumentUndo],
   );
 
   if (documents.length === 0) {
@@ -1021,6 +1030,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                 index={virtualRow.index}
                 editable={editable}
                 onFieldEdit={makeFieldEditHandler(virtualRow.index)}
+                onDocumentUndo={makeUndoHandler(virtualRow.index)}
                 expandedPaths={expandedPaths}
                 onToggleExpand={toggleExpand}
                 docKey={String(virtualRow.key)}

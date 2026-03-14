@@ -531,6 +531,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   const readOnly = false;
   const stageCommand = useCrudStore((s) => s.stageCommand);
+  const unstageCommands = useCrudStore((s) => s.unstageCommands);
 
   // Get staged update commands for this collection to overlay on tree/JSON views
   const tableKey = useMemo(
@@ -673,6 +674,31 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               const cmd = data.createTreeEditCommand(docIndex, fieldPath, newValue);
               if (cmd) {
                 stageCommand(cmd);
+              }
+            }}
+            onDocumentUndo={(docIndex) => {
+              if (!stagedCommands) return;
+              const doc = dedupedRawDocuments[docIndex];
+              if (!doc) return;
+              const docId = doc._id;
+              if (docId === undefined || docId === null) return;
+              const idKey = typeof docId === "object" && docId !== null && "$oid" in docId
+                ? String((docId as Record<string, unknown>).$oid)
+                : String(docId);
+              // Find all staged update commands for this document and unstage them
+              const idsToUnstage = stagedCommands
+                .filter((cmd) => {
+                  if (cmd.type !== "data.update" || cmd.state !== "staged") return false;
+                  const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys?._id;
+                  if (pk === undefined || pk === null) return false;
+                  const pkKey = typeof pk === "object" && pk !== null && "$oid" in pk
+                    ? String((pk as Record<string, unknown>).$oid)
+                    : String(pk);
+                  return pkKey === idKey;
+                })
+                .map((cmd) => cmd.id);
+              if (idsToUnstage.length > 0) {
+                unstageCommands(idsToUnstage);
               }
             }}
           />
