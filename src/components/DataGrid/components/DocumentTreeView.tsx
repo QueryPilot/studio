@@ -733,7 +733,7 @@ const DocumentCard = memo(function DocumentCard({
       className="rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border group/card"
     >
       {/* Header */}
-      <div className="flex items-center">
+      <div className="relative flex items-center">
         <CollapsibleTrigger
           className="flex items-center gap-2 px-3 py-2 flex-1 min-w-0 text-left hover:bg-muted/30 transition-colors"
         >
@@ -752,14 +752,14 @@ const DocumentCard = memo(function DocumentCard({
             {displayId}
           </span>
           {!expanded && (
-            <span className="font-mono text-[11px] text-muted-foreground truncate">
+            <span className="font-mono text-[11px] text-muted-foreground truncate pr-20">
               {previewText}
             </span>
           )}
         </CollapsibleTrigger>
 
-        {/* Action buttons — right side, show on hover */}
-        <div className="flex items-center gap-0.5 pr-2 opacity-0 group-hover/card:opacity-100 transition-opacity">
+        {/* Action buttons — absolutely positioned to avoid layout shift */}
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover/card:opacity-100 transition-opacity bg-card rounded px-1">
           <button
             type="button"
             onClick={handleCopy}
