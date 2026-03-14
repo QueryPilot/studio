@@ -1059,21 +1059,16 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     setShowIdentifierSelector(false);
   }, []);
 
-  // --- Loading States ---
-  if (isLoading) {
-    return <DataGridSkeleton />;
-  }
-
-  // View mode toggle (Table / Tree / JSON)
+  // View mode toggle (Table / Tree / JSON) — must be before early returns
   const [viewMode, setViewMode] = useState<"table" | "tree" | "json">("table");
 
   // Convert SQL rows to plain objects for tree/JSON views
   const plainDocuments = useMemo(() => {
-    if (viewMode === "table") return []; // Don't compute when not needed
+    if (viewMode === "table") return [];
     return rows.map((row) => {
       const doc: Record<string, unknown> = {};
       for (const [key, cell] of Object.entries(row)) {
-        if (key.startsWith("__")) continue; // Skip internal fields
+        if (key.startsWith("__")) continue;
         if (cell && typeof cell === "object" && "value" in cell) {
           doc[key] = (cell as { value: unknown }).value;
         } else {
@@ -1083,6 +1078,11 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       return doc;
     });
   }, [rows, viewMode]);
+
+  // --- Loading States ---
+  if (isLoading) {
+    return <DataGridSkeleton />;
+  }
 
   // Don't hide the grid when empty - keep headers/filters visible
   // Show overlay message inside the grid instead
