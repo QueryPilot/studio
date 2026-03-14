@@ -1065,25 +1065,28 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   // Convert SQL rows to plain objects for tree/JSON views
   const plainDocuments = useMemo(() => {
     if (viewMode === "table") return [];
-    // Build field -> column name map
     const fieldToName = new Map<string, string>();
-    for (const col of columns) {
-      fieldToName.set(col.field, col.title ?? col.field);
-    }
+    const internalFields = new Set<string>();
+    columnMeta.forEach((meta, index) => {
+      const field = `col_${index}`;
+      if (meta.name.startsWith("__qp_fk__")) {
+        internalFields.add(field);
+      } else {
+        fieldToName.set(field, meta.name);
+      }
+    });
     return rows.map((row) => {
       const doc: Record<string, unknown> = {};
       for (const [field, cell] of Object.entries(row)) {
-        if (field.startsWith("__")) continue;
+        if (field.startsWith("__") || internalFields.has(field)) continue;
         const name = fieldToName.get(field) ?? field;
-        if (cell && typeof cell === "object" && "value" in cell) {
-          doc[name] = (cell as { value: unknown }).value;
-        } else {
-          doc[name] = cell;
-        }
+        doc[name] = cell && typeof cell === "object" && "value" in cell
+          ? (cell as { value: unknown }).value
+          : cell;
       }
       return doc;
     });
-  }, [rows, columns, viewMode]);
+  }, [rows, columnMeta, viewMode]);
 
   // --- Loading States ---
   if (isLoading) {
@@ -1096,10 +1099,10 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   // --- Render ---
   return (
     <div className="flex h-full flex-col relative">
-      {/* Quick Filter - managed here, not in BaseDataGrid */}
-      {filterColumns.length > 0 && (
-        <div className="py-1.5 px-1">
-          <div className="flex items-center gap-2">
+      {/* Quick Filter + View Mode Toggle + Inspector */}
+      <div className="py-1.5 px-1">
+        <div className="flex items-center gap-2">
+          {filterColumns.length > 0 && (
             <div className="flex-1 min-w-0">
               <QuickFilter
                 ref={quickFilterRef}
@@ -1116,30 +1119,30 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
                 clientSideFiltering={false}
               />
             </div>
-            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "table" | "tree" | "json")}>
-              <TabsList>
-                <TabsTrigger value="table"><IconTable /> Table</TabsTrigger>
-                <TabsTrigger value="tree"><IconListTree /> Tree</TabsTrigger>
-                <TabsTrigger value="json"><IconBraces /> JSON</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Button
-              size="icon"
-              variant="outline"
-              className="h-7 w-7 shrink-0"
-              onClick={() => {
-                setShowInspector((prev) => !prev);
-              }}
-            >
-              {showInspector ? (
-                <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
-              ) : (
-                <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          </div>
+          )}
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "table" | "tree" | "json")}>
+            <TabsList>
+              <TabsTrigger value="table"><IconTable /> Table</TabsTrigger>
+              <TabsTrigger value="tree"><IconListTree /> Tree</TabsTrigger>
+              <TabsTrigger value="json"><IconBraces /> JSON</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-7 w-7 shrink-0"
+            onClick={() => {
+              setShowInspector((prev) => !prev);
+            }}
+          >
+            {showInspector ? (
+              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+            ) : (
+              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
+            )}
+          </Button>
         </div>
-      )}
+      </div>
 
       {/* BaseDataGrid handles all CRUD operations internally */}
       {viewMode !== "table" && (
@@ -1149,6 +1152,9 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               documents={plainDocuments}
               className="min-h-0 flex-1 px-1.5"
               identifierFields={configuredIdentityColumns.length > 0 ? configuredIdentityColumns : undefined}
+              hasMore={hasNextPage}
+              isLoadingMore={isFetchingNextPage}
+              onLoadMore={fetchNextPage}
             />
           ) : (
             <DocumentJsonView
