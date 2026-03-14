@@ -1,11 +1,31 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
+import {
+  IconLoader2,
+  IconPlayerPlay,
+  IconSearch,
+  IconX,
+} from "@tabler/icons-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { MongoResultViewer } from "@/components/MongoQueryPanel/MongoResultViewer";
-import { normalizeMongoResult } from "@/components/MongoQueryPanel/mongo-result-state";
+import { Input } from "@/components/ui/input";
+import { DocumentDataGrid } from "@/components/DataGrid";
+import { CodeEditor } from "@/components/CodeEditor";
+import {
+  extractMongoResultDocuments,
+  formatMongoExecutionResult,
+  normalizeMongoResult,
+  type MongoExecutionResult,
+} from "@/components/MongoQueryPanel/mongo-result-state";
 import type { MongoResultViewMode } from "@/components/MongoQueryPanel/MongoQueryToolbar";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { detectStageType, parseAggregationStages } from "./utils";
@@ -43,11 +63,14 @@ export const StagePreview = memo(function StagePreview({
   autoPreview,
   onAutoPreviewChange,
 }: StagePreviewProps) {
-  const [result, setResult] = useState<ReturnType<typeof normalizeMongoResult> | null>(null);
-  const [resultViewMode, setResultViewMode] = useState<MongoResultViewMode>("data");
+  const [result, setResult] = useState<MongoExecutionResult | null>(null);
+  const [viewMode, setViewMode] = useState<MongoResultViewMode>("data");
   const [executionTime, setExecutionTime] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef(0);
 
   // Build the partial pipeline: only enabled stages up to selectedStageIndex
@@ -62,6 +85,29 @@ export const StagePreview = memo(function StagePreview({
   }, [stages, selectedStageIndex]);
 
   const isFullPipeline = selectedStageIndex >= totalStages - 1;
+
+  const documents = useMemo(
+    () => (result ? extractMongoResultDocuments(result) : null),
+    [result],
+  );
+
+  const formattedResult = useMemo(
+    () => (result ? formatMongoExecutionResult(result) : ""),
+    [result],
+  );
+
+  // Local search: filter documents by search query
+  const filteredDocuments = useMemo(() => {
+    if (!documents || !searchQuery.trim()) return documents;
+    const q = searchQuery.toLowerCase();
+    return documents.filter((doc) =>
+      JSON.stringify(doc).toLowerCase().includes(q),
+    );
+  }, [documents, searchQuery]);
+
+  const docCount = documents?.length ?? 0;
+  const filteredCount = filteredDocuments?.length ?? 0;
+  const isFiltered = searchQuery.trim().length > 0 && filteredCount !== docCount;
 
   const runPreview = useCallback(async () => {
     const parsed = parseAggregationStages(partialStages);
@@ -88,7 +134,7 @@ export const StagePreview = memo(function StagePreview({
     const start = performance.now();
     try {
       const adapter = new MongoDBAdapter(connectionId);
-      const documents = await adapter.aggregate(
+      const docs = await adapter.aggregate(
         collection,
         parsed.pipeline,
         database,
@@ -99,11 +145,11 @@ export const StagePreview = memo(function StagePreview({
       setResult(
         normalizeMongoResult({
           operation: "aggregate",
-          result: documents,
+          result: docs,
           collection,
         }),
       );
-      setResultViewMode("data");
+      setViewMode("data");
       setExecutionTime(Math.round(performance.now() - start));
     } catch (runError) {
       if (abortRef.current !== runId) return;
@@ -115,7 +161,7 @@ export const StagePreview = memo(function StagePreview({
           collection,
         }),
       );
-      setResultViewMode("json");
+      setViewMode("json");
       setExecutionTime(Math.round(performance.now() - start));
     } finally {
       if (abortRef.current === runId) {
@@ -137,100 +183,178 @@ export const StagePreview = memo(function StagePreview({
     };
   }, [autoPreview, runPreview]);
 
-  // Header label
-  const headerLabel = isFullPipeline
-    ? `Full Pipeline · ${totalStages} stage${totalStages === 1 ? "" : "s"}`
-    : `Stage ${selectedStageIndex + 1} Output · ${stageType}`;
+  // Focus search input when opened
+  useEffect(() => {
+    if (showSearch) {
+      searchInputRef.current?.focus();
+    }
+  }, [showSearch]);
+
+  // Keyboard shortcut: Cmd+F to toggle search
+  useEffect(() => {
+    // Search shortcut is handled by parent grid — no need for extra handler here
+  }, []);
+
+  const canRenderData = viewMode === "data" && result?.supportsDataView && filteredDocuments;
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded border">
-      {/* Header */}
-      <div className="flex flex-none items-center justify-between gap-2 border-b bg-muted/20 px-3 py-1.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-semibold truncate">
-            {headerLabel}
+      {/* Single merged header */}
+      <div className="flex flex-none items-center gap-2 border-b px-2 py-1">
+        {/* Stage label + stats */}
+        <span className="text-xs font-medium truncate min-w-0">
+          {isFullPipeline
+            ? `Pipeline · ${totalStages}`
+            : `Stage ${selectedStageIndex + 1} · ${stageType}`}
+        </span>
+
+        {executionTime !== null && (
+          <span className="text-[10px] text-muted-foreground flex-none">
+            {executionTime}ms
           </span>
-          {loading && (
-            <IconLoader2 className="h-3.5 w-3.5 flex-none animate-spin text-muted-foreground" />
-          )}
+        )}
+
+        {docCount > 0 && (
+          <span className="text-[10px] text-muted-foreground flex-none">
+            {isFiltered
+              ? `${filteredCount.toLocaleString()}/${docCount.toLocaleString()}`
+              : docCount.toLocaleString()}{" "}
+            docs
+          </span>
+        )}
+
+        {loading && (
+          <IconLoader2 className="h-3 w-3 flex-none animate-spin text-muted-foreground" />
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Search toggle */}
+        <Button
+          size="sm"
+          variant={showSearch ? "secondary" : "ghost"}
+          className="h-5 w-5 p-0"
+          onClick={() => {
+            setShowSearch((prev) => !prev);
+            if (showSearch) setSearchQuery("");
+          }}
+        >
+          <IconSearch className="h-3 w-3" />
+        </Button>
+
+        {/* Auto-preview toggle */}
+        {!autoPreview && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-5 gap-1 px-1.5 text-[10px]"
+            onClick={() => void runPreview()}
+            disabled={loading}
+          >
+            <IconPlayerPlay className="h-2.5 w-2.5" />
+          </Button>
+        )}
+
+        <div className="flex items-center gap-1">
+          <Switch
+            id="auto-preview"
+            checked={autoPreview}
+            onCheckedChange={onAutoPreviewChange}
+            className="scale-[0.6] origin-right"
+          />
+          <Label htmlFor="auto-preview" className="text-[10px] text-muted-foreground cursor-pointer leading-none">
+            Auto
+          </Label>
         </div>
 
-        <div className="flex items-center gap-2 flex-none">
-          {!autoPreview && (
+        {/* Data/JSON toggle */}
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => setViewMode(value as MongoResultViewMode)}
+        >
+          <TabsList className="h-5 p-0.5">
+            <TabsTrigger value="data" className="h-4 px-1.5 text-[10px]">
+              Data
+            </TabsTrigger>
+            <TabsTrigger value="json" className="h-4 px-1.5 text-[10px]">
+              JSON
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {/* Search bar (collapsible) */}
+      {showSearch && (
+        <div className="flex items-center gap-1 border-b px-2 py-1">
+          <IconSearch className="h-3 w-3 flex-none text-muted-foreground" />
+          <Input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search results..."
+            className="h-5 border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0"
+          />
+          {searchQuery && (
             <Button
               size="sm"
-              variant="outline"
-              className="h-6 gap-1 px-2 text-xs"
-              onClick={() => void runPreview()}
-              disabled={loading}
+              variant="ghost"
+              className="h-4 w-4 p-0"
+              onClick={() => setSearchQuery("")}
             >
-              <IconPlayerPlay className="h-3 w-3" />
-              Preview
+              <IconX className="h-2.5 w-2.5" />
             </Button>
           )}
-
-          <div className="flex items-center gap-1.5">
-            <Switch
-              id="auto-preview"
-              checked={autoPreview}
-              onCheckedChange={onAutoPreviewChange}
-              className="scale-75"
-            />
-            <Label htmlFor="auto-preview" className="text-[10px] text-muted-foreground cursor-pointer">
-              Auto
-            </Label>
-          </div>
-
-          <Tabs
-            value={resultViewMode}
-            onValueChange={(value) => {
-              setResultViewMode(value as MongoResultViewMode);
-            }}
-          >
-            <TabsList className="h-6 p-0.5">
-              <TabsTrigger value="data" className="h-5 px-2 text-xs">
-                Data
-              </TabsTrigger>
-              <TabsTrigger value="json" className="h-5 px-2 text-xs">
-                JSON
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
-      </div>
+      )}
 
       {/* Error display */}
       {error ? (
-        <div className="border-b border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+        <div className="border-b border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
           {error}
         </div>
       ) : null}
 
-      {/* Empty state when auto-preview is off and no result yet */}
+      {/* Empty state */}
       {!result && !loading && !error ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
           {autoPreview
-            ? "Select a stage to preview its output."
-            : "Click a stage, then click Preview to see its output."}
+            ? "Select a stage to preview."
+            : "Click a stage, then press play."}
         </div>
       ) : null}
 
-      {/* Results */}
+      {/* Results — rendered directly, no MongoResultViewer wrapper */}
       {(result || loading) ? (
         <div className="min-h-0 flex-1">
-          <MongoResultViewer
-            result={result}
-            viewMode={resultViewMode}
-            connectionId={connectionId}
-            database={database}
-            gridId={`mongo-agg-preview:${tabId}:${selectedStageIndex}`}
-            executionTime={executionTime}
-            onClearResults={() => {
-              setResult(null);
-              setExecutionTime(null);
-            }}
-            className="h-full"
-          />
+          {canRenderData ? (
+            <DocumentDataGrid
+              {...({
+                mode: "result",
+                gridId: `mongo-agg-preview:${tabId}:${selectedStageIndex}`,
+                connectionId,
+                database,
+                documents: filteredDocuments,
+                collection: result.collection,
+                className: "h-full",
+              } as ComponentProps<typeof DocumentDataGrid>)}
+            />
+          ) : result ? (
+            <div className="flex h-full flex-col">
+              {viewMode === "data" && !result.supportsDataView && (
+                <div className="border-b bg-muted/10 px-3 py-1.5 text-xs text-muted-foreground">
+                  Data view is unavailable for this result.
+                </div>
+              )}
+              <CodeEditor
+                value={formattedResult}
+                language="json"
+                readOnly={true}
+                lineNumbers={true}
+                className="h-full"
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
