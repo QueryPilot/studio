@@ -30,6 +30,8 @@ import {
   IconCopy,
   IconCode,
   IconArrowBackUp,
+  IconPlus,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import CodeMirror from "@uiw/react-codemirror";
@@ -40,6 +42,13 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { writeClipboardText } from "@/lib/clipboard";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
@@ -57,6 +66,10 @@ export interface DocumentTreeViewProps {
   onLoadMore?: () => void;
   /** Unstage all pending edits for a document by index */
   onDocumentUndo?: (docIndex: number) => void;
+  /** Insert a new empty document */
+  onInsertDocument?: () => void;
+  /** Delete a document by index */
+  onDeleteDocument?: (docIndex: number) => void;
   /** Set of document IDs (string) that have staged edits */
   stagedDocIds?: Set<string>;
   onFieldEdit?: (
@@ -636,6 +649,8 @@ interface DocumentCardProps {
   hasStagedEdits: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
   onDocumentUndo?: () => void;
+  onInsertDocument?: () => void;
+  onDeleteDocument?: () => void;
   expandedPaths: Set<string>;
   onToggleExpand: (path: string) => void;
   docKey: string;
@@ -649,6 +664,8 @@ const DocumentCard = memo(function DocumentCard({
   hasStagedEdits,
   onFieldEdit,
   onDocumentUndo,
+  onInsertDocument,
+  onDeleteDocument,
   expandedPaths,
   onToggleExpand,
   docKey,
@@ -731,6 +748,8 @@ const DocumentCard = memo(function DocumentCard({
   );
 
   return (
+    <ContextMenu>
+      <ContextMenuTrigger className="block">
     <Collapsible
       open={expanded}
       onOpenChange={() => toggleExpanded()}
@@ -829,6 +848,54 @@ const DocumentCard = memo(function DocumentCard({
         </CollapsibleContent>
       )}
     </Collapsible>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => {
+          writeClipboardText(JSON.stringify(document, null, 2)).catch(() => {});
+        }}>
+          <IconCopy className="size-3.5" />
+          Copy Document
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => {
+          const id = document._id;
+          const idStr = id ? formatObjectId(id) : "";
+          writeClipboardText(idStr).catch(() => {});
+        }}>
+          <IconCopy className="size-3.5" />
+          Copy _id
+        </ContextMenuItem>
+        {editable && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => setEditingDoc(true)}>
+              <IconCode className="size-3.5" />
+              Edit as JSON
+            </ContextMenuItem>
+            {onInsertDocument && (
+              <ContextMenuItem onClick={onInsertDocument}>
+                <IconPlus className="size-3.5" />
+                Insert Document
+              </ContextMenuItem>
+            )}
+            {hasStagedEdits && (
+              <ContextMenuItem onClick={() => onDocumentUndo?.()}>
+                <IconArrowBackUp className="size-3.5" />
+                Undo Changes
+              </ContextMenuItem>
+            )}
+            {onDeleteDocument && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onClick={onDeleteDocument}>
+                  <IconTrash className="size-3.5" />
+                  Delete Document
+                </ContextMenuItem>
+              </>
+            )}
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 
@@ -927,6 +994,8 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   onLoadMore,
   onFieldEdit,
   onDocumentUndo,
+  onInsertDocument,
+  onDeleteDocument,
   stagedDocIds,
   editable = false,
 }: DocumentTreeViewProps) {
@@ -986,6 +1055,14 @@ export const DocumentTreeView = memo(function DocumentTreeView({
     [onDocumentUndo],
   );
 
+  const makeDeleteHandler = useCallback(
+    (docIndex: number) => {
+      if (!onDeleteDocument) return undefined;
+      return () => { onDeleteDocument(docIndex); };
+    },
+    [onDeleteDocument],
+  );
+
   if (documents.length === 0) {
     return (
       <div
@@ -1037,6 +1114,8 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                 hasStagedEdits={stagedDocIds ? stagedDocIds.has(String(virtualRow.key)) : false}
                 onFieldEdit={makeFieldEditHandler(virtualRow.index)}
                 onDocumentUndo={makeUndoHandler(virtualRow.index)}
+                onInsertDocument={onInsertDocument}
+                onDeleteDocument={makeDeleteHandler(virtualRow.index)}
                 expandedPaths={expandedPaths}
                 onToggleExpand={toggleExpand}
                 docKey={String(virtualRow.key)}
