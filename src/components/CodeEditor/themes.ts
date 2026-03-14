@@ -333,8 +333,8 @@ export const createLintTooltipTheme = (isDark: boolean): Extension => {
     // Individual diagnostic messages
     ".cm-diagnostic": {
       padding: "6px 0",
-      borderBottom: `1px solid ${isDark ? "hsl(0 0% 15%)" : "hsl(0 0% 93%)"}`,
-      color: isDark ? "hsl(0 0% 85%)" : "hsl(0 0% 20%)",
+      borderBottom: "1px solid var(--border)",
+      color: "var(--foreground)",
       lineHeight: "1.5",
       whiteSpace: "normal",
       overflowWrap: "anywhere",
@@ -387,7 +387,7 @@ export const createLintTooltipTheme = (isDark: boolean): Extension => {
     },
     // Info severity
     ".cm-diagnostic-info": {
-      borderLeftColor: "hsl(221 83% 53%)", // primary blue
+      borderLeftColor: "oklch(0.75 0.16 70)", // primary amber
       borderLeftWidth: "3px",
       borderLeftStyle: "solid",
       paddingLeft: "8px",
@@ -398,12 +398,12 @@ export const createLintTooltipTheme = (isDark: boolean): Extension => {
       fontSize: "11px",
       textTransform: "uppercase",
       letterSpacing: "0.5px",
-      color: "hsl(221 83% 53%)",
+      color: "oklch(0.75 0.16 70)",
       marginRight: "6px",
     },
     // Hint severity (same as info)
     ".cm-diagnostic-hint": {
-      borderLeftColor: "hsl(221 83% 53%)",
+      borderLeftColor: "oklch(0.75 0.16 70)", // primary amber
       borderLeftWidth: "3px",
       borderLeftStyle: "solid",
       paddingLeft: "8px",
@@ -414,24 +414,24 @@ export const createLintTooltipTheme = (isDark: boolean): Extension => {
       fontSize: "11px",
       textTransform: "uppercase",
       letterSpacing: "0.5px",
-      color: "hsl(221 83% 53%)",
+      color: "oklch(0.75 0.16 70)",
       marginRight: "6px",
     },
     // Action buttons in tooltip
     ".cm-diagnosticAction": {
       marginTop: "8px",
       padding: "4px 8px",
-      backgroundColor: isDark ? "hsl(0 0% 15%)" : "hsl(0 0% 96%)",
-      border: `1px solid ${isDark ? "hsl(0 0% 20%)" : "hsl(0 0% 90%)"}`,
+      backgroundColor: "var(--muted)",
+      border: "1px solid var(--border)",
       borderRadius: "4px",
       fontSize: "12px",
       cursor: "pointer",
       transition: "all 0.15s",
-      color: isDark ? "hsl(0 0% 90%)" : "hsl(0 0% 10%)",
+      color: "var(--foreground)",
     },
     ".cm-diagnosticAction:hover": {
-      backgroundColor: isDark ? "hsl(0 0% 20%)" : "hsl(0 0% 90%)",
-      borderColor: "hsl(221 83% 53%)",
+      backgroundColor: "var(--accent)",
+      borderColor: "oklch(0.75 0.16 70)",
     },
   });
 };

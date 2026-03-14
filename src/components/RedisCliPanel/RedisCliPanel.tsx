@@ -122,7 +122,7 @@ function RedisTypeBadge({ type }: { type: string }) {
     bulk: "text-orange-600 bg-orange-500/10",
     status: "text-cyan-600 bg-cyan-500/10",
     error: "text-red-600 bg-red-500/10",
-    nil: "text-gray-500 bg-gray-500/10",
+    nil: "text-muted-foreground bg-muted",
   };
 
   return (

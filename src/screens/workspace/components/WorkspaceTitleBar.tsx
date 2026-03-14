@@ -621,7 +621,7 @@ export function WorkspaceTitleBar({
     if (!connectionHealth) {
       return databaseService.isConnectionActive(connectionId)
         ? "text-yellow-500" // Still connecting (waiting for health check)
-        : "text-gray-500"; // Actually disconnected
+        : "text-muted-foreground"; // Actually disconnected
     }
 
     switch (connectionHealth.status) {
@@ -632,7 +632,7 @@ export function WorkspaceTitleBar({
       case "error":
         return "text-red-500 font-semibold";
       default:
-        return "text-gray-500";
+        return "text-muted-foreground";
     }
   };
 
@@ -775,7 +775,7 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2.5 pl-26">
+      <div className="flex items-center gap-2.5 pl-20">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -960,7 +960,7 @@ export function WorkspaceTitleBar({
             connectionHealth?.status === "degraded" && "bg-yellow-500/10",
             connectionHealth?.status === "error" &&
               "bg-red-500/20 border border-red-500/30 animate-pulse",
-            (!connectionHealth || isConnecting) && "bg-gray-500/10",
+            (!connectionHealth || isConnecting) && "bg-muted-foreground/10",
           )}
           title={connectionHealth?.error || "Connection status"}
           data-tauri-drag-region

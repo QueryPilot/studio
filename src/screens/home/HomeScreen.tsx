@@ -43,7 +43,7 @@ export function HomeScreen() {
   }, [openConnectionForm]);
 
   return (
-    <div className="relative h-screen flex flex-col bg-secondary/80">
+    <div className="relative h-screen flex flex-col vibrancy-surface">
       {/* Drag region - top bar */}
       <div
         data-tauri-drag-region

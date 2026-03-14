@@ -14,6 +14,7 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { windowManager } from "@/services/windowManager";
 import { toast } from "sonner";
 import { buildConnectionUri } from "@/utils/connectionParser";
+import { getEnvColor } from "@/lib/envColors";
 
 interface ConnectionRowProps {
   connection: StoredConnection;
@@ -22,22 +23,10 @@ interface ConnectionRowProps {
   onToggleSelect?: (id: string) => void;
 }
 
-const TAG_COLORS: Record<string, { bg: string; text: string }> = {
-  local: { bg: "bg-gray-500/20", text: "text-gray-600 dark:text-gray-400" },
-  dev: { bg: "bg-blue-500/20", text: "text-blue-600 dark:text-blue-400" },
-  staging: {
-    bg: "bg-yellow-500/20",
-    text: "text-yellow-600 dark:text-yellow-400",
-  },
-  uat: { bg: "bg-amber-500/20", text: "text-amber-600 dark:text-amber-400" },
-  prod: { bg: "bg-red-500/20", text: "text-red-600 dark:text-red-400" },
-  production: { bg: "bg-red-500/20", text: "text-red-600 dark:text-red-400" },
-  test: { bg: "bg-green-500/20", text: "text-green-600 dark:text-green-400" },
-};
-
-function getTagColor(tag: string) {
-  const lower = tag.toLowerCase();
-  return TAG_COLORS[lower] || { bg: "bg-muted", text: "text-muted-foreground" };
+function getTagColor(tag: string): { bg: string; text: string } {
+  const entry = getEnvColor(tag.toLowerCase());
+  if (entry) return entry.subtle;
+  return { bg: "bg-muted", text: "text-muted-foreground" };
 }
 
 export function ConnectionRow({

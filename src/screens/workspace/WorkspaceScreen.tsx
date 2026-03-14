@@ -466,7 +466,7 @@ export function WorkspaceScreen() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-secondary/80">
+    <div className="flex flex-col h-screen overflow-hidden vibrancy-surface">
       {/* Title Bar */}
       <WorkspaceTitleBar connectionId={connectionId} isConnecting={isLoading} />
 

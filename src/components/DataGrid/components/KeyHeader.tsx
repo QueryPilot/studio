@@ -41,7 +41,7 @@ const TypeBadge = memo(function TypeBadge({ type }: { type: RedisType }) {
     set: 'bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/20',
     zset: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border-cyan-500/20',
     stream: 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20',
-    unknown: 'bg-gray-500/10 text-gray-700 dark:text-gray-300 border-gray-500/20',
+    unknown: 'bg-muted text-muted-foreground border-border',
   };
 
   const colorClass = colors[type] ?? colors.unknown;

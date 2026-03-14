@@ -829,7 +829,7 @@ export const IndexDesigner = memo(function IndexDesigner({
     <div className="flex flex-col h-full">
       {/* FK suggestion banner */}
       {uncoveredFkColumns.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 border-b text-xs text-blue-700 dark:text-blue-300">
+        <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b text-xs text-primary">
           <IconSparkles className="h-4 w-4 flex-shrink-0" />
           <span>
             {uncoveredFkColumns.length === 1
@@ -837,7 +837,7 @@ export const IndexDesigner = memo(function IndexDesigner({
               : `${uncoveredFkColumns.length} foreign key columns have no indexes.`}{" "}
             <button
               type="button"
-              className="underline font-medium hover:text-blue-900 dark:hover:text-blue-100"
+              className="underline font-medium hover:text-primary/80"
               onClick={handleAddFkIndexes}
             >
               Add indexes

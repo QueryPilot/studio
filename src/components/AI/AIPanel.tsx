@@ -2295,7 +2295,7 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
                 >
                   <IconCopy className="h-3 w-3" />
                 </button>
-                <pre className="max-h-48 overflow-auto rounded-md bg-[var(--code-bg,hsl(var(--muted)))] border border-border/40 px-2.5 py-2 text-[11px] leading-relaxed font-mono text-foreground/85 whitespace-pre-wrap break-all">
+                <pre className="max-h-48 overflow-auto rounded-md bg-muted border border-border/40 px-2.5 py-2 text-[11px] leading-relaxed font-mono text-foreground/85 whitespace-pre-wrap break-all">
                   {finalQuery}
                 </pre>
               </div>
