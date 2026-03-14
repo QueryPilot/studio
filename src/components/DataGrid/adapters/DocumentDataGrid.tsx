@@ -246,6 +246,23 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     [pathKey],
   );
 
+  // Client-side search text for tree/JSON views (active when filter mode is "search")
+  const clientSearchText = useMemo(() => {
+    if (documentFilter?.mode === "search" && "searchText" in documentFilter) {
+      return (documentFilter as { searchText?: string }).searchText ?? "";
+    }
+    return "";
+  }, [documentFilter]);
+
+  // Filter rawDocuments for tree/JSON views using the client search text
+  const filteredRawDocuments = useMemo(() => {
+    if (!clientSearchText) return data.rawDocuments;
+    const q = clientSearchText.toLowerCase();
+    return data.rawDocuments.filter((doc) =>
+      JSON.stringify(doc).toLowerCase().includes(q),
+    );
+  }, [data.rawDocuments, clientSearchText]);
+
   const filteredRows = useGridSearchWorker(
     data.rows,
     data.columns,
@@ -568,7 +585,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
           <DocumentTreeView
-            documents={data.rawDocuments}
+            documents={filteredRawDocuments}
             className="min-h-0 flex-1 px-1.5"
             hasMore={data.hasMore}
             isLoadingMore={data.isLoadingMore}
@@ -582,7 +599,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             }}
           />
           <DataGridStatusBar
-            loadedRows={data.rawDocuments.length}
+            loadedRows={filteredRawDocuments.length}
             estimatedTotal={data.totalCount}
             hasMore={data.hasMore}
             executionTime={data.executionTime}
@@ -593,11 +610,11 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
           <DocumentJsonView
-            documents={data.rawDocuments}
+            documents={filteredRawDocuments}
             className="min-h-0 flex-1"
           />
           <DataGridStatusBar
-            loadedRows={data.rawDocuments.length}
+            loadedRows={filteredRawDocuments.length}
             estimatedTotal={data.totalCount}
             hasMore={data.hasMore}
             executionTime={data.executionTime}
