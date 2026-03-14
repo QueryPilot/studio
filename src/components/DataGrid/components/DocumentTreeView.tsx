@@ -66,8 +66,8 @@ export interface DocumentTreeViewProps {
   onLoadMore?: () => void;
   /** Unstage all pending edits for a document by index */
   onDocumentUndo?: (docIndex: number) => void;
-  /** Insert a new empty document */
-  onInsertDocument?: () => void;
+  /** Insert a new document (receives the full document to insert) */
+  onInsertDocument?: (doc: Record<string, unknown>) => void;
   /** Delete a document by index */
   onDeleteDocument?: (docIndex: number) => void;
   /** Set of document IDs (string) that have staged edits */
@@ -649,8 +649,8 @@ interface DocumentCardProps {
   hasStagedEdits: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
   onDocumentUndo?: () => void;
-  onInsertDocument?: () => void;
   onDeleteDocument?: () => void;
+  onOpenInsertEditor?: () => void;
   expandedPaths: Set<string>;
   onToggleExpand: (path: string) => void;
   docKey: string;
@@ -664,8 +664,8 @@ const DocumentCard = memo(function DocumentCard({
   hasStagedEdits,
   onFieldEdit,
   onDocumentUndo,
-  onInsertDocument,
   onDeleteDocument,
+  onOpenInsertEditor,
   expandedPaths,
   onToggleExpand,
   docKey,
@@ -871,8 +871,8 @@ const DocumentCard = memo(function DocumentCard({
               <IconCode className="size-3.5" />
               Edit as JSON
             </ContextMenuItem>
-            {onInsertDocument && (
-              <ContextMenuItem onClick={onInsertDocument}>
+            {onOpenInsertEditor && (
+              <ContextMenuItem onClick={onOpenInsertEditor}>
                 <IconPlus className="size-3.5" />
                 Insert Document
               </ContextMenuItem>
@@ -1000,6 +1000,17 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   editable = false,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [showInsertEditor, setShowInsertEditor] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const insertThemeMode = resolvedTheme === "dark" ? "dark" : "light";
+
+  const handleInsertSave = useCallback(
+    (doc: Record<string, unknown>) => {
+      onInsertDocument?.(doc);
+      setShowInsertEditor(false);
+    },
+    [onInsertDocument],
+  );
 
   // Lifted expand state — persists across virtualizer mount/unmount cycles
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
@@ -1082,6 +1093,24 @@ export const DocumentTreeView = memo(function DocumentTreeView({
       className={cn("overflow-auto h-full", className)}
       style={{ contain: "strict" }}
     >
+      {/* Insert document editor — shown at top */}
+      {showInsertEditor && (
+        <div className="p-2 pb-0">
+          <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
+            <div className="flex items-center gap-2 mb-1.5">
+              <IconPlus className="size-3.5 text-primary" />
+              <span className="text-xs font-medium">Insert Document</span>
+            </div>
+            <DocumentJsonEditor
+              document={{ _id: generateObjectId() }}
+              themeMode={insertThemeMode}
+              onSave={handleInsertSave}
+              onCancel={() => setShowInsertEditor(false)}
+            />
+          </div>
+        </div>
+      )}
+
       <div
         className="p-2"
         style={{
@@ -1114,8 +1143,8 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                 hasStagedEdits={stagedDocIds ? stagedDocIds.has(String(virtualRow.key)) : false}
                 onFieldEdit={makeFieldEditHandler(virtualRow.index)}
                 onDocumentUndo={makeUndoHandler(virtualRow.index)}
-                onInsertDocument={onInsertDocument}
                 onDeleteDocument={makeDeleteHandler(virtualRow.index)}
+                onOpenInsertEditor={() => setShowInsertEditor(true)}
                 expandedPaths={expandedPaths}
                 onToggleExpand={toggleExpand}
                 docKey={String(virtualRow.key)}
