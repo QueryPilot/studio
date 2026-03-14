@@ -53,6 +53,8 @@ import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
 export interface DocumentTreeViewProps {
   documents: Record<string, unknown>[];
   className?: string;
+  /** Grid ID for persisting expand state across tab switches (session storage) */
+  gridId?: string;
   hasMore?: boolean;
   isLoadingMore?: boolean;
   onLoadMore?: () => void;
@@ -1119,6 +1121,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   onDeleteDocument,
   stagedDocIds,
   identifierFields,
+  gridId,
   editable = false,
   allowStructuralEdits = true,
 }: DocumentTreeViewProps) {
@@ -1133,16 +1136,36 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   const handleInsertSave = useCallback(
     (doc: Record<string, unknown>) => {
       onInsertDocument?.(doc);
-      // Keep editor open with a fresh template for the next document
       setInsertCounter((c) => c + 1);
     },
     [onInsertDocument],
   );
 
-  // Lifted expand state — persists across virtualizer mount/unmount cycles
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
-    () => new Set(),
-  );
+  // Expand state — persisted to sessionStorage so it survives tab switches
+  const storageKey = gridId ? `treeview-expanded:${gridId}` : undefined;
+
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    if (!storageKey) return new Set();
+    try {
+      const stored = sessionStorage.getItem(storageKey);
+      if (stored) return new Set(JSON.parse(stored) as string[]);
+    } catch { /* ignore */ }
+    return new Set();
+  });
+
+  // Persist to sessionStorage on changes (debounced)
+  const expandedPathsRef = useRef(expandedPaths);
+  expandedPathsRef.current = expandedPaths;
+  useEffect(() => {
+    if (!storageKey) return;
+    const timer = setTimeout(() => {
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify([...expandedPathsRef.current]));
+      } catch { /* ignore quota errors */ }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [expandedPaths, storageKey]);
+
   const toggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev);
@@ -1174,14 +1197,28 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   });
 
   // Infinite scroll: load more when scrolling near the bottom
+  const loadMoreRef = useRef({ hasMore, isLoadingMore, onLoadMore, docLen: documents.length });
+  loadMoreRef.current = { hasMore, isLoadingMore, onLoadMore, docLen: documents.length };
+
   useEffect(() => {
-    if (!hasMore || isLoadingMore || !onLoadMore) return;
-    const items = virtualizer.getVirtualItems();
-    const lastItem = items.at(-1);
-    if (lastItem && lastItem.index >= documents.length - 5) {
-      onLoadMore();
-    }
-  }, [hasMore, isLoadingMore, onLoadMore, documents.length, virtualizer]);
+    const el = parentRef.current;
+    if (!el) return;
+    const check = () => {
+      const { hasMore: hm, isLoadingMore: ilm, onLoadMore: olm, docLen } = loadMoreRef.current;
+      if (!hm || ilm || !olm) return;
+      const items = virtualizer.getVirtualItems();
+      const lastItem = items.at(-1);
+      if (lastItem && lastItem.index >= docLen - 5) {
+        olm();
+      }
+    };
+    // Check on scroll
+    const onScroll = () => { check(); };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // Also check on mount / data changes
+    check();
+    return () => { el.removeEventListener("scroll", onScroll); };
+  }, [virtualizer, documents.length]);
 
   // Memoize per-document edit handlers so cards don't re-render unnecessarily
   const makeFieldEditHandler = useCallback(
