@@ -27,6 +27,9 @@ import {
   IconX,
   IconLoader2,
   IconRefresh,
+  IconCopy,
+  IconCode,
+  IconArrowBackUp,
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import CodeMirror from "@uiw/react-codemirror";
@@ -37,6 +40,7 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { writeClipboardText } from "@/lib/clipboard";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
@@ -626,6 +630,7 @@ interface DocumentCardProps {
   index: number;
   editable: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
+  onDocumentReplace?: (newDoc: Record<string, unknown>) => void;
   expandedPaths: Set<string>;
   onToggleExpand: (path: string) => void;
   docKey: string;
@@ -637,12 +642,17 @@ const DocumentCard = memo(function DocumentCard({
   index,
   editable,
   onFieldEdit,
+  onDocumentReplace,
   expandedPaths,
   onToggleExpand,
   docKey,
 }: DocumentCardProps) {
   const cardPath = `__card__${docKey}`;
   const expanded = expandedPaths.has(cardPath);
+  const [editingDoc, setEditingDoc] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const themeMode = resolvedTheme === "dark" ? "dark" : "light";
 
   const toggleExpanded = useCallback(() => {
     onToggleExpand(cardPath);
@@ -659,59 +669,245 @@ const DocumentCard = memo(function DocumentCard({
     .map(([key, val]) => `${key}: ${formatValuePreview(val)}`)
     .join(", ");
 
+  const handleCopy = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      writeClipboardText(JSON.stringify(document, null, 2)).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }).catch(() => {});
+    },
+    [document],
+  );
+
+  const handleUndo = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      // Undo all staged edits for this document by replacing with original
+      // The parent will handle this via onDocumentReplace with original data
+      onDocumentReplace?.(document);
+    },
+    [document, onDocumentReplace],
+  );
+
+  const handleEditDoc = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setEditingDoc(true);
+    },
+    [],
+  );
+
+  const handleDocSave = useCallback(
+    (newDoc: Record<string, unknown>) => {
+      // Apply each changed field as an individual edit
+      const oldEntries = Object.entries(document);
+      const newEntries = Object.entries(newDoc);
+
+      // Update changed fields
+      for (const [key, newVal] of newEntries) {
+        if (key === "_id") continue; // Don't edit _id
+        const oldVal = document[key];
+        if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+          onFieldEdit?.(key, newVal);
+        }
+      }
+
+      // Handle removed fields (set to null — MongoDB $unset would be better but this works for staging)
+      for (const [key] of oldEntries) {
+        if (key === "_id") continue;
+        if (!(key in newDoc)) {
+          onFieldEdit?.(key, null);
+        }
+      }
+
+      setEditingDoc(false);
+    },
+    [document, onFieldEdit],
+  );
+
   return (
     <Collapsible
       open={expanded}
       onOpenChange={() => toggleExpanded()}
-      className={cn(
-        "rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border",
-      )}
+      className="rounded-lg border border-border/50 bg-card text-card-foreground overflow-hidden transition-colors hover:border-border group/card"
     >
       {/* Header */}
-      <CollapsibleTrigger
-        className="flex items-center gap-2 px-3 py-2 w-full text-left hover:bg-muted/30 transition-colors"
-      >
-        <IconChevronRight
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
-            expanded && "rotate-90",
-          )}
-        />
-        <span
-          className={cn(
-            "font-mono text-xs font-medium shrink-0",
-            BSON_TEXT_CLASSES.objectId,
-          )}
+      <div className="flex items-center">
+        <CollapsibleTrigger
+          className="flex items-center gap-2 px-3 py-2 flex-1 min-w-0 text-left hover:bg-muted/30 transition-colors"
         >
-          {displayId}
-        </span>
-        {!expanded && (
-          <span className="font-mono text-[11px] text-muted-foreground truncate">
-            {previewText}
+          <IconChevronRight
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+              expanded && "rotate-90",
+            )}
+          />
+          <span
+            className={cn(
+              "font-mono text-xs font-medium shrink-0",
+              BSON_TEXT_CLASSES.objectId,
+            )}
+          >
+            {displayId}
           </span>
-        )}
-      </CollapsibleTrigger>
+          {!expanded && (
+            <span className="font-mono text-[11px] text-muted-foreground truncate">
+              {previewText}
+            </span>
+          )}
+        </CollapsibleTrigger>
 
-      {/* Animated content */}
-      <CollapsibleContent>
-        <div className="border-t border-border/50 px-3 py-2">
-          {entries.map(([key, value]) => (
-            <TreeValueNode
-              key={key}
-              fieldKey={key}
-              value={value}
-              depth={0}
-              fieldPath={key}
-              expandKeyPrefix={docKey}
-              editable={editable}
-              onFieldEdit={onFieldEdit}
-              expandedPaths={expandedPaths}
-              onToggleExpand={onToggleExpand}
-            />
-          ))}
+        {/* Action buttons — right side, show on hover */}
+        <div className="flex items-center gap-0.5 pr-2 opacity-0 group-hover/card:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title="Copy document as JSON"
+          >
+            {copied ? <IconCheck className="size-3.5" /> : <IconCopy className="size-3.5" />}
+          </button>
+          {editable && (
+            <>
+              <button
+                type="button"
+                onClick={handleEditDoc}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="Edit document as JSON"
+              >
+                <IconCode className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={handleUndo}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                title="Undo changes"
+              >
+                <IconArrowBackUp className="size-3.5" />
+              </button>
+            </>
+          )}
         </div>
-      </CollapsibleContent>
+      </div>
+
+      {/* Full-document JSON editor */}
+      {editingDoc && (
+        <div className="border-t border-border/50 p-2">
+          <DocumentJsonEditor
+            document={document}
+            themeMode={themeMode}
+            onSave={handleDocSave}
+            onCancel={() => setEditingDoc(false)}
+          />
+        </div>
+      )}
+
+      {/* Animated field tree */}
+      {!editingDoc && (
+        <CollapsibleContent>
+          <div className="border-t border-border/50 px-3 py-2">
+            {entries.map(([key, value]) => (
+              <TreeValueNode
+                key={key}
+                fieldKey={key}
+                value={value}
+                depth={0}
+                fieldPath={key}
+                expandKeyPrefix={docKey}
+                editable={editable}
+                onFieldEdit={onFieldEdit}
+                expandedPaths={expandedPaths}
+                onToggleExpand={onToggleExpand}
+              />
+            ))}
+          </div>
+        </CollapsibleContent>
+      )}
     </Collapsible>
+  );
+});
+
+/** Full-document JSON editor (CodeMirror) shown when clicking the edit button */
+const DocumentJsonEditor = memo(function DocumentJsonEditor({
+  document,
+  themeMode,
+  onSave,
+  onCancel,
+}: {
+  document: Record<string, unknown>;
+  themeMode: "dark" | "light";
+  onSave: (doc: Record<string, unknown>) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(() => JSON.stringify(document, null, 2));
+  const [error, setError] = useState<string | null>(null);
+
+  const extensions = useMemo(
+    () => [...JSON_EXTENSIONS, ...getThemeExtensions(themeMode)],
+    [themeMode],
+  );
+
+  const handleSave = useCallback(() => {
+    try {
+      const parsed = JSON.parse(draft) as Record<string, unknown>;
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        setError("Must be a JSON object");
+        return;
+      }
+      setError(null);
+      onSave(parsed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Invalid JSON");
+    }
+  }, [draft, onSave]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSave();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    },
+    [handleSave, onCancel],
+  );
+
+  return (
+    <div onKeyDown={handleKeyDown}>
+      <div className="border border-border rounded overflow-hidden">
+        <CodeMirror
+          value={draft}
+          onChange={setDraft}
+          extensions={extensions}
+          basicSetup={false}
+          height="240px"
+          autoFocus
+        />
+      </div>
+      {error && (
+        <div className="text-xs text-destructive mt-1">{error}</div>
+      )}
+      <div className="flex items-center gap-1 mt-1.5">
+        <button
+          type="button"
+          onClick={handleSave}
+          className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
+        >
+          Save (Cmd+Enter)
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
+        >
+          Cancel (Esc)
+        </button>
+      </div>
+    </div>
   );
 });
 
