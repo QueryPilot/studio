@@ -1142,7 +1142,14 @@ export const DocumentTreeView = memo(function DocumentTreeView({
     overscan: 8,
     getItemKey: (index) => {
       const doc = documents[index];
-      return doc?._id ? formatObjectId(doc._id) : `doc-${index}`;
+      if (!doc) return `doc-${index}`;
+      // Use identifierFields (SQL PK) or _id (MongoDB) for stable keys
+      if (identifierFields && identifierFields.length > 0) {
+        const parts = identifierFields.map((f) => String(doc[f] ?? ""));
+        if (parts.some(Boolean)) return parts.join("·");
+      }
+      if (doc._id) return formatObjectId(doc._id);
+      return `doc-${index}`;
     },
   });
 

@@ -37,6 +37,8 @@ export interface GridPreferences {
     open: boolean;
     tab: string;
   };
+  /** Data view mode (table, tree, json) */
+  dataViewMode?: "table" | "tree" | "json";
   createdAt: number;
   updatedAt: number;
 }
@@ -71,6 +73,7 @@ export interface GridPreferencesState {
   ) => void;
   setStructureSearch: (gridId: string, search: string | undefined) => void;
   setInspector: (gridId: string, inspector: { open: boolean; tab: string } | undefined) => void;
+  setDataViewMode: (gridId: string, mode: "table" | "tree" | "json" | undefined) => void;
   reset: (gridId: string) => void;
   resetAll: () => void;
 }
@@ -291,6 +294,17 @@ export const useGridPreferencesStore = create<GridPreferencesState>()(
             prefs.inspector = inspector;
             prefs.updatedAt = Date.now();
           }, false, `gridPreferences/setInspector:${gridId}`);
+        },
+        setDataViewMode: (gridId, mode) => {
+          set((state) => {
+            const prefs =
+              state.preferences[gridId] ?? createDefaultPreferences();
+            if (!state.preferences[gridId]) {
+              state.preferences[gridId] = prefs as any;
+            }
+            prefs.dataViewMode = mode;
+            prefs.updatedAt = Date.now();
+          }, false, `gridPreferences/setDataViewMode:${gridId}`);
         },
         reset: (gridId) => {
           set((state) => {

@@ -29,7 +29,10 @@ import {
   IconBraces,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { nanoid } from "nanoid";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCrudStore } from "@/stores/crudStore";
+import type { CrudCommand, JsonValue } from "@/types/crud";
 import type { InspectorTab } from "../components/inspector";
 import { BaseDataGrid } from "../base/BaseDataGrid";
 import { DocumentTreeView } from "../components/DocumentTreeView";
@@ -1060,7 +1063,43 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   }, []);
 
   // View mode toggle (Table / Tree / JSON) — must be before early returns
-  const [viewMode, setViewMode] = useState<"table" | "tree" | "json">("table");
+  const persistedViewMode = useGridPreferencesStore(
+    (s) => s.preferences[gridId]?.dataViewMode,
+  );
+  const setPersistedViewMode = useGridPreferencesStore((s) => s.setDataViewMode);
+  const [viewMode, setViewModeLocal] = useState<"table" | "tree" | "json">(
+    () => persistedViewMode ?? "table",
+  );
+  const setViewMode = useCallback(
+    (mode: "table" | "tree" | "json") => {
+      setViewModeLocal(mode);
+      setPersistedViewMode(gridId, mode === "table" ? undefined : mode);
+    },
+    [gridId, setPersistedViewMode],
+  );
+
+  // CRUD store for tree view edits
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const unstageCommands = useCrudStore((s) => s.unstageCommands);
+  const tableKey = useMemo(
+    () => `${connectionId}:${database ?? ""}:${schema ?? "public"}:${table}`,
+    [connectionId, database, schema, table],
+  );
+  const stagedCommands = useCrudStore((s) => s.stagedCommands.get(tableKey));
+
+  // Set of document PKs that have staged edits (for tree view undo button)
+  const stagedDocIds = useMemo(() => {
+    if (!stagedCommands || stagedCommands.length === 0 || !configuredIdentityColumns.length) return undefined;
+    const ids = new Set<string>();
+    for (const cmd of stagedCommands) {
+      if (cmd.type !== "data.update" || cmd.state !== "staged") continue;
+      const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys;
+      if (!pk) continue;
+      const key = configuredIdentityColumns.map((col) => String(pk[col] ?? "")).join("·");
+      ids.add(key);
+    }
+    return ids.size > 0 ? ids : undefined;
+  }, [stagedCommands, configuredIdentityColumns]);
 
   // Convert SQL rows to plain objects for tree/JSON views
   const plainDocuments = useMemo(() => {
@@ -1155,6 +1194,51 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               hasMore={hasNextPage}
               isLoadingMore={isFetchingNextPage}
               onLoadMore={fetchNextPage}
+              editable={!isReadOnly && hasConfiguredIdentity}
+              stagedDocIds={stagedDocIds}
+              onFieldEdit={(docIndex, fieldPath, newValue) => {
+                if (!commandFactory) return;
+                const doc = plainDocuments[docIndex];
+                if (!doc) return;
+                // Build primary keys from identifierFields
+                const primaryKeys: Record<string, JsonValue> = {};
+                for (const col of configuredIdentityColumns) {
+                  primaryKeys[col] = (doc[col] ?? null) as JsonValue;
+                }
+                const cmd: CrudCommand = {
+                  id: nanoid(),
+                  type: "data.update",
+                  target: { connectionId, database: database ?? "", schema, table },
+                  payload: {
+                    column: fieldPath,
+                    primaryKeys,
+                    oldValue: (doc[fieldPath] ?? null) as JsonValue,
+                    newValue: newValue as JsonValue,
+                  },
+                  metadata: {
+                    timestamp: new Date().toISOString(),
+                    description: `Update ${fieldPath}`,
+                  },
+                  state: "staged",
+                };
+                stageCommand(cmd);
+              }}
+              onDocumentUndo={(docIndex) => {
+                if (!stagedCommands) return;
+                const doc = plainDocuments[docIndex];
+                if (!doc) return;
+                const pkKey = configuredIdentityColumns.map((col) => String(doc[col] ?? "")).join("·");
+                const idsToUnstage = stagedCommands
+                  .filter((cmd) => {
+                    if (cmd.type !== "data.update" || cmd.state !== "staged") return false;
+                    const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys;
+                    if (!pk) return false;
+                    const key = configuredIdentityColumns.map((col) => String(pk[col] ?? "")).join("·");
+                    return key === pkKey;
+                  })
+                  .map((cmd) => cmd.id);
+                if (idsToUnstage.length > 0) unstageCommands(idsToUnstage);
+              }}
             />
           ) : (
             <DocumentJsonView
