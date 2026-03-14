@@ -533,6 +533,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   const readOnly = false;
   const stageCommand = useCrudStore((s) => s.stageCommand);
+  const expandCollapseRef = useRef<{ expandAll: () => void; collapseAll: () => void } | null>(null);
   const unstageCommands = useCrudStore((s) => s.unstageCommands);
 
   // Get staged update commands for this collection to overlay on tree/JSON views
@@ -729,6 +730,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             isLoadingMore={data.isLoadingMore}
             onLoadMore={data.fetchNextPage}
             editable={!readOnly}
+            onExpandCollapseRef={expandCollapseRef}
             onFieldEdit={(docIndex, fieldPath, newValue) => {
               // docIndex is into filteredRawDocuments, find the original index
               const doc = filteredRawDocuments[docIndex];
@@ -809,6 +811,13 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             estimatedTotal={data.totalCount}
             hasMore={data.hasMore}
             executionTime={data.executionTime}
+            leftContent={
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => expandCollapseRef.current?.expandAll()} className="text-[11px] hover:text-foreground">Expand All</button>
+                <span className="text-border/50">|</span>
+                <button type="button" onClick={() => expandCollapseRef.current?.collapseAll()} className="text-[11px] hover:text-foreground">Collapse All</button>
+              </div>
+            }
           />
         </div>
       )}

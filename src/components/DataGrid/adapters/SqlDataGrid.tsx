@@ -1080,6 +1080,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
   // CRUD store for tree view edits
   const stageCommand = useCrudStore((s) => s.stageCommand);
+  const expandCollapseRef = useRef<{ expandAll: () => void; collapseAll: () => void } | null>(null);
   const unstageCommands = useCrudStore((s) => s.unstageCommands);
   const tableKey = useMemo(
     () => `${connectionId}:${database ?? ""}:${schema ?? "public"}:${table}`,
@@ -1253,6 +1254,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               onLoadMore={fetchNextPage}
               editable={!isReadOnly && hasConfiguredIdentity}
               allowStructuralEdits={false}
+              onExpandCollapseRef={expandCollapseRef}
               stagedDocIds={stagedDocIds}
               onFieldEdit={(docIndex, fieldPath, newValue) => {
                 if (!commandFactory) return;
@@ -1334,6 +1336,13 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
             isEstimatedCount={isEstimatedCount}
             hasMore={hasNextPage}
             executionTime={executionTime}
+            leftContent={viewMode === "tree" ? (
+              <div className="flex items-center gap-1">
+                <button type="button" onClick={() => expandCollapseRef.current?.expandAll()} className="text-[11px] hover:text-foreground">Expand All</button>
+                <span className="text-border/50">|</span>
+                <button type="button" onClick={() => expandCollapseRef.current?.collapseAll()} className="text-[11px] hover:text-foreground">Collapse All</button>
+              </div>
+            ) : undefined}
           />
         </div>
       )}

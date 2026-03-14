@@ -74,6 +74,8 @@ export interface DocumentTreeViewProps {
     newValue: unknown,
   ) => void;
   editable?: boolean;
+  /** Callback to get expand/collapse all handlers for external UI (status bar) */
+  onExpandCollapseRef?: React.MutableRefObject<{ expandAll: () => void; collapseAll: () => void } | null>;
   /** Allow adding/removing fields via JSON editor. False for SQL (fixed schema). Default: true */
   allowStructuralEdits?: boolean;
 }
@@ -1124,6 +1126,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   gridId,
   editable = false,
   allowStructuralEdits = true,
+  onExpandCollapseRef,
 }: DocumentTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [showInsertEditor, setShowInsertEditor] = useState(false);
@@ -1177,6 +1180,43 @@ export const DocumentTreeView = memo(function DocumentTreeView({
       return next;
     });
   }, []);
+
+  // Expose expand/collapse all for external UI (status bar)
+  const expandAll = useCallback(() => {
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      for (let i = 0; i < documents.length; i++) {
+        const doc = documents[i];
+        if (!doc) continue;
+        let key: string;
+        if (identifierFields?.length) {
+          key = identifierFields.map((f) => String(doc[f] ?? "")).join("·");
+        } else if (doc._id) {
+          key = formatObjectId(doc._id);
+        } else {
+          key = `doc-${i}`;
+        }
+        next.add(`__card__${key}`);
+      }
+      return next;
+    });
+  }, [documents, identifierFields]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedPaths(new Set());
+  }, []);
+
+  // Assign to ref so parent can render buttons in status bar
+  useEffect(() => {
+    if (onExpandCollapseRef) {
+      onExpandCollapseRef.current = { expandAll, collapseAll };
+    }
+    return () => {
+      if (onExpandCollapseRef) {
+        onExpandCollapseRef.current = null;
+      }
+    };
+  }, [expandAll, collapseAll, onExpandCollapseRef]);
 
   const virtualizer = useVirtualizer({
     count: documents.length,
@@ -1350,54 +1390,6 @@ export const DocumentTreeView = memo(function DocumentTreeView({
           </div>
         )}
 
-        {/* Expand/Collapse All — bottom-right floating */}
-        {documents.length > 0 && (
-          <div className="sticky bottom-2 flex justify-end pr-3 pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-1 bg-card border border-border/50 rounded-lg px-1.5 py-1 shadow-sm">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Expand all document cards
-                  setExpandedPaths((prev) => {
-                    const next = new Set(prev);
-                    const keys = virtualizer.getVirtualItems().map((v) => v.key);
-                    for (const key of keys) {
-                      next.add(`__card__${String(key)}`);
-                    }
-                    // Also expand all loaded docs not in view
-                    for (let i = 0; i < documents.length; i++) {
-                      const doc = documents[i];
-                      const key = doc?._id ? formatObjectId(doc._id) : (
-                        identifierFields?.length
-                          ? identifierFields.map((f) => String(doc?.[f] ?? "")).join("·")
-                          : `doc-${i}`
-                      );
-                      next.add(`__card__${key}`);
-                    }
-                    return next;
-                  });
-                }}
-                className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted/50"
-                title="Expand all"
-              >
-                Expand All
-              </button>
-              <span className="text-border">|</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedPaths(new Set());
-                }}
-                className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted/50"
-                title="Collapse all"
-              >
-                Collapse All
-              </button>
-            </div>
-          </div>
-        )}
       </ContextMenuTrigger>
       <ContextMenuContent>
         {editable && onInsertDocument && (

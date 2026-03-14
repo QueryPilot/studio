@@ -229,6 +229,8 @@ interface DataGridStatusBarProps {
   onRefreshMaterializedView?: () => void;
   /** Whether the materialized view is currently being refreshed */
   isRefreshingMatView?: boolean;
+  /** Optional content rendered on the left side of the status bar */
+  leftContent?: React.ReactNode;
 }
 
 export const DataGridStatusBar = memo(function DataGridStatusBar({
@@ -254,6 +256,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   identifierSelector,
   onRefreshMaterializedView,
   isRefreshingMatView = false,
+  leftContent,
   className,
 }: DataGridStatusBarProps) {
   // Show progress bar ONLY when we have estimatedTotal (table browsing)
@@ -274,8 +277,9 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         className,
       )}
     >
-      {/* Left side: Processing indicator and selection summary */}
-      <div className="flex items-center gap-3">
+      {/* Left side: Custom content, processing indicator, selection summary */}
+      <div className="flex items-center gap-3 pl-2">
+        {leftContent}
         {isProcessing && <ProcessingIndicator />}
 
         {showSelectionSummary && selectedRowIndices && (
