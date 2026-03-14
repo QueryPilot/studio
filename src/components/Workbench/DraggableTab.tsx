@@ -219,9 +219,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               className={cn(
                 "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group backdrop-blur-lg",
                 {
-                  "bg-background/80 text-foreground font-medium z-10 sticky left-0 right-0":
+                  "bg-background text-foreground font-medium z-10 sticky left-0 right-0":
                     isActive && isFocused,
-                  "bg-background/60 z-10 sticky left-0 right-0 text-muted-foreground":
+                  "bg-background/90 text-foreground/70 z-10 sticky left-0 right-0":
                     isActive && !isFocused,
                   "bg-muted text-muted-foreground/60": !isActive,
                   "hover:bg-background/80": !isActive && !isFocused,
@@ -251,9 +251,10 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   </TooltipContent>
                 </Tooltip>
               )}
-              <div className="h-5 w-5 flex items-center justify-center shrink-0">
+              <div className="h-5 w-5 relative shrink-0">
+                {/* Close button — fades in on hover */}
                 <button
-                  className="hidden group-hover:flex group-focus-within:flex items-center justify-center hover:bg-destructive/10 rounded transition-colors h-5 w-5"
+                  className="absolute inset-0 flex items-center justify-center hover:bg-destructive/10 rounded transition-all duration-100 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
                   onClick={(e) => {
                     e.stopPropagation();
                     onClose();
@@ -261,13 +262,10 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                 >
                   <IconX className="h-3.5 w-3.5" />
                 </button>
-
-                <Icon
-                  className={cn(
-                    getIconClass(),
-                    "block group-hover:hidden group-focus-within:hidden",
-                  )}
-                />
+                {/* Type icon — fades out on hover */}
+                <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-100 group-hover:opacity-0 group-focus-within:opacity-0">
+                  <Icon className={getIconClass()} />
+                </div>
               </div>
               <span className="whitespace-nowrap pr-1">
                 {displayName}

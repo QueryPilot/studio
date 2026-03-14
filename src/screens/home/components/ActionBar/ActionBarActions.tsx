@@ -22,11 +22,11 @@ export function ActionBarActions() {
 
   return (
     <>
-      <div className="flex flex-col gap-1.5 px-3 py-2">
+      <div className="flex flex-col gap-2 px-3 py-2">
         <button
           type="button"
           onClick={handleNewConnection}
-          className="flex items-center gap-3 p-2.5 rounded-lg bg-primary/10 hover:bg-foreground/8 transition-all text-left"
+          className="flex items-center gap-3 py-2 px-3 rounded-lg bg-primary/10 hover:bg-foreground/8 transition-all text-left"
         >
           <div className="flex items-center justify-center h-7 w-7 rounded-md bg-primary/35">
             <IconPlus className="h-4 w-4 text-primary-foreground" />
@@ -42,9 +42,9 @@ export function ActionBarActions() {
         <button
           type="button"
           onClick={handleQuickConnect}
-          className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-foreground/8 transition-colors text-left"
+          className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-foreground/8 transition-colors text-left"
         >
-          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-muted/10">
+          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-foreground/8">
             <IconLink className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex flex-col min-w-0">
@@ -56,9 +56,9 @@ export function ActionBarActions() {
         <button
           type="button"
           onClick={handleNewWorkspace}
-          className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-foreground/8 transition-colors text-left"
+          className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-foreground/8 transition-colors text-left"
         >
-          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-muted/10">
+          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-foreground/8">
             <IconLayout2 className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="flex flex-col min-w-0">

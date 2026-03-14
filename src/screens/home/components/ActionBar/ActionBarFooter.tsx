@@ -67,7 +67,7 @@ export function ActionBarFooter() {
         ) : (
           <IconMoon className="h-4 w-4" />
         )}
-        <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+        <span>Toggle theme</span>
       </button>
       <button
         type="button"

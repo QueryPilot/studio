@@ -16,7 +16,7 @@
  * Extracted to module scope to avoid string allocation on every draw
  */
 export const DEFAULT_FONT_FAMILY = 
-  "Noto Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Ubuntu, Arial, sans-serif";
+  "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, Helvetica Neue, Arial, sans-serif";
 
 export const MONOSPACE_FONT_FAMILY = 
   "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace";

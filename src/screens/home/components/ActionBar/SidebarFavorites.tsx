@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   IconStar,
-  IconChevronDown,
   IconChevronRight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -50,11 +49,12 @@ export function SidebarFavorites() {
           "transition-colors duration-150",
         )}
       >
-        {isCollapsed ? (
-          <IconChevronRight className="h-3 w-3" />
-        ) : (
-          <IconChevronDown className="h-3 w-3" />
-        )}
+        <IconChevronRight
+          className={cn(
+            "h-3 w-3 transition-transform duration-150",
+            !isCollapsed && "rotate-90",
+          )}
+        />
         <IconStar className="h-3 w-3" />
         <span>Favorites</span>
         <span className="ml-auto text-[10px] opacity-60">
@@ -62,36 +62,43 @@ export function SidebarFavorites() {
         </span>
       </button>
 
-      {!isCollapsed && (
-        <div className="mt-1 space-y-0.5">
-          {favorites.map((conn) => (
-            <button
-              key={conn.profile.id}
-              type="button"
-              onClick={() =>
-                handleConnect(
-                  conn.profile.id,
-                  conn.profile.name,
-                  conn.profile.database,
-                )
-              }
-              className={cn(
-                "flex items-center gap-2.5 h-8 w-full px-2.5 rounded-lg",
-                "text-muted-foreground hover:text-foreground",
-                "hover:bg-foreground/6",
-                "transition-all duration-150 ease-out",
-              )}
-            >
-              <img
-                src={getDatabaseLogo(conn.profile.db_type)}
-                alt=""
-                className="h-4 w-4 shrink-0"
-              />
-              <span className="text-xs truncate">{conn.profile.name}</span>
-            </button>
-          ))}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+          isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="mt-1 space-y-0.5">
+            {favorites.map((conn) => (
+              <button
+                key={conn.profile.id}
+                type="button"
+                onClick={() =>
+                  handleConnect(
+                    conn.profile.id,
+                    conn.profile.name,
+                    conn.profile.database,
+                  )
+                }
+                className={cn(
+                  "flex items-center gap-2.5 h-8 w-full px-2.5 rounded-lg",
+                  "text-muted-foreground hover:text-foreground",
+                  "hover:bg-foreground/6",
+                  "transition-all duration-150 ease-out",
+                )}
+              >
+                <img
+                  src={getDatabaseLogo(conn.profile.db_type)}
+                  alt=""
+                  className="h-4 w-4 shrink-0"
+                />
+                <span className="text-xs truncate">{conn.profile.name}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -180,7 +180,7 @@ function DroppableWorkspaceGroup({
         className="flex items-center gap-2 flex-1"
       >
         <IconChevronRight
-          className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${
+          className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ${
             isCollapsed ? "" : "rotate-90"
           }`}
         />
@@ -699,7 +699,7 @@ export function ConnectionsSection() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`h-7 px-2 rounded-r-none ${
+                  className={`h-7 px-2 rounded-r-none transition-colors duration-100 ${
                     viewMode === "grid" ? "bg-muted" : ""
                   }`}
                   onClick={() => {
@@ -712,7 +712,7 @@ export function ConnectionsSection() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`h-7 px-2 rounded-l-none ${
+                  className={`h-7 px-2 rounded-l-none transition-colors duration-100 ${
                     viewMode === "list" ? "bg-muted" : ""
                   }`}
                   onClick={() => {

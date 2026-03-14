@@ -33,12 +33,12 @@ export interface CellStateColors {
 
 export const lightCellStateColors: CellStateColors = {
   focused: {
-    border: 'hsl(var(--primary))',
+    border: 'var(--primary)',
     background: 'transparent',
   },
   editing: {
-    border: 'hsl(var(--primary))',
-    background: 'hsl(var(--background))',
+    border: 'var(--primary)',
+    background: 'var(--background)',
   },
   dirty: {
     border: AMBER,
@@ -60,12 +60,12 @@ export const lightCellStateColors: CellStateColors = {
 
 export const darkCellStateColors: CellStateColors = {
   focused: {
-    border: 'hsl(var(--primary))',
+    border: 'var(--primary)',
     background: 'transparent',
   },
   editing: {
-    border: 'hsl(var(--primary))',
-    background: 'hsl(var(--background))',
+    border: 'var(--primary)',
+    background: 'var(--background)',
   },
   dirty: {
     border: AMBER,

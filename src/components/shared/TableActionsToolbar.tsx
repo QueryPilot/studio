@@ -1,5 +1,6 @@
 import { memo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { IconPlus, IconX, IconDeviceFloppy } from "@tabler/icons-react";
 
 interface TableActionsToolbarProps {
@@ -49,20 +50,21 @@ export const TableActionsToolbar = memo(function TableActionsToolbar({
       {!inline && <div className="flex-1" />}
 
       {/* Commit/Discard actions when there are pending changes */}
-      {pendingChangesCount > 0 && (
-        <>
-          {onDiscard && (
-            <Button variant="ghost" onClick={onDiscard}>
-              <IconX className="size-3.5!" />
-              Discard
-            </Button>
-          )}
-          <Button variant="default" onClick={onReviewChanges}>
-            <IconDeviceFloppy className="size-3.5! mr-1" />
-            Review
+      <div className={cn(
+        "flex items-center gap-1 transition-opacity duration-150",
+        pendingChangesCount > 0 ? "opacity-100" : "opacity-0 pointer-events-none"
+      )}>
+        {onDiscard && (
+          <Button variant="ghost" onClick={onDiscard}>
+            <IconX className="size-3.5!" />
+            Discard
           </Button>
-        </>
-      )}
+        )}
+        <Button variant="default" onClick={onReviewChanges}>
+          <IconDeviceFloppy className="size-3.5! mr-1" />
+          Review
+        </Button>
+      </div>
     </>
   );
 

@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor/types";
+import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -9,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { QueryResult } from "@/stores/tabStateStore";
 import type { ViewMode } from "@/types/viewMode";
+import { IconAlertTriangle, IconX } from "@tabler/icons-react";
 import { QueryEditor } from "./QueryEditor";
 import { QueryOutline } from "./QueryOutline";
 import { QueryToolbar } from "./QueryToolbar";
@@ -157,20 +159,8 @@ export function QueryPanelLayout({
                     className="flex flex-col relative"
                   >
                     {inTransaction && (
-                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-yellow-500/90 dark:bg-yellow-600/90 text-yellow-950 dark:text-yellow-50 text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-yellow-600/20">
-                        <svg
-                          className="w-3 h-3"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
-                        </svg>
+                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-status-warn/15 text-status-warn text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-status-warn/30">
+                        <IconAlertTriangle className="w-3 h-3" />
                         IN TRANSACTION
                       </div>
                     )}
@@ -227,25 +217,14 @@ export function QueryPanelLayout({
                             <span className="text-xs font-medium text-muted-foreground">
                               Query Outline
                             </span>
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
                               onClick={onCloseOutline}
-                              className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
                               title="Close Outline"
                             >
-                              <svg
-                                className="w-3.5 h-3.5"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M6 18L18 6M6 6l12 12"
-                                />
-                              </svg>
-                            </button>
+                              <IconX className="w-3.5 h-3.5" />
+                            </Button>
                           </div>
                           <div className="flex-1 min-h-0 overflow-auto">
                             <QueryOutline

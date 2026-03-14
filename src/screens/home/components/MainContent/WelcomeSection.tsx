@@ -125,7 +125,7 @@ function QuickActionCard({
       onClick={onClick}
       className="flex flex-col items-center gap-3 p-6 rounded-xl border bg-card hover:bg-accent/50 hover:border-primary/30 transition-all duration-200 text-center group"
     >
-      <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-primary/10 group-hover:bg-primary/20 transition-colors">
+      <div className="flex items-center justify-center h-12 w-12 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
         {icon}
       </div>
       <div>
@@ -339,7 +339,7 @@ export function WelcomeSection() {
     <div className="flex flex-col items-center justify-center py-12 px-4">
       {/* Welcome Header */}
       <div className="text-center mb-10">
-        <h1 className="text-3xl font-semibold mb-3">Welcome to Query Pilot</h1>
+        <h1 className="text-2xl font-semibold tracking-tight mb-3">Welcome to Query Pilot</h1>
         <p className="text-sm text-muted-foreground max-w-md">
           Connect to your databases and start querying. Create a new connection
           or quickly connect using a URI.
