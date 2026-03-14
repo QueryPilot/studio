@@ -26,6 +26,7 @@ import {
   IconCheck,
   IconX,
   IconLoader2,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import CodeMirror from "@uiw/react-codemirror";
@@ -183,6 +184,91 @@ interface InlineEditProps {
   onCancel: () => void;
 }
 
+/** Generate a random MongoDB-style ObjectId (24-char hex) */
+function generateObjectId(): string {
+  const timestamp = Math.floor(Date.now() / 1000).toString(16).padStart(8, "0");
+  const random = Array.from({ length: 16 }, () =>
+    Math.floor(Math.random() * 16).toString(16),
+  ).join("");
+  return timestamp + random;
+}
+
+/** Inline editor for ObjectId values — input + generate button */
+const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
+  value,
+  onSave,
+  onCancel,
+}: Omit<InlineEditProps, "type">) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const raw = formatObjectId(value);
+  const [draft, setDraft] = useState(raw);
+
+  const save = useCallback(() => {
+    const trimmed = draft.trim();
+    if (/^[a-fA-F0-9]{24}$/.test(trimmed)) {
+      onSave(trimmed);
+    }
+  }, [draft, onSave]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") { e.preventDefault(); save(); }
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+    },
+    [save, onCancel],
+  );
+
+  useEffect(() => { inputRef.current?.select(); }, []);
+
+  const isValid = /^[a-fA-F0-9]{24}$/.test(draft.trim());
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Input
+        ref={inputRef}
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={save}
+        className={cn(
+          "h-5 text-xs font-mono px-1 py-0 inline w-[220px]",
+          !isValid && draft.trim() && "border-destructive/50",
+        )}
+        maxLength={24}
+        placeholder="24-char hex ObjectId"
+      />
+      <button
+        type="button"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          const newId = generateObjectId();
+          setDraft(newId);
+          onSave(newId);
+        }}
+        className="text-muted-foreground hover:text-foreground p-0.5"
+        title="Generate new ObjectId"
+      >
+        <IconRefresh className="size-3" />
+      </button>
+      <button
+        type="button"
+        onMouseDown={(e) => { e.preventDefault(); save(); }}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <IconCheck className="size-3" />
+      </button>
+      <button
+        type="button"
+        onMouseDown={(e) => { e.preventDefault(); onCancel(); }}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <IconX className="size-3" />
+      </button>
+    </span>
+  );
+});
+
 const InlineEdit = memo(function InlineEdit({
   value,
   type,
@@ -194,6 +280,12 @@ const InlineEdit = memo(function InlineEdit({
   if (isStructured) {
     return (
       <InlineJsonEdit value={value} onSave={onSave} onCancel={onCancel} />
+    );
+  }
+
+  if (type === "objectId") {
+    return (
+      <InlineObjectIdEdit value={value} onSave={onSave} onCancel={onCancel} />
     );
   }
 
