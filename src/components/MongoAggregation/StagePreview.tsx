@@ -190,11 +190,6 @@ export const StagePreview = memo(function StagePreview({
     }
   }, [showSearch]);
 
-  // Keyboard shortcut: Cmd+F to toggle search
-  useEffect(() => {
-    // Search shortcut is handled by parent grid — no need for extra handler here
-  }, []);
-
   const canRenderData = viewMode === "data" && result?.supportsDataView && filteredDocuments;
 
   return (

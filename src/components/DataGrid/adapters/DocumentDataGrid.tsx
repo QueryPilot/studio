@@ -214,8 +214,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const [filterError, setFilterError] = useState<string | null>(
     () => initialFilterState.error,
   );
-  const flattenMode = false;
-  const flattenDepth = 3;
   const { showInspector, setShowInspector, inspectorTab, setInspectorTab } =
     useDocumentGridInspectorState(gridId);
   const [nestedSearch, setNestedSearch] = useState({ term: "", pathKey: "" });
@@ -228,8 +226,8 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     pageSize,
     enabled: true,
     filter: documentFilter,
-    flattenMode,
-    flattenDepth,
+    flattenMode: false,
+    flattenDepth: 3,
   });
 
   // Derive a stable key from the current path to auto-reset search when path changes
@@ -405,8 +403,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   const activeViewMode = viewMode ?? "table";
 
-  const flattenControl = null;
-
   const inspectorToggle = (
     <Button
       size="icon"
@@ -462,7 +458,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               onStepOut={data.stepOut}
             />
           </div>
-          {flattenControl}
           {inspectorToggle}
         </div>
       )}
@@ -524,13 +519,11 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             />
           </div>
           {viewModeToggle}
-          {flattenControl}
           {inspectorToggle}
         </div>
       ) : data.currentPath.length === 0 ? (
         <div className="flex justify-end gap-2">
           {viewModeToggle}
-          {flattenControl}
           {inspectorToggle}
         </div>
       ) : null}
@@ -602,17 +595,21 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         for (const [fieldPath, newValue] of edits) {
           const parts = fieldPath.split(".");
           let target: Record<string, unknown> = patched;
+          let pathOk = true;
           for (let i = 0; i < parts.length - 1; i++) {
             const part = parts[i]!;
             if (target[part] && typeof target[part] === "object") {
               target = target[part] as Record<string, unknown>;
             } else {
+              pathOk = false;
               break;
             }
           }
-          const lastPart = parts[parts.length - 1];
-          if (lastPart) {
-            target[lastPart] = newValue;
+          if (pathOk) {
+            const lastPart = parts[parts.length - 1];
+            if (lastPart) {
+              target[lastPart] = newValue;
+            }
           }
         }
         return patched;
@@ -723,8 +720,19 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             onLoadMore={data.fetchNextPage}
             editable={!readOnly}
             onFieldEdit={(docIndex, fieldPath, newValue) => {
+              // docIndex is into filteredRawDocuments, find the original index
+              const doc = filteredRawDocuments[docIndex];
+              if (!doc) return;
+              const originalIndex = data.rawDocuments.findIndex(
+                (d) =>
+                  d === doc ||
+                  (d._id &&
+                    doc._id &&
+                    JSON.stringify(d._id) === JSON.stringify(doc._id)),
+              );
+              if (originalIndex === -1) return;
               const cmd = data.createTreeEditCommand(
-                docIndex,
+                originalIndex,
                 fieldPath,
                 newValue,
               );
@@ -735,7 +743,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             stagedDocIds={stagedDocIds}
             onDocumentUndo={(docIndex) => {
               if (!stagedCommands) return;
-              const doc = dedupedRawDocuments[docIndex];
+              const doc = filteredRawDocuments[docIndex];
               if (!doc) return;
               const docId = doc._id;
               if (docId === undefined || docId === null) return;
@@ -768,7 +776,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               stageCommand(cmd);
             }}
             onDeleteDocument={(docIndex) => {
-              const doc = dedupedRawDocuments[docIndex];
+              const doc = filteredRawDocuments[docIndex];
               if (!doc) return;
               const docId = doc._id;
               if (docId === undefined || docId === null) return;

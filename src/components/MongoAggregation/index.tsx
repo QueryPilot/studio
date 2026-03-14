@@ -97,6 +97,7 @@ export const MongoAggregationView = memo(function MongoAggregationView({
   );
 
   // Sync length: grow with new IDs when stages are added externally, trim when removed.
+  // Persists back to stageKeys so future renders stay consistent.
   const stageIds = useMemo(() => {
     if (stageKeys.length === stages.length) return stageKeys;
     if (stageKeys.length < stages.length) {
@@ -104,9 +105,13 @@ export const MongoAggregationView = memo(function MongoAggregationView({
         ...stageKeys,
         ...Array.from({ length: stages.length - stageKeys.length }, () => nanoid(8)),
       ];
+      // Persist the grown array so it doesn't regenerate new IDs each render
+      queueMicrotask(() => { setStageKeys(grown); });
       return grown;
     }
-    return stageKeys.slice(0, stages.length);
+    const trimmed = stageKeys.slice(0, stages.length);
+    queueMicrotask(() => { setStageKeys(trimmed); });
+    return trimmed;
   }, [stages.length, stageKeys]);
 
   // -- Callbacks -------------------------------------------------------------
