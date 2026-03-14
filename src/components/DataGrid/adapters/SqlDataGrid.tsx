@@ -1251,6 +1251,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               isLoadingMore={isFetchingNextPage}
               onLoadMore={fetchNextPage}
               editable={!isReadOnly && hasConfiguredIdentity}
+              allowStructuralEdits={false}
               stagedDocIds={stagedDocIds}
               onFieldEdit={(docIndex, fieldPath, newValue) => {
                 if (!commandFactory) return;
