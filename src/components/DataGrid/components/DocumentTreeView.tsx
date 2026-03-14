@@ -1076,10 +1076,14 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   const { resolvedTheme } = useTheme();
   const insertThemeMode = resolvedTheme === "dark" ? "dark" : "light";
 
+  // Counter to force re-mount of the editor with a fresh template after each insert
+  const [insertCounter, setInsertCounter] = useState(0);
+
   const handleInsertSave = useCallback(
     (doc: Record<string, unknown>) => {
       onInsertDocument?.(doc);
-      setShowInsertEditor(false);
+      // Keep editor open with a fresh template for the next document
+      setInsertCounter((c) => c + 1);
     },
     [onInsertDocument],
   );
@@ -1180,6 +1184,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
                 <span className="text-xs font-medium">Insert Document</span>
               </div>
               <DocumentJsonEditor
+                key={insertCounter}
                 document={buildInsertTemplate(documents[0])}
                 themeMode={insertThemeMode}
                 onSave={handleInsertSave}
