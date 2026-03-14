@@ -24,10 +24,17 @@ import { GridCellKind } from "@glideapps/glide-data-grid";
 import {
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
+  IconTable,
+  IconListTree,
+  IconBraces,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { InspectorTab } from "../components/inspector";
 import { BaseDataGrid } from "../base/BaseDataGrid";
+import { DocumentTreeView } from "../components/DocumentTreeView";
+import { DocumentJsonView } from "../components/DocumentJsonView";
+import { DataGridStatusBar } from "../components/DataGridStatusBar";
 import type {
   GridColumnV2,
   GridRowModel,
@@ -1057,6 +1064,26 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     return <DataGridSkeleton />;
   }
 
+  // View mode toggle (Table / Tree / JSON)
+  const [viewMode, setViewMode] = useState<"table" | "tree" | "json">("table");
+
+  // Convert SQL rows to plain objects for tree/JSON views
+  const plainDocuments = useMemo(() => {
+    if (viewMode === "table") return []; // Don't compute when not needed
+    return rows.map((row) => {
+      const doc: Record<string, unknown> = {};
+      for (const [key, cell] of Object.entries(row)) {
+        if (key.startsWith("__")) continue; // Skip internal fields
+        if (cell && typeof cell === "object" && "value" in cell) {
+          doc[key] = (cell as { value: unknown }).value;
+        } else {
+          doc[key] = cell;
+        }
+      }
+      return doc;
+    });
+  }, [rows, viewMode]);
+
   // Don't hide the grid when empty - keep headers/filters visible
   // Show overlay message inside the grid instead
 
@@ -1083,6 +1110,13 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
                 clientSideFiltering={false}
               />
             </div>
+            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "table" | "tree" | "json")}>
+              <TabsList>
+                <TabsTrigger value="table"><IconTable /> Table</TabsTrigger>
+                <TabsTrigger value="tree"><IconListTree /> Tree</TabsTrigger>
+                <TabsTrigger value="json"><IconBraces /> JSON</TabsTrigger>
+              </TabsList>
+            </Tabs>
             <Button
               size="icon"
               variant="outline"
@@ -1102,6 +1136,29 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
       )}
 
       {/* BaseDataGrid handles all CRUD operations internally */}
+      {viewMode !== "table" && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          {viewMode === "tree" ? (
+            <DocumentTreeView
+              documents={plainDocuments}
+              className="min-h-0 flex-1 px-1.5"
+            />
+          ) : (
+            <DocumentJsonView
+              documents={plainDocuments}
+              className="min-h-0 flex-1"
+            />
+          )}
+          <DataGridStatusBar
+            loadedRows={rows.length}
+            estimatedTotal={estimatedTotal}
+            isEstimatedCount={isEstimatedCount}
+            hasMore={hasNextPage}
+            executionTime={executionTime}
+          />
+        </div>
+      )}
+      <div style={{ display: viewMode === "table" ? undefined : "none" }} className="flex-1 min-h-0">
       <BaseDataGrid
         gridId={gridId}
         sortGridId={sortGridId !== gridId ? sortGridId : undefined}
@@ -1178,6 +1235,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         externalQuickFilterRef={quickFilterRef}
         className={cn("flex-1", className)}
       />
+      </div>
 
       {/* Empty state overlay - shown when no rows but grid/filters remain visible */}
       {!isError && rows.length === 0 && (
