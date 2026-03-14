@@ -20,19 +20,32 @@
   </script>
   <style>
     :root {
-      --loader-bg: 36 33% 97% / 0.6;
-      --loader-fg: 33 13% 14%;
-      --loader-border: 34 12% 79%;
-      --loader-primary: 43 70% 50%;
-      --loader-muted: 39 6% 45%;
+      --loader-bg: oklch(0.95 0.02 75 / 0.35);
+      --loader-fg: oklch(0.17 0.008 75);
+      --loader-border: oklch(0.88 0.012 78);
+      --loader-primary: oklch(0.75 0.16 70);
+      --loader-muted: oklch(0.52 0.012 75);
     }
 
     .dark {
-      --loader-bg: 33 13% 14% / 0.6;
-      --loader-fg: 36 21% 91%;
-      --loader-border: 36 5% 34%;
-      --loader-primary: 43 70% 50%;
-      --loader-muted: 39 6% 55%;
+      --loader-bg: oklch(0.15 0.02 70 / 0.4);
+      --loader-fg: oklch(0.93 0.008 75);
+      --loader-border: oklch(0.32 0.015 75);
+      --loader-primary: oklch(0.75 0.16 70);
+      --loader-muted: oklch(0.65 0.01 75);
+    }
+
+    /* Vibrancy mismatch: dark app on light system */
+    @media (prefers-color-scheme: light) {
+      .dark {
+        --loader-bg: oklch(0.12 0.02 70 / 0.92);
+      }
+    }
+    /* Vibrancy mismatch: light app on dark system */
+    @media (prefers-color-scheme: dark) {
+      :root:not(.dark) {
+        --loader-bg: oklch(0.96 0.02 75 / 0.92);
+      }
     }
 
     #root-loader {
@@ -42,8 +55,8 @@
       justify-content: center;
       height: 100vh;
       margin: 0;
-      background: hsl(var(--loader-bg));
-      color: hsl(var(--loader-fg));
+      background: var(--loader-bg);
+      color: var(--loader-fg);
     }
 
     #root-loader img {
@@ -58,17 +71,17 @@
       height: 27px;
       min-width: 27px;
       min-height: 27px;
-      border: 3px solid hsl(var(--loader-border));
-      border-top-color: hsl(var(--loader-primary));
+      border: 3px solid var(--loader-border);
+      border-top-color: var(--loader-primary);
       border-radius: 50%;
       animation: spin 1s linear infinite;
       margin-bottom: 12px;
     }
 
     #root-loader .text {
-      color: hsl(var(--loader-muted));
+      color: var(--loader-muted);
       font-size: 14px;
-      font-family: Noto Sans, system-ui, -apple-system, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
       font-weight: 400;
     }
 

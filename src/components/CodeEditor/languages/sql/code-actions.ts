@@ -281,11 +281,11 @@ class ExpandStarWidget extends WidgetType {
       font-size: 12px;
       padding: 0 3px;
       margin-left: 2px;
-      background: var(--cm-expand-star-bg, hsl(var(--muted)));
-      border: 1px solid var(--cm-expand-star-border, hsl(var(--border)));
+      background: var(--cm-expand-star-bg, var(--muted)));
+      border: 1px solid var(--cm-expand-star-border, var(--border)));
       border-radius: calc(var(--radius) - 4px);
       cursor: pointer;
-      color: var(--cm-expand-star-color, hsl(var(--muted-foreground)));
+      color: var(--cm-expand-star-color, var(--muted-foreground)));
       line-height: 1.2;
       vertical-align: baseline;
       transition: background 0.2s, color 0.2s;
@@ -293,14 +293,14 @@ class ExpandStarWidget extends WidgetType {
 
     button.onmouseenter = () => {
       button.style.background =
-        "var(--cm-expand-star-hover-bg, hsl(var(--accent)))";
+        "var(--cm-expand-star-hover-bg, var(--accent)))";
       button.style.color =
-        "var(--cm-expand-star-hover-color, hsl(var(--accent-foreground)))";
+        "var(--cm-expand-star-hover-color, var(--accent-foreground)))";
     };
     button.onmouseleave = () => {
-      button.style.background = "var(--cm-expand-star-bg, hsl(var(--muted)))";
+      button.style.background = "var(--cm-expand-star-bg, var(--muted)))";
       button.style.color =
-        "var(--cm-expand-star-color, hsl(var(--muted-foreground)))";
+        "var(--cm-expand-star-color, var(--muted-foreground)))";
     };
 
     button.onclick = async (e) => {

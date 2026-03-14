@@ -590,7 +590,7 @@ export const QuickFilter = memo(
               outline: "none",
             },
             ".cm-placeholder": {
-              color: "hsl(var(--muted-foreground))",
+              color: "var(--muted-foreground)",
               fontStyle: "normal",
             },
           },
