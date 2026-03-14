@@ -16,7 +16,11 @@ import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import type { MongoCollectionMetadata } from "@/adapters/types/mongodb";
 import { useCrudStore } from "@/stores/crudStore";
-import type { CrudCommand, CrudCommandTarget, DocumentValidationUpdatePayload } from "@/types/crud";
+import type {
+  CrudCommand,
+  CrudCommandTarget,
+  DocumentValidationUpdatePayload,
+} from "@/types/crud";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 import { buildMongoCommand } from "@/components/MongoIndexes/commandFactory";
 
@@ -43,9 +47,7 @@ function parseRequiredFields(json: string | undefined): string[] {
     const parsed = JSON.parse(json) as Record<string, unknown>;
     const schema = (parsed.$jsonSchema ?? parsed) as Record<string, unknown>;
     if (Array.isArray(schema.required)) {
-      return schema.required.filter(
-        (f): f is string => typeof f === "string",
-      );
+      return schema.required.filter((f): f is string => typeof f === "string");
     }
   } catch {
     // ignore parse errors
@@ -62,7 +64,9 @@ export const MongoValidationView = memo(function MongoValidationView({
   workbenchState,
   onWorkbenchStateChange,
 }: MongoValidationViewProps) {
-  const [metadata, setMetadata] = useState<MongoCollectionMetadata | null>(null);
+  const [metadata, setMetadata] = useState<MongoCollectionMetadata | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const initializedFromMetadataRef = useRef(false);
@@ -105,7 +109,9 @@ export const MongoValidationView = memo(function MongoValidationView({
         initializedFromMetadataRef.current = true;
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : String(loadError));
+      setError(
+        loadError instanceof Error ? loadError.message : String(loadError),
+      );
     } finally {
       setLoading(false);
     }
@@ -127,7 +133,8 @@ export const MongoValidationView = memo(function MongoValidationView({
   );
 
   const stageValidation = useCallback(() => {
-    const hasValidationInput = typeof workbenchState.validationJson === "string";
+    const hasValidationInput =
+      typeof workbenchState.validationJson === "string";
     const trimmedValidation = workbenchState.validationJson?.trim() ?? "";
 
     const command = buildMongoCommand<DocumentValidationUpdatePayload>(
@@ -186,18 +193,26 @@ export const MongoValidationView = memo(function MongoValidationView({
         <h3 className="text-sm font-semibold">Validation Rules</h3>
 
         <div className="flex items-center gap-1.5">
-          <Label htmlFor="mongo-validation-level" className="text-xs text-muted-foreground">
+          <Label
+            htmlFor="mongo-validation-level"
+            className="text-xs text-muted-foreground"
+          >
             Level
           </Label>
           <Select
             value={workbenchState.validationLevel ?? "strict"}
             onValueChange={(value) => {
               onWorkbenchStateChange({
-                validationLevel: value as MongoWorkbenchState["validationLevel"],
+                validationLevel:
+                  value as MongoWorkbenchState["validationLevel"],
               });
             }}
           >
-            <SelectTrigger id="mongo-validation-level" size="sm" className="w-28">
+            <SelectTrigger
+              id="mongo-validation-level"
+              size="sm"
+              className="w-28"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -209,18 +224,26 @@ export const MongoValidationView = memo(function MongoValidationView({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Label htmlFor="mongo-validation-action" className="text-xs text-muted-foreground">
+          <Label
+            htmlFor="mongo-validation-action"
+            className="text-xs text-muted-foreground"
+          >
             Action
           </Label>
           <Select
             value={workbenchState.validationAction ?? "error"}
             onValueChange={(value) => {
               onWorkbenchStateChange({
-                validationAction: value as MongoWorkbenchState["validationAction"],
+                validationAction:
+                  value as MongoWorkbenchState["validationAction"],
               });
             }}
           >
-            <SelectTrigger id="mongo-validation-action" size="sm" className="w-28">
+            <SelectTrigger
+              id="mongo-validation-action"
+              size="sm"
+              className="w-28"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -253,7 +276,9 @@ export const MongoValidationView = memo(function MongoValidationView({
 
       {/* Error / loading banner */}
       {loading ? (
-        <div className="px-3 py-2 text-sm text-muted-foreground">Loading validation...</div>
+        <div className="px-3 py-2 text-sm text-muted-foreground">
+          Loading validation...
+        </div>
       ) : null}
       {error ? (
         <div className="border-b border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -318,10 +343,16 @@ export const MongoValidationView = memo(function MongoValidationView({
 
             {requiredFields.length > 0 ? (
               <div>
-                <span className="text-xs text-muted-foreground">Required fields</span>
+                <span className="text-xs text-muted-foreground">
+                  Required fields
+                </span>
                 <div className="mt-1 flex flex-wrap gap-1">
                   {requiredFields.map((field) => (
-                    <Badge key={field} variant="secondary" className="text-[11px]">
+                    <Badge
+                      key={field}
+                      variant="secondary"
+                      className="text-[11px]"
+                    >
                       {field}
                     </Badge>
                   ))}

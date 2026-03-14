@@ -53,13 +53,13 @@ class RenameWidget extends WidgetType {
     input.value = this.currentName;
     input.className = "cm-rename-input";
     input.style.cssText = `
-      background: hsl(var(--popover));
-      border: 1px solid hsl(var(--border));
+      background: var(--popover);
+      border: 1px solid var(--border);
       border-radius: calc(var(--radius) - 2px);
       padding: 2px 6px;
       font-family: var(--font-mono);
       font-size: 13px;
-      color: hsl(var(--popover-foreground));
+      color: var(--popover-foreground);
       outline: none;
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       min-width: 120px;
@@ -71,7 +71,7 @@ class RenameWidget extends WidgetType {
     hint.style.cssText = `
       margin-left: 8px;
       font-size: 11px;
-      color: hsl(var(--muted-foreground));
+      color: var(--muted-foreground);
       white-space: nowrap;
     `;
 

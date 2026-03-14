@@ -60,7 +60,8 @@ export const MongoResultViewer = memo(function MongoResultViewer({
     () => (result ? extractMongoResultDocuments(result) : null),
     [result],
   );
-  const canRenderData = viewMode === "data" && result?.supportsDataView && documents;
+  const canRenderData =
+    viewMode === "data" && result?.supportsDataView && documents;
   const formattedResult = useMemo(
     () => (result ? formatMongoExecutionResult(result) : ""),
     [result],
@@ -89,7 +90,7 @@ export const MongoResultViewer = memo(function MongoResultViewer({
           variant="ghost"
           onClick={onClearResults}
           disabled={!result}
-          className="!h-6 text-xs gap-1 !px-2 text-muted-foreground hover:text-foreground"
+          className="h-6! text-xs gap-1 px-2! text-muted-foreground hover:text-foreground"
         >
           <IconTrash className="h-3.5 w-3.5" />
           <span>Clear results</span>

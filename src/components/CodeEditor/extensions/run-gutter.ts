@@ -245,7 +245,7 @@ export function createRunGutterExtension(
         border: "none",
         borderRadius: "3px",
         backgroundColor: "transparent",
-        color: "hsl(var(--muted-foreground))",
+        color: "var(--muted-foreground)",
         cursor: "pointer",
         transition: "all 0.15s ease",
         outline: "none",
@@ -253,8 +253,8 @@ export function createRunGutterExtension(
         flexShrink: 0,
       },
       ".cm-run-gutter-button:hover": {
-        backgroundColor: "hsl(var(--primary) / 0.1)",
-        color: "hsl(var(--primary))",
+        backgroundColor: "color-mix(in oklch, var(--primary) 10%, transparent)",
+        color: "var(--primary)",
         transform: "scale(1.15)",
       },
       ".cm-run-gutter-button:active": {

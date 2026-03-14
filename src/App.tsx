@@ -33,7 +33,7 @@ import { AppUpdateDialog } from "./components/AppUpdateDialog";
 
 function VaultLoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-secondary/60">
+    <div className="flex flex-col items-center justify-center h-screen vibrancy-surface">
       <img
         src="/logo.png"
         alt="Query Pilot"

@@ -183,8 +183,8 @@ function showRefactorMenu(params: {
   menu.className = "cm-refactor-menu";
   menu.style.cssText = `
     position: absolute;
-    background: hsl(var(--popover));
-    border: 1px solid hsl(var(--border));
+    background: var(--popover);
+    border: 1px solid var(--border);
     border-radius: calc(var(--radius));
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     z-index: 1000;
@@ -225,13 +225,13 @@ function showRefactorMenu(params: {
       border-radius: calc(var(--radius) - 2px);
       cursor: ${action.enabled ? "pointer" : "not-allowed"};
       font-size: 13px;
-      color: ${action.enabled ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))"};
+      color: ${action.enabled ? "var(--foreground)" : "var(--muted-foreground)"};
       transition: background 0.15s;
     `;
 
     if (action.enabled) {
       item.onmouseenter = () => {
-        item.style.background = "hsl(var(--accent))";
+        item.style.background = "var(--accent)";
       };
       item.onmouseleave = () => {
         item.style.background = "transparent";
