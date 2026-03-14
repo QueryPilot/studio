@@ -1127,6 +1127,62 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     });
   }, [rows, columnMeta, viewMode]);
 
+  // Overlay staged edits + inserts on plainDocuments for tree/JSON views
+  const documentsWithStagedEdits = useMemo(() => {
+    if (viewMode === "table" || !stagedCommands || stagedCommands.length === 0)
+      return plainDocuments;
+
+    // Collect field edits by PK key
+    const editsByPk = new Map<string, Map<string, unknown>>();
+    const stagedInserts: Record<string, unknown>[] = [];
+
+    for (const cmd of stagedCommands) {
+      if (cmd.state !== "staged") continue;
+
+      if (cmd.type === "data.update") {
+        const payload = cmd.payload as {
+          primaryKeys?: Record<string, unknown>;
+          column?: string;
+          newValue?: unknown;
+        };
+        if (!payload.primaryKeys || !payload.column) continue;
+        const pkKey = configuredIdentityColumns
+          .map((col) => String(payload.primaryKeys![col] ?? ""))
+          .join("·");
+        if (!editsByPk.has(pkKey)) editsByPk.set(pkKey, new Map());
+        editsByPk.get(pkKey)!.set(payload.column, payload.newValue);
+      }
+
+      if (cmd.type === "data.insert") {
+        const payload = cmd.payload as { values?: Record<string, unknown> };
+        if (payload.values) stagedInserts.push(payload.values);
+      }
+    }
+
+    let result = plainDocuments;
+    if (editsByPk.size > 0) {
+      result = plainDocuments.map((doc) => {
+        const pkKey = configuredIdentityColumns
+          .map((col) => String(doc[col] ?? ""))
+          .join("·");
+        const edits = editsByPk.get(pkKey);
+        if (!edits) return doc;
+
+        const patched = { ...doc };
+        for (const [field, newValue] of edits) {
+          patched[field] = newValue;
+        }
+        return patched;
+      });
+    }
+
+    if (stagedInserts.length > 0) {
+      result = [...result, ...stagedInserts];
+    }
+
+    return result;
+  }, [plainDocuments, stagedCommands, configuredIdentityColumns, viewMode]);
+
   // --- Loading States ---
   if (isLoading) {
     return <DataGridSkeleton />;
@@ -1188,7 +1244,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         <div className="flex-1 min-h-0 flex flex-col">
           {viewMode === "tree" ? (
             <DocumentTreeView
-              documents={plainDocuments}
+              documents={documentsWithStagedEdits}
               className="min-h-0 flex-1 px-1.5"
               identifierFields={configuredIdentityColumns.length > 0 ? configuredIdentityColumns : undefined}
               hasMore={hasNextPage}
@@ -1266,7 +1322,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
             />
           ) : (
             <DocumentJsonView
-              documents={plainDocuments}
+              documents={documentsWithStagedEdits}
               className="min-h-0 flex-1"
             />
           )}
