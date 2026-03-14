@@ -1,8 +1,7 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { json as jsonLang } from "@codemirror/lang-json";
-import { bracketMatching } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,6 +21,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
+import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
 import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import type {
@@ -40,15 +40,9 @@ import { ExplainTree } from "./ExplainTree";
 // ---------------------------------------------------------------------------
 
 const JSON_READONLY_EXTENSIONS = [
-  jsonLang(),
-  bracketMatching(),
+  ...JSON_EXTENSIONS,
   EditorView.editable.of(false),
-  EditorView.theme({
-    ".cm-scroller": {
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      fontSize: "12px",
-    },
-  }),
+  EditorState.readOnly.of(true),
 ];
 
 // ---------------------------------------------------------------------------

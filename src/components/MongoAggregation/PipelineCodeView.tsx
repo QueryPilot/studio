@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
@@ -61,10 +61,25 @@ export const PipelineCodeView = memo(function PipelineCodeView({
     [themeExtensions],
   );
 
-  const combinedValue = useMemo(() => combinePipeline(stages), [stages]);
+  // Use local state to avoid a controlled feedback loop where
+  // value -> onChange -> parse/stringify -> new value resets cursor position.
+  const [localValue, setLocalValue] = useState(() => combinePipeline(stages));
+  const isLocalEdit = useRef(false);
+
+  // Sync from parent when stages change externally (not from our own edits).
+  // setState here is intentional: we need to reset the local editor value when
+  // the visual stage list is reordered/modified outside the code view.
+  useEffect(() => {
+    if (!isLocalEdit.current) {
+      setLocalValue(combinePipeline(stages)); // eslint-disable-line react-hooks/set-state-in-effect
+    }
+    isLocalEdit.current = false;
+  }, [stages]);
 
   const handleChange = useCallback(
     (value: string) => {
+      setLocalValue(value);
+      isLocalEdit.current = true;
       const nextStages = splitPipeline(value);
       if (nextStages) {
         onChange(nextStages);
@@ -76,7 +91,7 @@ export const PipelineCodeView = memo(function PipelineCodeView({
   return (
     <div className="flex h-full flex-col">
       <CodeMirror
-        value={combinedValue}
+        value={localValue}
         onChange={handleChange}
         extensions={extensions}
         theme="none"

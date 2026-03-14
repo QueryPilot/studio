@@ -78,6 +78,11 @@ export const MongoValidationView = memo(function MongoValidationView({
 
   // ---- Data loading -------------------------------------------------------
 
+  // Use a ref to read validationJson inside load() without adding it as a dependency.
+  // This avoids a feedback loop: load -> onWorkbenchStateChange(validationJson) -> load ref changes -> effect re-runs.
+  const validationJsonRef = useRef(workbenchState.validationJson);
+  validationJsonRef.current = workbenchState.validationJson;
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -89,7 +94,7 @@ export const MongoValidationView = memo(function MongoValidationView({
       );
       setMetadata(nextMetadata);
 
-      if (!initializedFromMetadataRef.current && !workbenchState.validationJson) {
+      if (!initializedFromMetadataRef.current && !validationJsonRef.current) {
         onWorkbenchStateChange({
           validationJson: nextMetadata.validator
             ? JSON.stringify(nextMetadata.validator, null, 2)
@@ -109,7 +114,6 @@ export const MongoValidationView = memo(function MongoValidationView({
     target.connectionId,
     target.database,
     target.table,
-    workbenchState.validationJson,
   ]);
 
   useEffect(() => {
