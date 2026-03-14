@@ -448,6 +448,7 @@ interface TreeValueNodeProps {
   value: unknown;
   depth: number;
   fieldPath: string;
+  expandKeyPrefix: string;
   editable: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
   expandedPaths: Set<string>;
@@ -460,20 +461,24 @@ const TreeValueNode = memo(function TreeValueNode({
   value,
   depth,
   fieldPath,
+  expandKeyPrefix,
   editable,
   onFieldEdit,
   expandedPaths,
   onToggleExpand,
 }: TreeValueNodeProps) {
-  const expanded = expandedPaths.has(fieldPath);
+  // expandKey is used for expand/collapse state (scoped per document)
+  // fieldPath is the actual dotted path used for edits (e.g. "address.city")
+  const expandKey = `${expandKeyPrefix}:${fieldPath}`;
+  const expanded = expandedPaths.has(expandKey);
   const [editing, setEditing] = useState(false);
   const type = detectBsonType(value);
   const colorClass = BSON_TEXT_CLASSES[type];
   const isExpandable = type === "object" || type === "array";
 
   const toggleExpanded = useCallback(() => {
-    onToggleExpand(fieldPath);
-  }, [fieldPath, onToggleExpand]);
+    onToggleExpand(expandKey);
+  }, [expandKey, onToggleExpand]);
 
   const handleSave = useCallback(
     (newValue: unknown) => {
@@ -555,6 +560,7 @@ const TreeValueNode = memo(function TreeValueNode({
                 value={v}
                 depth={depth + 1}
                 fieldPath={`${fieldPath}.${k}`}
+                expandKeyPrefix={expandKeyPrefix}
                 editable={editable}
                 onFieldEdit={onFieldEdit}
                 expandedPaths={expandedPaths}
@@ -695,7 +701,8 @@ const DocumentCard = memo(function DocumentCard({
               fieldKey={key}
               value={value}
               depth={0}
-              fieldPath={`${docKey}:${key}`}
+              fieldPath={key}
+              expandKeyPrefix={docKey}
               editable={editable}
               onFieldEdit={onFieldEdit}
               expandedPaths={expandedPaths}
