@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DocumentDataGrid } from "@/components/DataGrid";
+
 import { MongoResultViewer } from "@/components/MongoQueryPanel/MongoResultViewer";
 import { normalizeMongoResult } from "@/components/MongoQueryPanel/mongo-result-state";
 import type { MongoResultViewMode } from "@/components/MongoQueryPanel/MongoQueryToolbar";
@@ -44,10 +44,9 @@ import type {
   MongoIndexOptions,
 } from "@/adapters/types/mongodb";
 import { parseDocumentFilter } from "@/utils/documentFilterParser";
-import { useTabStateStore } from "@/stores/tabStateStore";
-import useWorkbenchStore from "@/stores/workbenchStore";
+
 import { useCrudStore } from "@/stores/crudStore";
-import type { TabMetadata } from "@/types/workbench";
+
 import type {
   CrudCommand,
   CrudCommandPayload,
@@ -58,17 +57,9 @@ import type {
   JsonValue,
 } from "@/types/crud";
 import {
-  DEFAULT_MONGO_WORKBENCH_STATE,
-  type MongoCollectionViewType,
   type MongoWorkbenchState,
 } from "@/types/mongoWorkbench";
 
-interface MongoCollectionWorkbenchProps {
-  panelId: string;
-  tabId: string;
-  metadata: TabMetadata;
-  focused?: boolean;
-}
 
 type ValidatorOverlay = {
   required?: boolean;
@@ -97,7 +88,7 @@ const DEFAULT_STAGE_TEMPLATES: Record<string, string> = {
   Limit: JSON.stringify({ $limit: 50 }, null, 2),
 };
 
-function StatCard({
+export function StatCard({
   label,
   value,
 }: {
@@ -118,27 +109,6 @@ function StatCard({
   );
 }
 
-function perTabSortGridId(
-  baseGridId: string,
-  tabId: string,
-  syncSort: boolean | undefined,
-): string | undefined {
-  return syncSort === false ? `${baseGridId}:::tab:::${tabId}` : undefined;
-}
-
-function coerceMongoViewType(value: unknown): MongoCollectionViewType {
-  switch (value) {
-    case "structure":
-    case "indexes":
-    case "aggregation":
-    case "validation":
-    case "explain":
-      return value;
-    case "data":
-    default:
-      return "data";
-  }
-}
 
 function normalizeSamplePath(path: string): string {
   return path
@@ -344,7 +314,7 @@ function parseAggregationStages(stages: string[]): AggregationParseResult {
   return { ok: true, pipeline };
 }
 
-function toJsonValue(value: unknown): JsonValue | undefined {
+export function toJsonValue(value: unknown): JsonValue | undefined {
   if (
     value === null ||
     typeof value === "string" ||
@@ -374,7 +344,7 @@ function toJsonValue(value: unknown): JsonValue | undefined {
   return undefined;
 }
 
-function normalizeIndexOptionsForCrud(
+export function normalizeIndexOptionsForCrud(
   options: MongoIndexOptions,
 ): Record<string, JsonValue> {
   const normalized = toJsonValue(options);
@@ -385,7 +355,7 @@ function normalizeIndexOptionsForCrud(
     : {};
 }
 
-function buildMongoCommand<TPayload extends CrudCommandPayload>(
+export function buildMongoCommand<TPayload extends CrudCommandPayload>(
   type:
     | "document.index.create"
     | "document.index.drop"
@@ -588,7 +558,7 @@ function SchemaNodeView({
   );
 }
 
-const MongoStructureView = memo(function MongoStructureView({
+export const MongoStructureView = memo(function MongoStructureView({
   connectionId,
   database,
   collection,
@@ -730,7 +700,7 @@ const MongoStructureView = memo(function MongoStructureView({
   );
 });
 
-const MongoIndexesView = memo(function MongoIndexesView({
+export const MongoIndexesView = memo(function MongoIndexesView({
   target,
 }: {
   target: CrudCommandTarget;
@@ -1090,7 +1060,7 @@ const MongoIndexesView = memo(function MongoIndexesView({
   );
 });
 
-const MongoAggregationView = memo(function MongoAggregationView({
+export const MongoAggregationView = memo(function MongoAggregationView({
   connectionId,
   database,
   collection,
@@ -1321,7 +1291,7 @@ const MongoAggregationView = memo(function MongoAggregationView({
   );
 });
 
-const MongoValidationView = memo(function MongoValidationView({
+export const MongoValidationView = memo(function MongoValidationView({
   target,
   workbenchState,
   onWorkbenchStateChange,
@@ -1515,7 +1485,7 @@ const MongoValidationView = memo(function MongoValidationView({
   );
 });
 
-const MongoExplainView = memo(function MongoExplainView({
+export const MongoExplainView = memo(function MongoExplainView({
   connectionId,
   database,
   collection,
@@ -1685,222 +1655,4 @@ const MongoExplainView = memo(function MongoExplainView({
   );
 });
 
-export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
-  panelId,
-  tabId,
-  metadata,
-  focused,
-}: MongoCollectionWorkbenchProps) {
-  const connectionId =
-    typeof metadata.connectionId === "string" ? metadata.connectionId : "";
-  const database = typeof metadata.database === "string" ? metadata.database : "";
-  const collection = typeof metadata.table === "string" ? metadata.table : "";
-  const sortGridId = perTabSortGridId(
-    `document:${connectionId}:${database}:${collection}`,
-    tabId,
-    metadata.syncSort,
-  ) ?? `document:${connectionId}:${database}:${collection}`;
-
-  const updateTabMetadata = useWorkbenchStore((state) => state.updateTabMetadata);
-  const loadTabStateAsync = useTabStateStore((state) => state.loadTabStateAsync);
-  const setQueryState = useTabStateStore((state) => state.setQueryState);
-  const persistedState = useTabStateStore(
-    (state) => state.queryStates.get(tabId),
-  );
-
-  useEffect(() => {
-    void loadTabStateAsync(tabId);
-  }, [loadTabStateAsync, tabId]);
-
-  const activeView = useMemo<MongoCollectionViewType>(
-    () => coerceMongoViewType(metadata.viewType ?? persistedState?.tableViewType),
-    [metadata.viewType, persistedState?.tableViewType],
-  );
-
-  const handleActiveViewChange = useCallback(
-    (value: string) => {
-      const nextView = coerceMongoViewType(value);
-      if (metadata.viewType !== nextView) {
-        updateTabMetadata(panelId, tabId, { viewType: nextView });
-      }
-      if (persistedState?.tableViewType !== nextView) {
-        setQueryState(tabId, { tableViewType: nextView });
-      }
-    },
-    [
-      metadata.viewType,
-      panelId,
-      persistedState?.tableViewType,
-      setQueryState,
-      tabId,
-      updateTabMetadata,
-    ],
-  );
-
-  const workbenchState = useMemo<MongoWorkbenchState>(
-    () => ({
-      ...DEFAULT_MONGO_WORKBENCH_STATE,
-      ...(persistedState?.mongoWorkbench ?? {}),
-    }),
-    [persistedState?.mongoWorkbench],
-  );
-
-  const updateWorkbenchState = useCallback(
-    (updates: Partial<MongoWorkbenchState>) => {
-      setQueryState(tabId, {
-        mongoWorkbench: {
-          ...workbenchState,
-          ...updates,
-        },
-      });
-    },
-    [setQueryState, tabId, workbenchState],
-  );
-
-  const openExplainView = useCallback(() => {
-    updateWorkbenchState({ explainSource: "aggregation" });
-    handleActiveViewChange("explain");
-  }, [handleActiveViewChange, updateWorkbenchState]);
-
-  const target = useMemo<CrudCommandTarget>(
-    () => ({
-      connectionId,
-      database,
-      table: collection,
-    }),
-    [collection, connectionId, database],
-  );
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-none border-b bg-background px-1 py-1.5">
-        <div className="flex items-center justify-between">
-          <Tabs
-            value={activeView}
-            onValueChange={handleActiveViewChange}
-            enableShortcuts={true}
-            tabGroupId={`mongo-views-${tabId}`}
-            focused={focused}
-          >
-            <TabsList>
-              <TabsTrigger value="data" tabIndex={0}>
-                Data
-              </TabsTrigger>
-              <TabsTrigger value="structure" tabIndex={1}>
-                Structure
-              </TabsTrigger>
-              <TabsTrigger value="indexes" tabIndex={2}>
-                Indexes
-              </TabsTrigger>
-              <TabsTrigger value="aggregation" tabIndex={3}>
-                Aggregation
-              </TabsTrigger>
-              <TabsTrigger value="validation" tabIndex={4}>
-                Validation
-              </TabsTrigger>
-              <TabsTrigger value="explain" tabIndex={5}>
-                Explain
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {activeView === "explain" ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Label htmlFor="mongo-explain-source" className="text-xs text-muted-foreground">
-                Source
-              </Label>
-              <Select
-                value={workbenchState.explainSource ?? "data"}
-                onValueChange={(value) => {
-                  updateWorkbenchState({
-                    explainSource: value as MongoWorkbenchState["explainSource"],
-                  });
-                }}
-              >
-                <SelectTrigger
-                  id="mongo-explain-source"
-                  size="sm"
-                  className="w-44"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="data">Current Data Query</SelectItem>
-                  <SelectItem value="aggregation">Aggregation Draft</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1">
-        {activeView === "data" ? (
-          <DocumentDataGrid
-            key={`${tabId}:${workbenchState.filterText ?? ""}`}
-            gridId={`document:${connectionId}:${database}:${collection}`}
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            className="h-full"
-            focused={focused}
-            sortGridId={perTabSortGridId(
-              `document:${connectionId}:${database}:${collection}`,
-              tabId,
-              metadata.syncSort,
-            )}
-            initialFilterText={workbenchState.filterText}
-            onAppliedFilterChange={(state) => {
-              updateWorkbenchState({ filterText: state.text });
-            }}
-          />
-        ) : null}
-
-        {activeView === "structure" ? (
-          <MongoStructureView
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-          />
-        ) : null}
-
-        {activeView === "indexes" ? (
-          <MongoIndexesView target={target} />
-        ) : null}
-
-        {activeView === "aggregation" ? (
-          <MongoAggregationView
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            tabId={tabId}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-            onOpenExplain={openExplainView}
-          />
-        ) : null}
-
-        {activeView === "validation" ? (
-          <MongoValidationView
-            target={target}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-          />
-        ) : null}
-
-        {activeView === "explain" ? (
-          <MongoExplainView
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            workbenchState={workbenchState}
-            sortGridId={sortGridId}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-});
-
-export default MongoCollectionWorkbench;
+// MongoCollectionWorkbench shell has moved to ./index.tsx

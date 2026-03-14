@@ -19,6 +19,9 @@ export interface MongoWorkbenchState {
   explainSource?: MongoExplainSource;
   structureSampleSize?: number;
   structureMaxDepth?: number;
+  dataViewMode?: "table" | "tree" | "json";
+  aggregationStageEnabled?: boolean[];
+  aggregationViewMode?: "visual" | "code";
 }
 
 export const DEFAULT_MONGO_WORKBENCH_STATE: MongoWorkbenchState = {
@@ -30,4 +33,7 @@ export const DEFAULT_MONGO_WORKBENCH_STATE: MongoWorkbenchState = {
   explainSource: "data",
   structureSampleSize: 500,
   structureMaxDepth: 4,
+  dataViewMode: "table",
+  aggregationStageEnabled: [],
+  aggregationViewMode: "visual",
 };
