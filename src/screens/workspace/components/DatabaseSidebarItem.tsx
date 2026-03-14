@@ -255,7 +255,7 @@ export function SidebarItem({
           : isSelected
             ? "bg-primary/20 border-l-primary/70"
             : isBeingDuplicated
-              ? "bg-blue-500/10 border-l-blue-500"
+              ? "bg-primary/10 border-l-primary"
               : isDestructivePending
                 ? "bg-destructive/10 border-l-destructive"
               : "border-l-transparent",
@@ -286,8 +286,8 @@ export function SidebarItem({
         </span>
       ) : isBeingDuplicated ? (
         <span className="relative flex h-2 w-2 shrink-0 ml-1">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/60 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
         </span>
       ) : (
         icon

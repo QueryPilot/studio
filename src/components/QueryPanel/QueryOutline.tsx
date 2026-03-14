@@ -249,8 +249,8 @@ function ParseStatusBanner({ status }: { status: ParseStatus }) {
       className={cn(
         "flex items-center gap-2 px-3 py-2 text-xs border-b",
         isPartial
-          ? "bg-yellow-50 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800"
-          : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800",
+          ? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20"
+          : "bg-destructive/10 text-destructive border-destructive/20",
       )}
     >
       {isPartial ? (

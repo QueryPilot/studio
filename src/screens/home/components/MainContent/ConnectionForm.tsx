@@ -76,19 +76,17 @@ import {
   validateSslInputs,
   validateSshTunnelInputs,
 } from "./connectionFormHelpers";
+import { ENV_COLORS, ENV_KEYS } from "@/lib/envColors";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 const { open } = await import("@tauri-apps/plugin-dialog");
 
-// Environment tags
-const ENVIRONMENT_TAGS = [
-  { name: "local", color: "bg-gray-500", textColor: "text-gray-50" },
-  { name: "dev", color: "bg-blue-500", textColor: "text-blue-50" },
-  { name: "staging", color: "bg-yellow-500", textColor: "text-yellow-50" },
-  { name: "uat", color: "bg-amber-600", textColor: "text-amber-50" },
-  { name: "prod", color: "bg-red-500", textColor: "text-red-50" },
-  { name: "test", color: "bg-green-500", textColor: "text-green-50" },
-];
+// Environment tags derived from the shared color definitions
+const ENVIRONMENT_TAGS = ENV_KEYS.map((key) => ({
+  name: key,
+  color: ENV_COLORS[key].solid,
+  textColor: ENV_COLORS[key].solidText,
+}));
 
 // Tag colors
 const TAG_COLORS = [
@@ -664,7 +662,7 @@ export function ConnectionForm() {
         const colorObj = TAG_COLORS.find((c) => c.class === groupTag.color);
         return {
           bg: groupTag.color,
-          text: colorObj?.textClass || "text-white",
+          text: colorObj?.textClass || "text-foreground",
         };
       }
     }

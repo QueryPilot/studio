@@ -147,7 +147,7 @@ const TOKEN_COLORS: Record<JsonTokenType, string> = {
   string: "text-emerald-700 dark:text-emerald-400",
   number: "text-amber-600 dark:text-amber-400",
   boolean: "text-purple-600 dark:text-purple-400",
-  null: "text-gray-500 dark:text-gray-400",
+  null: "text-muted-foreground",
   punctuation: "text-muted-foreground",
 };
 

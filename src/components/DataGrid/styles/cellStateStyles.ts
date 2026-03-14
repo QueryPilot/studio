@@ -1,5 +1,9 @@
 import type { CellState } from '../types/cellState';
 
+// Semantic color constants for cell states
+const AMBER = 'hsl(45 93% 47%)';
+const RED = 'hsl(0 84% 60%)';
+
 export interface CellStateColors {
   focused: {
     border: string;
@@ -37,20 +41,20 @@ export const lightCellStateColors: CellStateColors = {
     background: 'hsl(var(--background))',
   },
   dirty: {
-    border: 'hsl(45 93% 47%)', // amber
+    border: AMBER,
     background: 'hsl(45 93% 47% / 0.1)',
-    indicator: 'hsl(45 93% 47%)',
+    indicator: AMBER,
   },
   error: {
-    border: 'hsl(0 84% 60%)', // red
+    border: RED,
     background: 'hsl(0 84% 60% / 0.1)',
-    indicator: 'hsl(0 84% 60%)',
+    indicator: RED,
   },
   inserted: {
-    background: 'hsl(142 76% 36% / 0.15)', // green
+    background: 'hsl(142 76% 36% / 0.15)',
   },
   deleted: {
-    background: 'hsl(0 84% 60% / 0.15)', // red dimmed
+    background: 'hsl(0 84% 60% / 0.15)',
   },
 };
 
@@ -64,14 +68,14 @@ export const darkCellStateColors: CellStateColors = {
     background: 'hsl(var(--background))',
   },
   dirty: {
-    border: 'hsl(45 93% 47%)',
+    border: AMBER,
     background: 'hsl(45 93% 47% / 0.15)',
-    indicator: 'hsl(45 93% 47%)',
+    indicator: AMBER,
   },
   error: {
-    border: 'hsl(0 84% 60%)',
+    border: RED,
     background: 'hsl(0 84% 60% / 0.15)',
-    indicator: 'hsl(0 84% 60%)',
+    indicator: RED,
   },
   inserted: {
     background: 'hsl(142 76% 36% / 0.2)',

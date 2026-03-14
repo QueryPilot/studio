@@ -2,15 +2,15 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { ENV_COLORS, ENV_KEYS } from "@/lib/envColors";
 
 const ENV_FILTERS = [
-  { key: "all", label: "All", color: "bg-gray-500" },
-  { key: "local", label: "Local", color: "bg-gray-500" },
-  { key: "dev", label: "Dev", color: "bg-blue-500" },
-  { key: "staging", label: "Staging", color: "bg-yellow-500" },
-  { key: "uat", label: "UAT", color: "bg-amber-600" },
-  { key: "prod", label: "Prod", color: "bg-red-500" },
-  { key: "test", label: "Test", color: "bg-green-500" },
+  { key: "all" as const, label: "All", color: "bg-gray-500" },
+  ...ENV_KEYS.map((key) => ({
+    key,
+    label: key.charAt(0).toUpperCase() + key.slice(1),
+    color: ENV_COLORS[key].solid,
+  })),
 ];
 
 export function EnvFilter() {

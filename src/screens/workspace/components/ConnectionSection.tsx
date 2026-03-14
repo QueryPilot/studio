@@ -1816,7 +1816,7 @@ export const ConnectionSection = forwardRef<
         ? "bg-yellow-500 animate-pulse"
         : status === "error"
           ? "bg-red-500"
-          : "bg-gray-400";
+          : "bg-muted-foreground/40";
 
   // Show loading state when connecting and no data yet
   const showLoadingSkeleton =
@@ -1974,7 +1974,7 @@ export const ConnectionSection = forwardRef<
 
       {/* Error state */}
       {status === "error" && error && (
-        <div className="px-3 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+        <div className="px-3 py-2 bg-destructive/10 text-destructive text-xs flex items-center gap-2">
           <IconAlertCircle className="h-4 w-4 shrink-0" />
           <span className="truncate">{error}</span>
           <Button
@@ -2181,7 +2181,7 @@ export const ConnectionSection = forwardRef<
                           focusWorkbenchPanel(draft.panelId);
                           setActiveTab(draft.panelId, draft.tabId);
                         }}
-                        className="bg-emerald-500/10 border-l-emerald-500"
+                        className="bg-green-500/10 border-l-green-500"
                       />
                     );
                   })}

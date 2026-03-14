@@ -560,7 +560,7 @@ const TreeNode = memo(function TreeNode({
           {(node.buffers?.shared ||
             node.buffers?.local ||
             node.buffers?.temp) && (
-            <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
+            <div className="text-xs mt-1 text-muted-foreground">
               Buffers:
               {node.buffers?.shared && (
                 <>
@@ -737,7 +737,7 @@ const TreeNode = memo(function TreeNode({
 
           {/* I/O Timings */}
           {node.ioTiming && (
-            <div className="text-xs mt-1 text-slate-600 dark:text-slate-400">
+            <div className="text-xs mt-1 text-muted-foreground">
               I/O Timings:
               {node.ioTiming.read !== undefined &&
                 ` read=${node.ioTiming.read.toFixed(3)}`}
@@ -748,7 +748,7 @@ const TreeNode = memo(function TreeNode({
 
           {/* Never executed indicator */}
           {node.neverExecuted && (
-            <div className="text-xs mt-1 text-gray-500 dark:text-gray-400 italic">
+            <div className="text-xs mt-1 text-muted-foreground italic">
               (never executed)
             </div>
           )}
@@ -1498,7 +1498,7 @@ export const ExplainViewer = memo(function ExplainViewer({
                         <span className="text-xs text-muted-foreground">
                           Plan Buffers:
                         </span>
-                        <span className="text-xs font-mono text-slate-600 dark:text-slate-400">
+                        <span className="text-xs font-mono text-muted-foreground">
                           shared
                           {parsed.planningBuffers.shared.hit !== undefined &&
                             ` hit=${parsed.planningBuffers.shared.hit}`}
@@ -1637,9 +1637,9 @@ export const ExplainViewer = memo(function ExplainViewer({
               {/* Settings Section */}
               {parsed.settings && parsed.settings.length > 0 && (
                 <div className="flex items-start gap-4">
-                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                  <div className="flex items-center gap-2 text-muted-foreground">
                     <div className="h-4 w-4 flex items-center justify-center">
-                      <div className="h-2 w-2 rounded-full bg-slate-600 dark:bg-slate-400" />
+                      <div className="h-2 w-2 rounded-full bg-muted-foreground" />
                     </div>
                     <span className="text-xs font-medium">Settings</span>
                   </div>
@@ -1652,9 +1652,9 @@ export const ExplainViewer = memo(function ExplainViewer({
               {/* Query Identifier */}
               {parsed.queryIdentifier && (
                 <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                  <div className="flex items-center gap-2 text-muted-foreground">
                     <div className="h-4 w-4 flex items-center justify-center">
-                      <div className="h-2 w-2 rounded-full bg-slate-600 dark:bg-slate-400" />
+                      <div className="h-2 w-2 rounded-full bg-muted-foreground" />
                     </div>
                     <span className="text-xs font-medium">Query ID</span>
                   </div>
