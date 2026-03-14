@@ -113,7 +113,10 @@ function getInitialDocumentFilterState(initialFilterText?: string): {
   filter: DocumentFilter | undefined;
   error: string | null;
 } {
-  if (typeof initialFilterText !== "string" || initialFilterText.trim().length === 0) {
+  if (
+    typeof initialFilterText !== "string" ||
+    initialFilterText.trim().length === 0
+  ) {
     return {
       filter: undefined,
       error: null,
@@ -364,7 +367,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     lastDrilledCellRef.current = null;
   }, [data.currentPath]);
 
-  const flattenControl = (
+  const activeViewMode = viewMode ?? "table";
+
+  const flattenControl = activeViewMode === "table" ? (
     <FlattenControl
       enabled={flattenMode}
       depth={flattenDepth}
@@ -373,7 +378,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       }}
       onDepthChange={setFlattenDepth}
     />
-  );
+  ) : null;
 
   const inspectorToggle = (
     <Button
@@ -392,8 +397,6 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     </Button>
   );
 
-  const activeViewMode = viewMode ?? "table";
-
   const viewModeToggle = onViewModeChange ? (
     <Tabs
       value={activeViewMode}
@@ -401,14 +404,14 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         onViewModeChange(v as DocumentDataViewMode);
       }}
     >
-      <TabsList size="sm">
-        <TabsTrigger value="table" size="sm">
+      <TabsList>
+        <TabsTrigger value="table">
           <IconTable /> Table
         </TabsTrigger>
-        <TabsTrigger value="tree" size="sm">
+        <TabsTrigger value="tree">
           <IconListTree /> Tree
         </TabsTrigger>
-        <TabsTrigger value="json" size="sm">
+        <TabsTrigger value="json">
           <IconBraces /> JSON
         </TabsTrigger>
       </TabsList>
@@ -519,7 +522,10 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   return (
     <>
-      <div style={{ display: activeViewMode === "table" ? undefined : "none" }} className={cn("h-full", className)}>
+      <div
+        style={{ display: activeViewMode === "table" ? undefined : "none" }}
+        className={cn("h-full", className)}
+      >
         <BaseDataGrid
           gridId={gridId}
           sortGridId={sortGridId}
@@ -593,7 +599,10 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
       {activeViewMode === "json" && (
         <div className={cn("flex flex-col h-full", className)}>
           <div className="flex-none">{topToolbar}</div>
-          <DocumentJsonView documents={data.rawDocuments} className="min-h-0 flex-1" />
+          <DocumentJsonView
+            documents={data.rawDocuments}
+            className="min-h-0 flex-1"
+          />
           <DataGridStatusBar
             loadedRows={data.rawDocuments.length}
             estimatedTotal={data.totalCount}
