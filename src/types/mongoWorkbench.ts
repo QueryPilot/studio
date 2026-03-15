@@ -8,15 +8,13 @@ export type MongoCollectionViewType =
   | "validation"
   | "explain";
 
-export type MongoExplainSource = "data" | "aggregation";
-
 export interface MongoWorkbenchState {
   filterText?: string;
   aggregationStages?: string[];
   validationJson?: string;
   validationLevel?: ValidationRules["validationLevel"];
   validationAction?: ValidationRules["validationAction"];
-  explainSource?: MongoExplainSource;
+  explainSource?: "data" | "aggregation";
   structureSampleSize?: number;
   structureMaxDepth?: number;
   dataViewMode?: "table" | "tree" | "json";

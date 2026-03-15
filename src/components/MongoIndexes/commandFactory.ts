@@ -7,7 +7,7 @@ import type {
 } from "@/types/crud";
 import type { MongoIndexOptions } from "@/adapters/types/mongodb";
 
-export function toJsonValue(value: unknown): JsonValue | undefined {
+function toJsonValue(value: unknown): JsonValue | undefined {
   if (
     value === null ||
     typeof value === "string" ||

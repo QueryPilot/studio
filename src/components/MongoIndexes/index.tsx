@@ -1150,4 +1150,3 @@ export const MongoIndexesView = memo(function MongoIndexesView({
   );
 });
 
-export default MongoIndexesView;

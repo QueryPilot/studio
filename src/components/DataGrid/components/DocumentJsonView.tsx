@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 // Types
 // ============================================================================
 
-export interface DocumentJsonViewProps {
+interface DocumentJsonViewProps {
   documents: Record<string, unknown>[];
   className?: string;
 }

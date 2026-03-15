@@ -13,7 +13,7 @@ interface IndexKeyCellData {
   keys: Record<string, 1 | -1 | "text">;
 }
 
-export interface IndexKeyCell extends CustomCell<IndexKeyCellData> {
+interface IndexKeyCell extends CustomCell<IndexKeyCellData> {
   kind: typeof GridCellKind.Custom;
 }
 

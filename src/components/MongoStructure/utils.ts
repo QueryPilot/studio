@@ -8,7 +8,7 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
-export type ValidatorOverlay = {
+type ValidatorOverlay = {
   required?: boolean;
   bsonType?: string | string[];
 };
@@ -36,7 +36,7 @@ export interface SchemaRow {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-export function normalizeSamplePath(path: string): string {
+function normalizeSamplePath(path: string): string {
   return path
     .split(".")
     .map((segment) => (/^\d+$/.test(segment) ? "[]" : segment))
@@ -84,7 +84,7 @@ export function formatSampleValues(values: unknown[] | undefined): string {
 // Validator overlay
 // ---------------------------------------------------------------------------
 
-export function buildValidatorOverlayMap(
+function buildValidatorOverlayMap(
   validator: Record<string, unknown> | undefined,
 ): Map<string, ValidatorOverlay> {
   const result = new Map<string, ValidatorOverlay>();
@@ -151,7 +151,7 @@ export function buildValidatorOverlayMap(
 // Schema tree building
 // ---------------------------------------------------------------------------
 
-export function ensureTreeNode(
+function ensureTreeNode(
   root: SchemaTreeNode,
   path: string,
 ): SchemaTreeNode {
