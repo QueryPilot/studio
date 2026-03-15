@@ -1319,7 +1319,15 @@ export const DocumentTreeView = memo(function DocumentTreeView({
             <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
               <div className="flex items-center gap-2 mb-1.5">
                 <IconPlus className="size-3.5 text-primary" />
-                <span className="text-xs font-medium">{allowStructuralEdits ? "Insert Document" : "Insert Row"}</span>
+                <span className="text-xs font-medium flex-1">{allowStructuralEdits ? "Insert Document" : "Insert Row"}</span>
+                <button
+                  type="button"
+                  onClick={() => setShowInsertEditor(false)}
+                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  title="Close"
+                >
+                  <IconX className="size-3.5" />
+                </button>
               </div>
               <DocumentJsonEditor
                 key={insertCounter}
@@ -1402,7 +1410,7 @@ export const DocumentTreeView = memo(function DocumentTreeView({
             }}
           >
             <IconPlus className="size-3.5" />
-            Insert Document
+            {allowStructuralEdits ? "Insert Document" : "Insert Row"}
           </ContextMenuItem>
         )}
       </ContextMenuContent>
