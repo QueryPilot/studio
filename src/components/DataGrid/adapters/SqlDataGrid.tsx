@@ -1136,6 +1136,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     // Collect field edits by PK key
     const editsByPk = new Map<string, Map<string, unknown>>();
     const stagedInserts: Record<string, unknown>[] = [];
+    const deletedPks = new Set<string>();
 
     for (const cmd of stagedCommands) {
       if (cmd.state !== "staged") continue;
@@ -1158,9 +1159,27 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         const payload = cmd.payload as { values?: Record<string, unknown> };
         if (payload.values) stagedInserts.push(payload.values);
       }
+
+      if (cmd.type === "data.delete") {
+        const payload = cmd.payload as { primaryKeys?: Record<string, unknown> };
+        if (payload.primaryKeys) {
+          const pkKey = configuredIdentityColumns
+            .map((col) => String(payload.primaryKeys![col] ?? ""))
+            .join("·");
+          deletedPks.add(pkKey);
+        }
+      }
     }
 
-    let result = plainDocuments;
+    // Filter out staged-deleted rows
+    let result = deletedPks.size > 0
+      ? plainDocuments.filter((doc) => {
+          const pkKey = configuredIdentityColumns
+            .map((col) => String(doc[col] ?? ""))
+            .join("·");
+          return !deletedPks.has(pkKey);
+        })
+      : plainDocuments;
     if (editsByPk.size > 0) {
       result = plainDocuments.map((doc) => {
         const pkKey = configuredIdentityColumns

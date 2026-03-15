@@ -560,6 +560,8 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     const editsByDoc = new Map<string, Map<string, unknown>>();
     // 2. Collect staged inserts
     const stagedInserts: Record<string, unknown>[] = [];
+    // 3. Collect staged deletes
+    const deletedIds = new Set<string>();
 
     for (const cmd of stagedCommands) {
       if (cmd.state !== "staged") continue;
@@ -586,10 +588,31 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
           stagedInserts.push(payload.values);
         }
       }
+
+      if (cmd.type === "data.delete") {
+        const payload = cmd.payload as { primaryKeys?: Record<string, unknown> };
+        const idVal = payload.primaryKeys?._id;
+        if (idVal === undefined || idVal === null) continue;
+        const idKey =
+          typeof idVal === "object" && "$oid" in idVal
+            ? String((idVal as Record<string, unknown>).$oid)
+            : String(idVal);
+        deletedIds.add(idKey);
+      }
     }
 
-    // Apply edits to existing documents
-    let result = filteredRawDocuments;
+    // Filter out staged-deleted documents
+    let result = deletedIds.size > 0
+      ? filteredRawDocuments.filter((doc) => {
+          const idVal = doc._id;
+          if (idVal === undefined || idVal === null) return true;
+          const idKey =
+            typeof idVal === "object" && idVal !== null && "$oid" in idVal
+              ? String((idVal as Record<string, unknown>).$oid)
+              : String(idVal);
+          return !deletedIds.has(idKey);
+        })
+      : filteredRawDocuments;
     if (editsByDoc.size > 0) {
       result = filteredRawDocuments.map((doc) => {
         const idVal = doc._id;
