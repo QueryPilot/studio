@@ -17,7 +17,7 @@ interface IndexPropertiesCellData {
   language?: string;
 }
 
-export interface IndexPropertiesCell
+interface IndexPropertiesCell
   extends CustomCell<IndexPropertiesCellData> {
   kind: typeof GridCellKind.Custom;
 }

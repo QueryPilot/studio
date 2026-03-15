@@ -18,7 +18,7 @@ interface SchemaFieldCellData {
   isRequired: boolean;
 }
 
-export interface SchemaFieldCell extends CustomCell<SchemaFieldCellData> {
+interface SchemaFieldCell extends CustomCell<SchemaFieldCellData> {
   kind: typeof GridCellKind.Custom;
 }
 
@@ -131,7 +131,7 @@ interface TypeDistributionCellData {
   types: Array<{ type: string; percentage: number }>;
 }
 
-export interface TypeDistributionCell
+interface TypeDistributionCell
   extends CustomCell<TypeDistributionCellData> {
   kind: typeof GridCellKind.Custom;
 }

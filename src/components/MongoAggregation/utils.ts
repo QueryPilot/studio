@@ -2,7 +2,7 @@
 // Aggregation pipeline utilities
 // ---------------------------------------------------------------------------
 
-export type AggregationParseResult =
+type AggregationParseResult =
   | { ok: true; pipeline: object[] }
   | { ok: false; error: string };
 
@@ -73,7 +73,7 @@ export function parseAggregationStages(
 // Stage color mapping — each operator gets a unique color scheme
 // ---------------------------------------------------------------------------
 
-export const STAGE_COLORS: Record<string, string> = {
+const STAGE_COLORS: Record<string, string> = {
   $match: "text-green-400 border-green-500/30 bg-green-500/5",
   $group: "text-purple-400 border-purple-500/30 bg-purple-500/5",
   $sort: "text-amber-400 border-amber-500/30 bg-amber-500/5",

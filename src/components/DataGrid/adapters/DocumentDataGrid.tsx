@@ -80,7 +80,7 @@ interface DocumentDataGridBaseProps {
   sortGridId?: string;
 }
 
-export type DocumentDataViewMode = "table" | "tree" | "json";
+type DocumentDataViewMode = "table" | "tree" | "json";
 
 export interface DocumentCollectionDataGridProps extends DocumentDataGridBaseProps {
   mode?: "collection";
@@ -958,4 +958,3 @@ export const DocumentDataGrid = memo(function DocumentDataGrid(
   return <DocumentCollectionDataGrid {...props} />;
 });
 
-export default DocumentDataGrid;

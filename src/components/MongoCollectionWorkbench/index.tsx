@@ -255,4 +255,3 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
   );
 });
 
-export default MongoCollectionWorkbench;

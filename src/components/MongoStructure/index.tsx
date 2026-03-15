@@ -439,4 +439,3 @@ export const MongoStructureView = memo(function MongoStructureView({
   );
 });
 
-export default MongoStructureView;
