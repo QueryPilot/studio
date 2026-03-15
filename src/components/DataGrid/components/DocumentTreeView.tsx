@@ -206,8 +206,9 @@ interface InlineEditProps {
 /** Build a template document from an existing document, replacing values with defaults */
 function buildInsertTemplate(
   sample: Record<string, unknown> | undefined,
+  isDocument: boolean,
 ): Record<string, unknown> {
-  const doc: Record<string, unknown> = { _id: generateObjectId() };
+  const doc: Record<string, unknown> = isDocument ? { _id: generateObjectId() } : {};
   if (!sample) return doc;
 
   for (const [key, value] of Object.entries(sample)) {
@@ -990,7 +991,7 @@ const DocumentCard = memo(function DocumentCard({
             {onOpenInsertEditor && (
               <ContextMenuItem onClick={onOpenInsertEditor}>
                 <IconPlus className="size-3.5" />
-                Insert Document
+                {allowStructuralEdits ? "Insert Document" : "Insert Row"}
               </ContextMenuItem>
             )}
             {hasStagedEdits && (
@@ -1318,11 +1319,11 @@ export const DocumentTreeView = memo(function DocumentTreeView({
             <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
               <div className="flex items-center gap-2 mb-1.5">
                 <IconPlus className="size-3.5 text-primary" />
-                <span className="text-xs font-medium">Insert Document</span>
+                <span className="text-xs font-medium">{allowStructuralEdits ? "Insert Document" : "Insert Row"}</span>
               </div>
               <DocumentJsonEditor
                 key={insertCounter}
-                document={buildInsertTemplate(documents[0])}
+                document={buildInsertTemplate(documents[0], allowStructuralEdits)}
                 themeMode={insertThemeMode}
                 onSave={handleInsertSave}
                 onCancel={() => {
