@@ -107,7 +107,7 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
 
   async getKeyType(key: string): Promise<RedisType> {
     const result = await this.execute({ type: 'type', key });
-    return result.type === 'key_type' ? result.data : 'unknown';
+    return result.type === 'keyType' ? result.data : 'unknown';
   }
 
   async getKeyTTL(key: string): Promise<number> {
@@ -140,7 +140,7 @@ export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
 
   async getServerInfo(section?: string): Promise<Record<string, string>> {
     const result = await this.execute({ type: 'serverInfo', section });
-    return result.type === 'server_info' ? result.data : {};
+    return result.type === 'serverInfo' ? result.data : {};
   }
 
   getCurrentDatabase(): number {

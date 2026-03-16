@@ -118,6 +118,7 @@ function isSchemaChangingCommand(command: CrudCommand): boolean {
     command.type === "table.drop" ||
     command.type === "table.duplicate" ||
     command.type === "table.truncate" ||
+    command.type === "table.rename" ||
     command.type === "view.create" ||
     command.type === "view.drop" ||
     command.type === "sequence.create" ||
@@ -274,9 +275,12 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     onCommitSuccess,
   } = props;
 
-  // Use selective zustand subscriptions to avoid unnecessary re-renders
-  // Only subscribe to the parts of the store we actually need
-  const stagedCommands = useCrudStore((state) => state.stagedCommands);
+  // Only subscribe to stagedCommands when dialog is open (#11 fix)
+  // When closed, return stable empty Map so Zustand doesn't trigger re-renders
+  const EMPTY_MAP = useMemo(() => new Map<string, never[]>(), []);
+  const stagedCommands = useCrudStore((state) =>
+    open ? state.stagedCommands : EMPTY_MAP,
+  );
   const discardAll = useCrudStore((state) => state.discardAll);
   const getTableKey = useCrudStore((state) => state.getTableKey);
   const commitChanges = useCrudStore((state) => state.commitChanges);
@@ -1723,6 +1727,16 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
                       {/* Action buttons — right side */}
                       <div className="flex items-center gap-2">
                         <Button
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            onOpenChange(false);
+                          }}
+                          disabled={isCommitting}
+                        >
+                          Close
+                        </Button>
+                        <Button
                           variant="outline"
                           onClick={handleDiscardAll}
                           disabled={isCommitting}
@@ -1879,7 +1893,8 @@ function RowChangesCardInner({
       cmd.type.startsWith("table.") ||
       cmd.type.startsWith("view.") ||
       cmd.type.startsWith("constraint.") ||
-      cmd.type.startsWith("sequence."),
+      cmd.type.startsWith("sequence.") ||
+      cmd.type.startsWith("document."),
   );
 
   // Get primary key info
@@ -2182,6 +2197,16 @@ function RowChangesCardInner({
           // column.rename - show old → new
           ddlLines.push(
             `  ${formatDdlValue(payload.columnName)} → ${formatDdlValue(payload.newName)}`,
+          );
+        } else if (payload.newName && payload.indexName) {
+          // index.rename - show old → new
+          ddlLines.push(
+            `  ${formatDdlValue(payload.indexName)} → ${formatDdlValue(payload.newName)}`,
+          );
+        } else if (payload.newName && payload.triggerName) {
+          // trigger.rename - show old → new
+          ddlLines.push(
+            `  ${formatDdlValue(payload.triggerName)} → ${formatDdlValue(payload.newName)}`,
           );
         } else if (
           payload.columnName ||

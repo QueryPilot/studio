@@ -1265,8 +1265,8 @@ SELECT
       if (definition.nullable === false) {
         parts.push('NOT NULL');
       }
-      if (definition.defaultValue !== undefined) {
-        parts.push(`DEFAULT ${definition.defaultValue}`);
+      if (definition.defaultValue !== undefined && definition.defaultValue !== null) {
+        parts.push(`DEFAULT ${this.formatValue(definition.defaultValue, { name: definition.name })}`);
       }
     }
 

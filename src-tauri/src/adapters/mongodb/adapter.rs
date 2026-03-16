@@ -399,7 +399,7 @@ impl MongoDbAdapter {
         let mut command = doc! { "collMod": collection };
 
         if let Some(validator_value) = validator {
-            command.insert("validator", Self::json_to_bson(&validator_value)?);
+            command.insert("validator", Self::json_to_bson(&validator_value, false)?);
         }
 
         if let Some(level) = validation_level {
@@ -444,7 +444,7 @@ impl MongoDbAdapter {
                 let mut command = doc! { "find": collection };
 
                 if let Some(filter_value) = filter {
-                    command.insert("filter", Self::json_to_bson(&filter_value)?);
+                    command.insert("filter", Self::json_to_bson(&filter_value, false)?);
                 }
                 if let Some(sort_value) = sort {
                     command.insert("sort", Self::json_to_bson_doc(&sort_value)?);
@@ -602,7 +602,7 @@ impl MongoDbAdapter {
             Value::Object(map) => {
                 let mut doc = Document::new();
                 for (k, v) in map {
-                    doc.insert(k.clone(), Self::json_to_bson(v)?);
+                    doc.insert(k.clone(), Self::json_to_bson(v, k == "_id")?);
                 }
                 Ok(doc)
             }
@@ -611,7 +611,10 @@ impl MongoDbAdapter {
     }
 
     /// Convert JSON Value to BSON Value
-    fn json_to_bson(value: &Value) -> Result<bson::Bson, AppError> {
+    ///
+    /// When `is_id_field` is true, 24-char hex strings are auto-coerced to ObjectId.
+    /// For non-_id fields, strings are always kept as strings.
+    fn json_to_bson(value: &Value, is_id_field: bool) -> Result<bson::Bson, AppError> {
         match value {
             Value::Null => Ok(bson::Bson::Null),
             Value::Bool(b) => Ok(bson::Bson::Boolean(*b)),
@@ -625,8 +628,11 @@ impl MongoDbAdapter {
                 }
             }
             Value::String(s) => {
-                // Try to parse as ObjectId if it looks like one
-                if s.len() == 24 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+                // Only auto-coerce 24-char hex strings to ObjectId for _id fields
+                if is_id_field
+                    && s.len() == 24
+                    && s.chars().all(|c| c.is_ascii_hexdigit())
+                {
                     if let Ok(oid) = bson::oid::ObjectId::parse_str(s) {
                         return Ok(bson::Bson::ObjectId(oid));
                     }
@@ -634,14 +640,43 @@ impl MongoDbAdapter {
                 Ok(bson::Bson::String(s.clone()))
             }
             Value::Array(arr) => {
+                // Propagate is_id_field so $in/$nin on _id coerce array elements
                 let bson_arr: Result<Vec<bson::Bson>, AppError> =
-                    arr.iter().map(Self::json_to_bson).collect();
+                    arr.iter().map(|v| Self::json_to_bson(v, is_id_field)).collect();
                 Ok(bson::Bson::Array(bson_arr?))
             }
             Value::Object(map) => {
+                // Detect BSON Timestamp round-trip: {"$timestamp": {"t": <u32>, "i": <u32>}}
+                if map.len() == 1 {
+                    if let Some(Value::Object(inner)) = map.get("$timestamp") {
+                        if inner.len() == 2 {
+                            if let (Some(Value::Number(t)), Some(Value::Number(i))) =
+                                (inner.get("t"), inner.get("i"))
+                            {
+                                if let (Some(t_val), Some(i_val)) = (
+                                    t.as_u64().and_then(|v| u32::try_from(v).ok()),
+                                    i.as_u64().and_then(|v| u32::try_from(v).ok()),
+                                ) {
+                                    return Ok(bson::Bson::Timestamp(bson::Timestamp {
+                                        time: t_val,
+                                        increment: i_val,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let mut doc = Document::new();
                 for (k, v) in map {
-                    doc.insert(k.clone(), Self::json_to_bson(v)?);
+                    // For operator keys ($in, $ne, etc.), propagate the parent's is_id_field
+                    // so that _id operator values get ObjectId coercion
+                    let child_is_id = if k.starts_with('$') {
+                        is_id_field
+                    } else {
+                        k == "_id"
+                    };
+                    doc.insert(k.clone(), Self::json_to_bson(v, child_is_id)?);
                 }
                 Ok(bson::Bson::Document(doc))
             }
@@ -679,7 +714,20 @@ impl MongoDbAdapter {
                 &bin.bytes,
             )),
             bson::Bson::Timestamp(ts) => {
-                Value::Number((ts.time as i64 * 1000 + ts.increment as i64).into())
+                // Use MongoDB Extended JSON v2 format: {"$timestamp": {"t": N, "i": N}}
+                // The $ prefix prevents false-positive collisions with user data
+                let mut inner = serde_json::Map::new();
+                inner.insert(
+                    "t".to_string(),
+                    Value::Number(serde_json::Number::from(ts.time)),
+                );
+                inner.insert(
+                    "i".to_string(),
+                    Value::Number(serde_json::Number::from(ts.increment)),
+                );
+                let mut outer = serde_json::Map::new();
+                outer.insert("$timestamp".to_string(), Value::Object(inner));
+                Value::Object(outer)
             }
             bson::Bson::RegularExpression(re) => {
                 Value::String(format!("/{}/{}", re.pattern, re.options))
@@ -766,7 +814,7 @@ impl MongoDbAdapter {
             let Some(cursor_value) = Self::cursor_value_for_field(cursor_token, field) else {
                 continue;
             };
-            let cursor_bson = Self::json_to_bson(cursor_value)?;
+            let cursor_bson = Self::json_to_bson(cursor_value, field == "_id")?;
 
             let mut branch = Document::new();
             for (prev_field, _) in sort_pairs.iter().take(idx) {
@@ -776,7 +824,7 @@ impl MongoDbAdapter {
                     // this branch cannot express strict tuple ordering safely.
                     continue 'branch;
                 };
-                branch.insert(prev_field, Self::json_to_bson(prev_value)?);
+                branch.insert(prev_field, Self::json_to_bson(prev_value, prev_field == "_id")?);
             }
 
             let op = if *direction >= 0 { "$gt" } else { "$lt" };

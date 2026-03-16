@@ -100,9 +100,9 @@ export type KeyValueResult =
   | { type: 'bool'; data: boolean }
   | { type: 'scan'; data: ScanResult }
   | { type: 'scanWithPreviews'; data: ScanResultWithPreviews }
-  | { type: 'key_type'; data: RedisType }
+  | { type: 'keyType'; data: RedisType }
   | { type: 'ttl'; data: number }
-  | { type: 'server_info'; data: Record<string, string> }
+  | { type: 'serverInfo'; data: Record<string, string> }
   | { type: 'hash'; data: Record<string, string> }
   | { type: 'list'; data: string[] }
   | { type: 'set'; data: string[] }

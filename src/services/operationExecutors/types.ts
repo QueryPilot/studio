@@ -7,6 +7,8 @@ export interface ExecuteResult {
   success: boolean;
   affectedCount: number;
   errors: ExecuteError[];
+  /** IDs of commands that were successfully committed (for partial-failure cleanup) */
+  committedCommandIds?: string[];
 }
 
 export interface ExecuteError {

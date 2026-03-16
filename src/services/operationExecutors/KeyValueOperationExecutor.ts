@@ -12,10 +12,9 @@ import type {
 } from './types';
 
 type RedisOperation = {
-  type: 'set' | 'delete' | 'hset' | 'hdel' | 'lpush' | 'rpush' | 'lset' | 'sadd' | 'srem' | 'zadd' | 'expire' | 'persist';
+  type: 'set' | 'delete' | 'hset' | 'hdel' | 'rpush' | 'lset' | 'lrem' | 'sadd' | 'srem' | 'zadd' | 'zrem' | 'expire' | 'persist';
   key: string;
   value?: RedisValue;
-  field?: string;
   fields?: Record<string, string>;
   members?: string[];
   index?: number;
@@ -35,6 +34,7 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
     logger.info('executor.keyvalue', `Executing ${commands.length} commands for ${this.connectionId}`);
 
     const errors: ExecuteError[] = [];
+    const committedCommandIds: string[] = [];
     let affectedCount = 0;
 
     const zipped = this.zipOperationsWithCommands(commands);
@@ -48,6 +48,7 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
       try {
         await this.executeOperation(op);
         affectedCount++;
+        committedCommandIds.push(cmd.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('executor.keyvalue', `Operation failed: ${message}`, op);
@@ -62,7 +63,7 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
     const success = errors.length === 0;
     logger.info('executor.keyvalue', `Execution complete: ${affectedCount} succeeded, ${errors.length} failed`);
 
-    return { success, affectedCount, errors };
+    return { success, affectedCount, errors, committedCommandIds };
   }
 
   preview(commands: CrudCommand[]): OperationPreview {
@@ -243,7 +244,6 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           return {
             type: 'hset',
             key,
-            field: payload.column,
             fields: { [payload.column]: String(payload.newValue) },
           };
         }
@@ -316,6 +316,22 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           members: member !== undefined && member !== null ? [String(member)] : [],
         };
       }
+      case 'list': {
+        const value = payload.primaryKeys?.value;
+        return {
+          type: 'lrem',
+          key,
+          members: value !== undefined && value !== null ? [String(value)] : [],
+        };
+      }
+      case 'zset': {
+        const member = payload.primaryKeys?.member;
+        return {
+          type: 'zrem',
+          key,
+          members: member !== undefined && member !== null ? [String(member)] : [],
+        };
+      }
       default:
         return { type: 'delete', key };
     }
@@ -339,10 +355,6 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         await this.adapter.hashDelete(op.key, op.members ?? []);
         break;
 
-      case 'lpush':
-        await this.adapter.listPush(op.key, op.members ?? [], 'left');
-        break;
-
       case 'rpush':
         await this.adapter.listPush(op.key, op.members ?? [], 'right');
         break;
@@ -361,6 +373,21 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
 
       case 'srem':
         await this.adapter.setRemove(op.key, op.members ?? []);
+        break;
+
+      case 'lrem':
+        await this.adapter.executeRaw('LREM', [
+          op.key,
+          '0',
+          op.members?.[0] ?? '',
+        ]);
+        break;
+
+      case 'zrem':
+        await this.adapter.executeRaw('ZREM', [
+          op.key,
+          ...(op.members ?? []),
+        ]);
         break;
 
       case 'zadd':
@@ -387,8 +414,6 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         return `HSET ${op.key} ${Object.keys(op.fields ?? {}).join(' ')}`;
       case 'hdel':
         return `HDEL ${op.key} ${(op.members ?? []).join(' ')}`;
-      case 'lpush':
-        return `LPUSH ${op.key} <values>`;
       case 'rpush':
         return `RPUSH ${op.key} <values>`;
       case 'lset':
@@ -397,6 +422,10 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         return `SADD ${op.key} <members>`;
       case 'srem':
         return `SREM ${op.key} <members>`;
+      case 'lrem':
+        return `LREM ${op.key} 0 <value>`;
+      case 'zrem':
+        return `ZREM ${op.key} <members>`;
       case 'zadd':
         return `ZADD ${op.key} <score> <member>`;
       case 'expire':
@@ -425,8 +454,6 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
         }
         case 'hdel':
           return `HDEL "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
-        case 'lpush':
-          return `LPUSH "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'rpush':
           return `RPUSH "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'lset':
@@ -435,6 +462,10 @@ export class KeyValueOperationExecutor implements KeyValueOperationExecutorInter
           return `SADD "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'srem':
           return `SREM "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
+        case 'lrem':
+          return `LREM "${op.key}" 0 "${op.members?.[0] ?? ''}"`;
+        case 'zrem':
+          return `ZREM "${op.key}" ${(op.members ?? []).map(m => `"${m}"`).join(' ')}`;
         case 'zadd': {
           const members = (op.zsetMembers ?? [])
             .map(({ score, member }) => `${score} "${member}"`)

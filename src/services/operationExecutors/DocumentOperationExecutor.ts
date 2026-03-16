@@ -85,6 +85,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
     logger.info('executor.document', `Executing ${commands.length} commands for ${this.connectionId}`);
 
     const errors: ExecuteError[] = [];
+    const committedCommandIds: string[] = [];
     let affectedCount = 0;
 
     const operations = this.commandsToOperations(commands);
@@ -98,6 +99,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
       try {
         await this.executeOperation(op);
         affectedCount++;
+        committedCommandIds.push(cmd.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('executor.document', `Operation failed: ${message}`, op);
@@ -112,7 +114,7 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
     const success = errors.length === 0;
     logger.info('executor.document', `Execution complete: ${affectedCount} succeeded, ${errors.length} failed`);
 
-    return { success, affectedCount, errors };
+    return { success, affectedCount, errors, committedCommandIds };
   }
 
   preview(commands: CrudCommand[]): OperationPreview {
@@ -356,22 +358,26 @@ export class DocumentOperationExecutor implements DocumentOperationExecutorInter
         }
         break;
 
-      case 'createIndex':
+      case 'createIndex': {
+        const indexOpts = op.indexName
+          ? { ...op.indexOptions, name: op.indexName }
+          : op.indexOptions;
         if (op.database) {
           await this.adapter.createIndex(
             op.collection,
             op.indexKeys ?? {},
-            op.indexOptions,
+            indexOpts,
             op.database,
           );
         } else {
           await this.adapter.createIndex(
             op.collection,
             op.indexKeys ?? {},
-            op.indexOptions,
+            indexOpts,
           );
         }
         break;
+      }
 
       case 'dropIndex':
         if (op.database) {
