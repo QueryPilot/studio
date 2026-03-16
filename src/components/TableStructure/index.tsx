@@ -1711,7 +1711,8 @@ export const TableStructure = memo(function TableStructure({
               }
             }}
             onKeyDown={isReadOnly ? undefined : handleTableNameKeyDown}
-            className="h-7 w-48 text-xs font-medium"
+            className="h-7 min-w-32 max-w-80 text-xs font-medium"
+            style={{ fieldSizing: "content" } as React.CSSProperties}
             placeholder="Table name"
             readOnly={isReadOnly}
           />

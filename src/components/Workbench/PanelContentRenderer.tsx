@@ -413,7 +413,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       return (
         <div className="flex flex-col h-full">
           {/* IconTable Toolbar */}
-          <div className="flex-none pb-1 pt-1.5 bg-background">
+          <div className="@container flex-none pb-1 pt-1.5 bg-background">
             <div className="flex items-center justify-between px-1 h-full">
               <Tabs
                 value={activeView}
@@ -425,18 +425,18 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 <TabsList>
                   <TabsTrigger value="data" tabIndex={0}>
                     <IconTable />
-                    <span>Data</span>
+                    <span className="hidden @sm:inline">Data</span>
                   </TabsTrigger>
                   <TabsTrigger value="structure" tabIndex={1}>
                     <IconAssembly />
-                    <span>Structure</span>
+                    <span className="hidden @sm:inline">Structure</span>
                   </TabsTrigger>
 
                   {/* Regular views: only show Definition tab */}
                   {isRegularView && (
                     <TabsTrigger value="definition" tabIndex={2}>
                       <IconCode />
-                      <span>Definition</span>
+                      <span className="hidden @sm:inline">Definition</span>
                     </TabsTrigger>
                   )}
 
@@ -445,21 +445,21 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                     <>
                       <TabsTrigger value="indexes" tabIndex={2}>
                         <IconBookmark />
-                        <span>Indexes</span>
+                        <span className="hidden @sm:inline">Indexes</span>
                       </TabsTrigger>
                       <TabsTrigger value="triggers" tabIndex={3}>
                         <IconBolt />
-                        <span>Triggers</span>
+                        <span className="hidden @sm:inline">Triggers</span>
                       </TabsTrigger>
                       {dbType && isMySQLCompatible(dbType) && (
                         <TabsTrigger value="partitions" tabIndex={4}>
                           <IconLayoutGrid />
-                          <span>Partitions</span>
+                          <span className="hidden @sm:inline">Partitions</span>
                         </TabsTrigger>
                       )}
                       <TabsTrigger value="definition" tabIndex={dbType && isMySQLCompatible(dbType) ? 5 : 4}>
                         <IconCode />
-                        <span>Definition</span>
+                        <span className="hidden @sm:inline">Definition</span>
                       </TabsTrigger>
                     </>
                   )}
@@ -468,7 +468,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isMaterializedView && (
                     <TabsTrigger value="indexes" tabIndex={2}>
                       <IconBookmark />
-                      <span>Indexes</span>
+                      <span className="hidden @sm:inline">Indexes</span>
                     </TabsTrigger>
                   )}
 
@@ -476,7 +476,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                   {isMaterializedView && (
                     <TabsTrigger value="definition" tabIndex={3}>
                       <IconCode />
-                      Definition
+                      <span className="hidden @sm:inline">Definition</span>
                     </TabsTrigger>
                   )}
                 </TabsList>

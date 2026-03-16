@@ -459,18 +459,28 @@ const InlineJsonEdit = memo(function InlineJsonEdit({
   const { resolvedTheme } = useTheme();
   const themeMode = resolvedTheme === "dark" ? "dark" : "light";
   const [draft, setDraft] = useState(() => JSON.stringify(value, null, 2));
+  const [error, setError] = useState<string | null>(null);
 
   const extensions = useMemo(
     () => [...JSON_EXTENSIONS, ...getThemeExtensions(themeMode)],
     [themeMode],
   );
 
+  // Auto-size editor height based on content lines (min 80px, max 320px)
+  const editorHeight = useMemo(() => {
+    const lineCount = draft.split("\n").length;
+    const lineHeight = 18; // approximate px per line
+    const padding = 12;
+    return `${Math.min(Math.max(lineCount * lineHeight + padding, 80), 320)}px`;
+  }, [draft]);
+
   const save = useCallback(() => {
     try {
       const parsed: unknown = JSON.parse(draft);
+      setError(null);
       onSave(parsed);
-    } catch {
-      // Invalid JSON — don't save
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Invalid JSON");
     }
   }, [draft, onSave]);
 
@@ -492,15 +502,20 @@ const InlineJsonEdit = memo(function InlineJsonEdit({
     <div className="mt-1 mb-1" onKeyDown={handleKeyDown}>
       <div className="border border-border rounded overflow-hidden">
         <CodeMirror
+          key={themeMode}
           value={draft}
-          onChange={setDraft}
+          onChange={(v) => {
+            setDraft(v);
+            if (error) setError(null);
+          }}
           extensions={extensions}
           theme="none"
           basicSetup={false}
-          height="120px"
+          height={editorHeight}
           autoFocus
         />
       </div>
+      {error && <div className="text-xs text-destructive mt-1">{error}</div>}
       <div className="flex gap-1 mt-1">
         <button
           type="button"
@@ -574,6 +589,12 @@ const TreeValueNode = memo(function TreeValueNode({
     setEditing(false);
   }, []);
 
+  const handleCopyValue = useCallback(() => {
+    const text =
+      typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    writeClipboardText(text).catch(() => {});
+  }, [value]);
+
   if (isExpandable) {
     const entries =
       type === "array"
@@ -582,50 +603,77 @@ const TreeValueNode = memo(function TreeValueNode({
 
     return (
       <div
-        className="select-text group/node"
+        className="select-text"
         style={{ paddingLeft: depth > 0 ? 16 : 0 }}
       >
-        <div className="flex items-center gap-1 py-0.5 rounded hover:bg-muted/30">
-          <button
-            type="button"
-            onClick={toggleExpanded}
-            className="flex items-center gap-1 flex-1 text-left min-w-0"
+        <ContextMenu>
+          <ContextMenuTrigger
+            className="flex items-center gap-1 py-0.5 rounded hover:bg-muted/30 group/node"
+            onContextMenu={(e: React.MouseEvent) => { e.stopPropagation(); }}
           >
-            <IconChevronRight
-              className={cn(
-                "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
-                expanded && "rotate-90",
-              )}
-            />
-            <span className="font-mono text-[11px] text-foreground/80 shrink-0">
-              {fieldKey}
-            </span>
-            <span className="text-[11px] text-muted-foreground/60 shrink-0">
-              {type}
-            </span>
-            <span className="text-[11px] text-muted-foreground shrink-0">
-              :
-            </span>
-            {!expanded && (
-              <span
-                className={cn("font-mono text-[11px] truncate", colorClass)}
-              >
-                {formatValuePreview(value)}
-              </span>
-            )}
-          </button>
-          {editable && !editing && (
             <button
               type="button"
-              onClick={() => {
-                setEditing(true);
-              }}
-              className="opacity-0 group-hover/node:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0"
+              onClick={toggleExpanded}
+              className="flex items-center gap-1 flex-1 text-left min-w-0"
             >
-              <IconPencil className="size-3.5" />
+              <IconChevronRight
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+                  expanded && "rotate-90",
+                )}
+              />
+              <span className="font-mono text-[11px] text-foreground/80 shrink-0">
+                {fieldKey}
+              </span>
+              <span className="text-[11px] text-muted-foreground/60 shrink-0">
+                {type}
+              </span>
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                :
+              </span>
+              {!expanded && (
+                <span
+                  className={cn(
+                    "font-mono text-[11px] truncate",
+                    colorClass,
+                  )}
+                >
+                  {formatValuePreview(value)}
+                </span>
+              )}
             </button>
-          )}
-        </div>
+            {editable && !editing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(true);
+                }}
+                className="opacity-0 group-hover/node:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0"
+              >
+                <IconPencil className="size-3.5" />
+              </button>
+            )}
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem onClick={handleCopyValue}>
+              <IconCopy className="size-3.5" />
+              Copy Value
+            </ContextMenuItem>
+            {editable && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onClick={() => {
+                    setEditing(true);
+                  }}
+                >
+                  <IconCode className="size-3.5" />
+                  Edit as JSON
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
         {editing && (
           <div style={{ paddingLeft: 16 }}>
             <InlineEdit
@@ -660,45 +708,69 @@ const TreeValueNode = memo(function TreeValueNode({
 
   // Leaf node
   return (
-    <div
-      className="flex items-baseline gap-1 py-0.5 select-text group/leaf"
-      style={{ paddingLeft: depth > 0 ? 16 : 0 }}
-    >
-      <span className="ml-5 font-mono text-[11px] text-foreground/80 shrink-0">
-        {fieldKey}
-      </span>
-      <span className="text-[11px] text-muted-foreground/60 shrink-0">
-        {type}
-      </span>
-      <span className="text-[11px] text-muted-foreground">:</span>
-      {editing ? (
-        <InlineEdit
-          value={value}
-          type={type}
-          onSave={handleSave}
-          onCancel={handleCancel}
-        />
-      ) : (
-        <>
-          <span className={cn("font-mono text-[11px] truncate", colorClass)}>
-            {type === "objectId"
-              ? `ObjectId("${formatObjectId(value)}")`
-              : formatValuePreview(value)}
-          </span>
-          {editable && (
-            <button
-              type="button"
+    <ContextMenu>
+      <ContextMenuTrigger
+        className="flex items-baseline gap-1 py-0.5 select-text group/leaf"
+        style={{ paddingLeft: depth > 0 ? 16 : 0 }}
+        onContextMenu={(e: React.MouseEvent) => { e.stopPropagation(); }}
+      >
+        <span className="ml-5 font-mono text-[11px] text-foreground/80 shrink-0">
+          {fieldKey}
+        </span>
+        <span className="text-[11px] text-muted-foreground/60 shrink-0">
+          {type}
+        </span>
+        <span className="text-[11px] text-muted-foreground">:</span>
+        {editing ? (
+          <InlineEdit
+            value={value}
+            type={type}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        ) : (
+          <>
+            <span
+              className={cn("font-mono text-[11px] truncate", colorClass)}
+            >
+              {type === "objectId"
+                ? `ObjectId("${formatObjectId(value)}")`
+                : formatValuePreview(value)}
+            </span>
+            {editable && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(true);
+                }}
+                className="opacity-0 group-hover/leaf:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0"
+              >
+                <IconPencil className="size-3.5" />
+              </button>
+            )}
+          </>
+        )}
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={handleCopyValue}>
+          <IconCopy className="size-3.5" />
+          Copy Value
+        </ContextMenuItem>
+        {editable && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
               onClick={() => {
                 setEditing(true);
               }}
-              className="opacity-0 group-hover/leaf:opacity-100 text-muted-foreground hover:text-foreground p-0.5 shrink-0"
             >
               <IconPencil className="size-3.5" />
-            </button>
-          )}
-        </>
-      )}
-    </div>
+              Edit
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 
