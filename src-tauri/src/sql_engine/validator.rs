@@ -2,7 +2,7 @@
 
 use super::parser::{ParsedDocument, ParsedStatement, TableReference};
 use super::schema_store::CachedSchema;
-use super::semantic::{validate_column_references, validate_table_references};
+use super::semantic::{column_exists, validate_column_references, validate_table_references};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -277,36 +277,49 @@ struct KeywordTypoRule;
 impl LintRule for KeywordTypoRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_lower = stmt.text.to_lowercase();
+        let bytes = text_lower.as_bytes();
 
-        let typos = vec![
-            ("wher ", "WHERE"),
-            ("selct ", "SELECT"),
-            ("form ", "FROM"),
-            ("ordre ", "ORDER"),
-            ("gropu ", "GROUP"),
-            ("havin ", "HAVING"),
-            ("jion ", "JOIN"),
-            ("inser ", "INSERT"),
-            ("updat ", "UPDATE"),
-            ("delet ", "DELETE"),
-            ("crete ", "CREATE"),
-            ("tabel ", "TABLE"),
-            ("colum ", "COLUMN"),
-            ("wehere ", "WHERE"),
+        let typos: &[(&str, &str)] = &[
+            ("wher", "WHERE"),
+            ("selct", "SELECT"),
+            ("form", "FROM"),
+            ("ordre", "ORDER"),
+            ("gropu", "GROUP"),
+            ("havin", "HAVING"),
+            ("jion", "JOIN"),
+            ("inser", "INSERT"),
+            ("updat", "UPDATE"),
+            ("delet", "DELETE"),
+            ("crete", "CREATE"),
+            ("tabel", "TABLE"),
+            ("colum", "COLUMN"),
+            ("wehere", "WHERE"),
         ];
 
-        for (typo, correct) in typos {
-            if text_lower.contains(typo) {
-                // Find position of typo for better error reporting
-                if let Some(pos) = text_lower.find(typo) {
+        for &(typo, correct) in typos {
+            let mut search_from = 0;
+            while let Some(rel_pos) = text_lower[search_from..].find(typo) {
+                let pos = search_from + rel_pos;
+                let end = pos + typo.len();
+
+                // Check word boundaries — must NOT be inside an identifier
+                let before_ok = pos == 0
+                    || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
+                let after_ok = end >= bytes.len()
+                    || (!bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_');
+
+                if before_ok && after_ok {
                     result.add_error(SqlError {
                         from: stmt.range.0 + pos,
-                        to: stmt.range.0 + pos + typo.len(),
+                        to: stmt.range.0 + end,
                         message: format!("Possible typo: did you mean '{}'?", correct),
                         severity: ErrorSeverity::Error,
                         source: ErrorSource::Syntax,
                     });
+                    break; // Only report first occurrence per typo
                 }
+
+                search_from = end;
             }
         }
     }
@@ -518,11 +531,13 @@ impl LintRule for UnusedCteRule {
 }
 
 /// Check for ambiguous columns in multi-table queries.
-struct AmbiguousColumnRule;
+struct AmbiguousColumnRule<'a> {
+    schema: Option<&'a CachedSchema>,
+}
 
-impl LintRule for AmbiguousColumnRule {
+impl<'a> LintRule for AmbiguousColumnRule<'a> {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
-        validate_ambiguous_columns(stmt, result);
+        validate_ambiguous_columns(stmt, self.schema, result);
     }
 }
 
@@ -602,7 +617,7 @@ fn validate_common_issues(
         Box::new(MissingWhereClauseRule),
         Box::new(SelectStarRule),
         Box::new(UnusedCteRule),
-        Box::new(AmbiguousColumnRule),
+        Box::new(AmbiguousColumnRule { schema }),
         Box::new(FuzzyReferenceRule { schema }),
     ];
 
@@ -635,20 +650,26 @@ fn strip_sql_comments_preserve_offsets(sql: &str) -> String {
     let mut i = 0;
 
     while i < chars.len() {
-        // Single-quoted string
+        // Single-quoted string — blank content while preserving quotes and offsets
         if chars[i] == '\'' {
-            out.push(chars[i]);
+            out.push(chars[i]); // opening quote
             i += 1;
             while i < chars.len() {
-                out.push(chars[i]);
                 if chars[i] == '\'' && i + 1 < chars.len() && chars[i + 1] == '\'' {
-                    out.push(chars[i + 1]);
+                    out.push(' '); // blank escaped quote
+                    out.push(' ');
                     i += 2;
                     continue;
                 }
                 if chars[i] == '\'' {
+                    out.push(chars[i]); // closing quote
                     i += 1;
                     break;
+                }
+                if chars[i] == '\n' || chars[i] == '\r' {
+                    out.push(chars[i]); // preserve newlines
+                } else {
+                    out.push(' '); // blank content
                 }
                 i += 1;
             }
@@ -734,7 +755,11 @@ fn strip_sql_comments_preserve_offsets(sql: &str) -> String {
     out
 }
 
-fn validate_ambiguous_columns(stmt: &ParsedStatement, result: &mut ValidationResult) {
+fn validate_ambiguous_columns(
+    stmt: &ParsedStatement,
+    schema: Option<&CachedSchema>,
+    result: &mut ValidationResult,
+) {
     if stmt.tables.len() < 2 {
         return;
     }
@@ -757,6 +782,20 @@ fn validate_ambiguous_columns(stmt: &ParsedStatement, result: &mut ValidationRes
 
     let max_hints: usize = 8;
     for col_name in unqualified.iter().take(max_hints) {
+        // When schema is available, only flag columns that exist in multiple tables
+        if let Some(schema) = schema {
+            let tables_with_col: usize = stmt
+                .tables
+                .iter()
+                .filter(|t| column_exists(&t.name, col_name, schema))
+                .count();
+
+            // Only flag if column exists in 2+ tables (truly ambiguous)
+            if tables_with_col < 2 {
+                continue;
+            }
+        }
+
         let (from, to) =
             find_span_in_statement(stmt, col_name).unwrap_or((stmt.range.0, stmt.range.1));
         result.add_error(SqlError {
@@ -1497,6 +1536,233 @@ mod tests {
                 .iter()
                 .any(|w| w.message.contains("user_stat") && w.message.contains("user_stats")),
             "CTE typo should be detected even without schema"
+        );
+    }
+
+    #[test]
+    fn test_keyword_typo_does_not_match_inside_identifier() {
+        let doc = parse_document("SELECT form_data FROM forms", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Possible typo")),
+            "Should not flag 'form' inside identifiers like 'form_data' or 'forms'"
+        );
+    }
+
+    #[test]
+    fn test_keyword_typo_does_not_match_inside_string() {
+        let doc = parse_document(
+            "SELECT * FROM t WHERE name = 'form data'",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Possible typo")),
+            "Should not flag 'form' inside string literals"
+        );
+    }
+
+    #[test]
+    fn test_keyword_typo_still_catches_real_typos() {
+        let doc = parse_document("SELECT * FORM users", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+        let has_typo = result
+            .errors
+            .iter()
+            .chain(result.warnings.iter())
+            .any(|e| e.message.contains("Possible typo") && e.message.contains("FROM"));
+        assert!(has_typo, "Real keyword typo 'FORM' should be caught");
+    }
+
+    #[test]
+    fn test_ambiguous_column_rule_does_not_fire_on_unique_columns() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_table(TableInfo {
+                name: "orders".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "users",
+                vec![
+                    ColumnInfo {
+                        name: "id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: true,
+                        is_unique: true,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 1,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "name".to_string(),
+                        data_type: "varchar".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: false,
+                        is_unique: false,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 2,
+                        precision: None,
+                        scale: None,
+                    },
+                ],
+            )
+            .add_columns(
+                "orders",
+                vec![
+                    ColumnInfo {
+                        name: "id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: true,
+                        is_unique: true,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 1,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "total".to_string(),
+                        data_type: "numeric".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: false,
+                        is_unique: false,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 2,
+                        precision: None,
+                        scale: None,
+                    },
+                ],
+            )
+            .build();
+
+        let doc = parse_document(
+            "SELECT name, total FROM users JOIN orders ON users.id = orders.id",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, Some(&schema), None);
+
+        let ambiguous_hints: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("should be qualified"))
+            .collect();
+
+        assert!(
+            !ambiguous_hints
+                .iter()
+                .any(|h| h.message.contains("'name'")),
+            "Unique column 'name' should not be flagged as ambiguous"
+        );
+        assert!(
+            !ambiguous_hints
+                .iter()
+                .any(|h| h.message.contains("'total'")),
+            "Unique column 'total' should not be flagged as ambiguous"
+        );
+    }
+
+    #[test]
+    fn test_ambiguous_column_rule_flags_truly_ambiguous_columns() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_table(TableInfo {
+                name: "orders".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "users",
+                vec![ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                }],
+            )
+            .add_columns(
+                "orders",
+                vec![ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "integer".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                }],
+            )
+            .build();
+
+        let doc = parse_document(
+            "SELECT id FROM users JOIN orders ON users.id = orders.id",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, Some(&schema), None);
+
+        let ambiguous_hints: Vec<_> = result
+            .warnings
+            .iter()
+            .filter(|w| w.message.contains("should be qualified"))
+            .collect();
+
+        assert!(
+            ambiguous_hints
+                .iter()
+                .any(|h| h.message.contains("'id'")),
+            "Column 'id' that exists in both tables should be flagged as ambiguous"
         );
     }
 }
