@@ -1215,8 +1215,8 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   return (
     <div className="flex h-full flex-col relative">
       {/* Quick Filter + View Mode Toggle + Inspector */}
-      <div className="py-1.5 px-1">
-        <div className="flex items-center gap-2">
+      <div className="@container py-1.5 px-1">
+        <div className="flex flex-col @md:flex-row @md:items-center gap-2">
           {filterColumns.length > 0 && (
             <div className="flex-1 min-w-0">
               <QuickFilter
@@ -1235,27 +1235,29 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               />
             </div>
           )}
-          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "table" | "tree" | "json")}>
-            <TabsList>
-              <TabsTrigger value="table"><IconTable /> Table</TabsTrigger>
-              <TabsTrigger value="tree"><IconListTree /> Tree</TabsTrigger>
-              <TabsTrigger value="json"><IconBraces /> JSON</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-7 w-7 shrink-0"
-            onClick={() => {
-              setShowInspector((prev) => !prev);
-            }}
-          >
-            {showInspector ? (
-              <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
-            ) : (
-              <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "table" | "tree" | "json")}>
+              <TabsList>
+                <TabsTrigger value="table"><IconTable /> <span className="hidden @md:inline">Table</span></TabsTrigger>
+                <TabsTrigger value="tree"><IconListTree /> <span className="hidden @md:inline">Tree</span></TabsTrigger>
+                <TabsTrigger value="json"><IconBraces /> <span className="hidden @md:inline">JSON</span></TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button
+              size="icon"
+              variant="outline"
+              className="h-7 w-7 shrink-0"
+              onClick={() => {
+                setShowInspector((prev) => !prev);
+              }}
+            >
+              {showInspector ? (
+                <IconLayoutSidebarRightCollapse className="h-3.5 w-3.5" />
+              ) : (
+                <IconLayoutSidebarRightExpand className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 

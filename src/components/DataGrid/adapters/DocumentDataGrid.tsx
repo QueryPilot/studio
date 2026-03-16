@@ -430,20 +430,20 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     >
       <TabsList>
         <TabsTrigger value="table">
-          <IconTable /> Table
+          <IconTable /> <span className="hidden @md:inline">Table</span>
         </TabsTrigger>
         <TabsTrigger value="tree">
-          <IconListTree /> Tree
+          <IconListTree /> <span className="hidden @md:inline">Tree</span>
         </TabsTrigger>
         <TabsTrigger value="json">
-          <IconBraces /> JSON
+          <IconBraces /> <span className="hidden @md:inline">JSON</span>
         </TabsTrigger>
       </TabsList>
     </Tabs>
   ) : null;
 
   const topToolbar = (
-    <div className="flex flex-col gap-1.5 mb-1.5 p-1">
+    <div className="@container flex flex-col gap-1.5 mb-1.5 p-1">
       {/* Row 1: BreadcrumbNav (only when drilled in) */}
       {data.currentPath.length > 0 && (
         <div className="flex items-center gap-2">
@@ -492,7 +492,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
       {/* Row 2 (or Row 1 at root): QuickFilter + controls */}
       {data.currentPath.length === 0 && filterColumns.length > 0 ? (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col @md:flex-row @md:items-center gap-2">
           <div className="flex-1 min-w-0">
             <QuickFilter
               ref={quickFilterRef}
@@ -519,8 +519,10 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
               clientSideFiltering={false}
             />
           </div>
-          {viewModeToggle}
-          {inspectorToggle}
+          <div className="flex items-center gap-2 shrink-0">
+            {viewModeToggle}
+            {inspectorToggle}
+          </div>
         </div>
       ) : data.currentPath.length === 0 ? (
         <div className="flex justify-end gap-2">
