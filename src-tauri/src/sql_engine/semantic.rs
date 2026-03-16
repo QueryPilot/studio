@@ -184,7 +184,7 @@ pub fn table_exists(table_name: &str, schema: &CachedSchema) -> bool {
 
 /// Check if a column exists in a table.
 pub fn column_exists(table_name: &str, column_name: &str, schema: &CachedSchema) -> bool {
-    if let Some(columns) = schema.columns.get(table_name) {
+    if let Some(columns) = schema.get_columns(table_name) {
         columns
             .iter()
             .any(|c| c.name.to_lowercase() == column_name.to_lowercase())
@@ -435,7 +435,7 @@ pub fn suggest_similar_columns(
 ) -> Vec<String> {
     let col_lower = column_name.to_lowercase();
 
-    if let Some(columns) = schema.columns.get(table_name) {
+    if let Some(columns) = schema.get_columns(table_name) {
         columns
             .iter()
             .filter(|c| {
@@ -955,5 +955,38 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| e.message.contains("missing_table") && e.severity == ErrorSeverity::Error));
+    }
+
+    #[test]
+    fn test_column_exists_case_insensitive_table_name() {
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "Users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .build();
+
+        schema.columns.insert(
+            "Users".to_string(),
+            vec![ColumnInfo {
+                name: "id".to_string(),
+                data_type: "integer".to_string(),
+                nullable: false,
+                default_value: None,
+                is_primary_key: true,
+                is_unique: true,
+                comment: None,
+                enum_values: None,
+                ordinal: 1,
+                precision: None,
+                scale: None,
+            }],
+        );
+
+        // Query uses lowercase, schema stores uppercase — should still find columns
+        assert!(column_exists("users", "id", &schema));
     }
 }
