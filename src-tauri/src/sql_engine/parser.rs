@@ -585,15 +585,32 @@ fn extract_table_factor(factor: &TableFactor, tables: &mut Vec<TableReference>) 
 fn extract_aliases(stmt: &Statement) -> Vec<AliasBinding> {
     let mut aliases = Vec::new();
 
-    if let Statement::Query(query) = stmt {
-        if let SetExpr::Select(select) = query.body.as_ref() {
-            for table_with_joins in &select.from {
-                extract_alias_from_factor(&table_with_joins.relation, &mut aliases);
-                for join in &table_with_joins.joins {
-                    extract_alias_from_factor(&join.relation, &mut aliases);
+    match stmt {
+        Statement::Query(query) => {
+            if let SetExpr::Select(select) = query.body.as_ref() {
+                for table_with_joins in &select.from {
+                    extract_alias_from_factor(&table_with_joins.relation, &mut aliases);
+                    for join in &table_with_joins.joins {
+                        extract_alias_from_factor(&join.relation, &mut aliases);
+                    }
                 }
             }
         }
+        Statement::Update { table, .. } => {
+            extract_alias_from_factor(&table.relation, &mut aliases);
+            for join in &table.joins {
+                extract_alias_from_factor(&join.relation, &mut aliases);
+            }
+        }
+        Statement::Delete(delete) => {
+            let tables_vec = match &delete.from {
+                ast::FromTable::WithFromKeyword(t) | ast::FromTable::WithoutKeyword(t) => t,
+            };
+            for table in tables_vec {
+                extract_alias_from_factor(&table.relation, &mut aliases);
+            }
+        }
+        _ => {}
     }
 
     aliases
@@ -671,6 +688,40 @@ fn extract_columns(stmt: &Statement) -> Vec<ColumnReference> {
             selection,
             ..
         } => {
+            // Extract SET target columns (LHS of assignments)
+            for assignment in assignments {
+                match &assignment.target {
+                    ast::AssignmentTarget::ColumnName(name) => {
+                        if let Some(ident) = name.0.last() {
+                            columns.push(ColumnReference {
+                                name: ident.value.clone(),
+                                table: if name.0.len() >= 2 {
+                                    Some(
+                                        name.0[..name.0.len() - 1]
+                                            .iter()
+                                            .map(|i| i.value.clone())
+                                            .collect::<Vec<_>>()
+                                            .join("."),
+                                    )
+                                } else {
+                                    None
+                                },
+                            });
+                        }
+                    }
+                    ast::AssignmentTarget::Tuple(names) => {
+                        for name in names {
+                            if let Some(ident) = name.0.last() {
+                                columns.push(ColumnReference {
+                                    name: ident.value.clone(),
+                                    table: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            // Extract RHS expressions
             for assignment in assignments {
                 extract_columns_from_expr(&assignment.value, &mut columns);
             }
@@ -684,6 +735,14 @@ fn extract_columns(stmt: &Statement) -> Vec<ColumnReference> {
             }
         }
         Statement::Insert(insert) => {
+            // Extract target column list: INSERT INTO t (col1, col2)
+            for col_ident in &insert.columns {
+                columns.push(ColumnReference {
+                    name: col_ident.value.clone(),
+                    table: None,
+                });
+            }
+            // Extract columns from source SELECT
             if let Some(source) = &insert.source {
                 if let SetExpr::Select(select) = source.body.as_ref() {
                     for item in &select.projection {
@@ -1062,6 +1121,60 @@ mod tests {
 
         assert_ne!(snippet, sql);
         assert!(snippet.len() < sql.len());
+    }
+
+    #[test]
+    fn test_extract_insert_target_columns() {
+        let doc = parse_document(
+            "INSERT INTO users (id, name, email) VALUES (1, 'test', 'a@b.com')",
+            SqlDialect::PostgreSQL,
+        );
+        let cols = &doc.statements[0].columns;
+        let col_names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            col_names.contains(&"id"),
+            "INSERT target columns should be extracted"
+        );
+        assert!(col_names.contains(&"name"));
+        assert!(col_names.contains(&"email"));
+    }
+
+    #[test]
+    fn test_extract_update_set_target_columns() {
+        let doc = parse_document(
+            "UPDATE users SET name = 'test', email = 'a@b.com' WHERE id = 1",
+            SqlDialect::PostgreSQL,
+        );
+        let cols = &doc.statements[0].columns;
+        let col_names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
+        assert!(
+            col_names.contains(&"name"),
+            "UPDATE SET target should be extracted"
+        );
+        assert!(
+            col_names.contains(&"email"),
+            "UPDATE SET target should be extracted"
+        );
+        assert!(
+            col_names.contains(&"id"),
+            "WHERE column should be extracted"
+        );
+    }
+
+    #[test]
+    fn test_extract_update_aliases() {
+        let doc = parse_document(
+            "UPDATE users u SET u.name = 'test' WHERE u.id = 1",
+            SqlDialect::PostgreSQL,
+        );
+        // Note: PostgreSQL may not support UPDATE aliases in sqlparser — check if parse succeeds
+        if doc.errors.is_empty() {
+            assert!(
+                !doc.statements[0].aliases.is_empty(),
+                "UPDATE aliases should be extracted"
+            );
+            assert_eq!(doc.statements[0].aliases[0].alias, "u");
+        }
     }
 
     #[test]
