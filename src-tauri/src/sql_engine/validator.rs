@@ -539,128 +539,10 @@ impl<'a> LintRule for FuzzyReferenceRule<'a> {
             .map(|schema| schema.tables.iter().map(|t| t.name.clone()).collect())
             .unwrap_or_default();
 
-        if let Some(schema) = self.schema {
-            // Check for table name typos
-            for table_ref in &stmt.tables {
-                if is_reference_outside_loaded_schemas(table_ref, schema) {
-                    continue;
-                }
-
-                let table_exists = existing_table_names
-                    .iter()
-                    .any(|t| t.eq_ignore_ascii_case(&table_ref.name));
-
-                let is_cte = stmt
-                    .ctes
-                    .iter()
-                    .any(|cte| cte.name.eq_ignore_ascii_case(&table_ref.name));
-
-                // If table doesn't exist and it's not a CTE, check for typos
-                if !table_exists && !is_cte {
-                    // Check against table names
-                    if let Some((closest, _distance)) =
-                        find_closest_match(&table_ref.name, &existing_table_names, 2)
-                    {
-                        let (from, to) = find_span_in_statement(stmt, &table_ref.name)
-                            .unwrap_or((stmt.range.0, stmt.range.1));
-                        result.add_error(SqlError {
-                            from,
-                            to,
-                            message: format!(
-                                "Table '{}' not found. Did you mean '{}'?",
-                                table_ref.name, closest
-                            ),
-                            severity: ErrorSeverity::Warning,
-                            source: ErrorSource::Semantic,
-                        });
-                        continue; // Skip checking CTEs if we found a table match
-                    }
-
-                    // Check against CTE names
-                    if let Some((closest, _distance)) =
-                        find_closest_match(&table_ref.name, &cte_names, 2)
-                    {
-                        let (from, to) = find_span_in_statement(stmt, &table_ref.name)
-                            .unwrap_or((stmt.range.0, stmt.range.1));
-                        result.add_error(SqlError {
-                            from,
-                            to,
-                            message: format!(
-                                "Reference '{}' not found. Did you mean the CTE '{}'?",
-                                table_ref.name, closest
-                            ),
-                            severity: ErrorSeverity::Warning,
-                            source: ErrorSource::Semantic,
-                        });
-                    }
-                }
-            }
-
-            // Check for column name typos
-            for col in &stmt.columns {
-                if col.name == "*" {
-                    continue;
-                }
-
-                if col.table.is_none()
-                    && stmt
-                        .output_aliases
-                        .iter()
-                        .any(|alias| alias.eq_ignore_ascii_case(&col.name))
-                {
-                    continue;
-                }
-
-                let mut candidate_columns: Vec<String> = Vec::new();
-
-                if let Some(table_or_alias) = &col.table {
-                    let resolved_table = table_or_alias
-                        .rsplit('.')
-                        .next()
-                        .unwrap_or(table_or_alias)
-                        .to_string();
-                    let resolved_table = stmt
-                        .aliases
-                        .iter()
-                        .find(|a| a.alias.eq_ignore_ascii_case(&resolved_table))
-                        .map(|a| a.table.rsplit('.').next().unwrap_or(&a.table).to_string())
-                        .unwrap_or(resolved_table);
-
-                    if let Some(columns) = schema.get_columns(&resolved_table) {
-                        candidate_columns.extend(columns.iter().map(|c| c.name.clone()));
-                    }
-                } else {
-                    for table_ref in &stmt.tables {
-                        if let Some(columns) = schema.get_columns(&table_ref.name) {
-                            candidate_columns.extend(columns.iter().map(|c| c.name.clone()));
-                        }
-                    }
-                }
-
-                let column_exists = candidate_columns
-                    .iter()
-                    .any(|c| c.eq_ignore_ascii_case(&col.name));
-
-                if !column_exists && !candidate_columns.is_empty() {
-                    if let Some((closest, _distance)) =
-                        find_closest_match(&col.name, &candidate_columns, 2)
-                    {
-                        let (from, to) = find_span_in_statement(stmt, &col.name)
-                            .unwrap_or((stmt.range.0, stmt.range.1));
-                        result.add_error(SqlError {
-                            from,
-                            to,
-                            message: format!(
-                                "Column '{}' not found. Did you mean '{}'?",
-                                col.name, closest
-                            ),
-                            severity: ErrorSeverity::Warning,
-                            source: ErrorSource::Semantic,
-                        });
-                    }
-                }
-            }
-        }
+        // When schema IS available, semantic validation (validate_table_references /
+        // validate_column_references) already checks table/column existence with
+        // suggestions.  Skip those checks here to avoid duplicate diagnostics.
+        // Only CTE-reference typo detection (below) is unique to this rule.
 
         // Check for CTE reference typos (works even when no schema is available)
         for table_ref in &stmt.tables {
@@ -1244,11 +1126,12 @@ mod tests {
             .build();
 
         // Test typo: "user" instead of "users"
+        // Semantic validation (validate_table_references) now handles this as an error
         let doc = parse_document("SELECT * FROM user", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
 
-        let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
-        assert!(warnings.iter().any(|m| m.contains("Did you mean 'users'")));
+        let errors: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
+        assert!(errors.iter().any(|m| m.contains("Did you mean 'users'")));
     }
 
     #[test]
@@ -1300,13 +1183,16 @@ mod tests {
             .build();
 
         // Test typo: "emal" instead of "email"
+        // Semantic validation (validate_column_references) now handles this as an error
         let doc = parse_document("SELECT emal FROM users", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
 
-        let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
-        assert!(warnings
-            .iter()
-            .any(|m| m.contains("emal") && m.contains("Did you mean 'email'")));
+        let errors: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
+        assert!(
+            errors.iter().any(|m| m.contains("emal")),
+            "Expected an error about 'emal' column, got: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -1558,6 +1444,59 @@ mod tests {
         println!(
             "BENCH_LINT {{\"iterations\":{},\"avg_ms\":{:.3},\"p50_ms\":{:.3},\"p95_ms\":{:.3},\"min_ms\":{:.3},\"max_ms\":{:.3}}}",
             ITERATIONS, avg_ms, p50_ms, p95_ms, min_ms, max_ms
+        );
+    }
+
+    #[test]
+    fn test_missing_table_does_not_produce_duplicate_diagnostics() {
+        use crate::sql_engine::schema_store::{CachedSchemaBuilder, TableInfo, TableType};
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .build();
+
+        let doc = parse_document("SELECT * FROM userz", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, Some(&schema), None);
+
+        let userz_diagnostics: Vec<_> = result
+            .errors
+            .iter()
+            .chain(result.warnings.iter())
+            .filter(|e| e.message.to_lowercase().contains("userz"))
+            .collect();
+
+        assert_eq!(
+            userz_diagnostics.len(),
+            1,
+            "Should produce exactly one diagnostic for missing table 'userz', got {}: {:?}",
+            userz_diagnostics.len(),
+            userz_diagnostics
+                .iter()
+                .map(|d| &d.message)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_cte_typo_detected_without_schema() {
+        let doc = parse_document(
+            "WITH user_stats AS (SELECT 1) SELECT * FROM user_stat",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.message.contains("user_stat") && w.message.contains("user_stats")),
+            "CTE typo should be detected even without schema"
         );
     }
 }
