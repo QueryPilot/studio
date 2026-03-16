@@ -542,6 +542,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const expandCollapseRef = useRef<{ expandAll: () => void; collapseAll: () => void } | null>(null);
   const unstageCommands = useCrudStore((s) => s.unstageCommands);
   // Keep refs for stable callbacks so DocumentTreeView memo isn't defeated
+  // Use filteredRawDocuments for finding original index (pre-deletion list)
   const filteredRawDocumentsRef = useRef(filteredRawDocuments);
   useEffect(() => { filteredRawDocumentsRef.current = filteredRawDocuments; });
 
@@ -623,7 +624,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
         })
       : filteredRawDocuments;
     if (editsByDoc.size > 0) {
-      result = filteredRawDocuments.map((doc) => {
+      result = result.map((doc) => {
         const idVal = doc._id;
         if (idVal === undefined || idVal === null) return doc;
         const idKey =
@@ -687,11 +688,16 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   useEffect(() => { dataRef.current = data; });
   const stagedCommandsRef = useRef(stagedCommands);
   useEffect(() => { stagedCommandsRef.current = stagedCommands; });
+  // Track the displayed documents (after staged edits/deletes/inserts applied)
+  const displayedDocsRef = useRef(documentsWithStagedEdits);
+  useEffect(() => { displayedDocsRef.current = documentsWithStagedEdits; });
 
   const handleTreeFieldEdit = useCallback(
     (docIndex: number, fieldPath: string, newValue: unknown) => {
-      const doc = filteredRawDocumentsRef.current[docIndex];
+      // docIndex is into documentsWithStagedEdits (what the tree shows)
+      const doc = displayedDocsRef.current[docIndex];
       if (!doc) return;
+      // Find the original index in rawDocuments by _id
       const originalIndex = dataRef.current.rawDocuments.findIndex(
         (d) =>
           d === doc ||
@@ -716,7 +722,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     (docIndex: number) => {
       const cmds = stagedCommandsRef.current;
       if (!cmds) return;
-      const doc = filteredRawDocumentsRef.current[docIndex];
+      const doc = displayedDocsRef.current[docIndex];
       if (!doc) return;
       const docId = doc._id;
       if (docId === undefined || docId === null) return;
@@ -753,7 +759,7 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
 
   const handleTreeDeleteDocument = useCallback(
     (docIndex: number) => {
-      const doc = filteredRawDocumentsRef.current[docIndex];
+      const doc = displayedDocsRef.current[docIndex];
       if (!doc) return;
       const docId = doc._id;
       if (docId === undefined || docId === null) return;

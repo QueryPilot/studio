@@ -111,15 +111,16 @@ export function FKPreviewPopover({
   );
 
   // Fetch referenced table structure for proper db_type and FK info
+  const fkStructureOptions = useMemo(
+    () => ({ includeConstraints: true, includeForeignKeys: true }),
+    [],
+  );
   const { structure: refTableStructure } = useTableFullStructure({
     connectionId,
     database,
     schema: fkReference.referenced_schema,
     table: fkReference.referenced_table,
-    options: {
-      includeConstraints: true,
-      includeForeignKeys: true,
-    },
+    options: fkStructureOptions,
     enabled: open,
   });
 

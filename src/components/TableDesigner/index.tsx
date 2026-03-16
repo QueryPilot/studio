@@ -16,7 +16,7 @@ import {
   type GridMouseEventArgs,
 } from "@glideapps/glide-data-grid";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import type { GridColumnV2 } from "@/components/DataGrid/types";
 import ColumnNameCellRenderer from "@/components/TableStructure/ColumnNameCellRenderer";
 import { NullableCellRenderer } from "@/components/TableStructure/NullableCellRenderer";
@@ -759,8 +759,8 @@ export const TableDesigner: React.FC<TableDesignerProps> = ({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: designerColumns,
-      initialWidths: {},
-      onChange: () => {},
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // Custom renderers

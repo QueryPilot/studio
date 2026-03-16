@@ -107,6 +107,7 @@ import {
   clearCompletionCache,
   recordCompletionUsage,
 } from "./languages/sql/optimized-completion";
+import { clearInstanceCaches } from "./languages/sql/shared";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 
@@ -960,6 +961,7 @@ export const SqlEditor = memo(
         view.dom.removeEventListener("focusout", handleBlur);
         contextServiceRef.current?.exitScope(scopeId);
         contextServiceRef.current?.disposeScope(scopeId);
+        clearInstanceCaches(scopeId); // M2 fix: free per-instance LRU caches
         view.destroy();
         viewRef.current = null;
       };

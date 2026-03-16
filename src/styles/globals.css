@@ -82,7 +82,7 @@
   --vibrancy: oklch(0.15 0.02 70 / 0.4);
 
   /* Secondary/Muted/Accent - cool surfaces, warm accents */
-  --secondary: oklch(0.19 0.015 75);
+  --secondary: oklch(0.24 0.015 75);
   --secondary-foreground: oklch(0.93 0.008 75);
   --muted: oklch(0.30 0.012 75);
   --muted-foreground: oklch(0.65 0.01 75);
@@ -98,7 +98,7 @@
 
   /* Borders - subtle */
   --border: oklch(0.32 0.015 75);
-  --input: oklch(0.27 0.012 75);
+  --input: oklch(0.30 0.012 75);
   --ring: oklch(0.75 0.16 70);
 
   /* Charts */

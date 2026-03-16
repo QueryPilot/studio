@@ -15,7 +15,7 @@ import type {
 } from "@/adapters/types/mongodb";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import { structureColumns } from "./columns";
 import {
   buildSchemaTree,
@@ -137,10 +137,8 @@ export const MongoStructureView = memo(function MongoStructureView({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: structureColumns,
-      initialWidths: {},
-      onChange: () => {
-        // No persistence needed for now
-      },
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // ---- Custom renderers ----

@@ -136,6 +136,20 @@ export const DefaultValueCellEditor: React.FC<DefaultValueCellEditorProps> = ({
 
   useCommitOnUnmount(finishedRef, commitCurrent);
 
+  // Ensure CodeEditor gets focus after the grid overlay finishes mounting.
+  // The CodeEditor's built-in autoFocus fires at 100ms which can race with
+  // the overlay container taking focus. This secondary attempt at 200ms
+  // guarantees the editor wins.
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      const cm = containerRef.current?.querySelector<HTMLElement>(".cm-content");
+      if (cm && document.activeElement !== cm) {
+        cm.focus();
+      }
+    }, 200);
+    return () => clearTimeout(timeoutId);
+  }, []);
+
   return (
     <div
       ref={containerRef}

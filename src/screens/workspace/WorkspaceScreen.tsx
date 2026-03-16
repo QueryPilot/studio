@@ -17,6 +17,7 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { AIPanel } from "@/components/AI";
+import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 
 import { useConnectionAutoReconnect } from "@/hooks/useConnectionAutoReconnect";
 import { useSchemaPreload } from "@/hooks/useSchemaPreload";
@@ -529,12 +530,14 @@ export function WorkspaceScreen() {
                   maxSize="40"
                   className="flex flex-col rounded-xl bg-background"
                 >
-                  <AIPanel
-                    connectionId={connectionId}
-                    onClose={() => {
-                      useWorkspaceScreenStore.getState().toggleSidebar("right");
-                    }}
-                  />
+                  <FeatureErrorBoundary featureName="AI Chat">
+                    <AIPanel
+                      connectionId={connectionId}
+                      onClose={() => {
+                        useWorkspaceScreenStore.getState().toggleSidebar("right");
+                      }}
+                    />
+                  </FeatureErrorBoundary>
                 </ResizablePanel>
               </>
             )}

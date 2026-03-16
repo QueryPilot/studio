@@ -23,6 +23,7 @@ import { MongoAggregationView } from "@/components/MongoAggregation";
 import { MongoIndexesView } from "@/components/MongoIndexes";
 import { MongoValidationView } from "@/components/MongoValidation";
 import { MongoExplainView } from "@/components/MongoExplain";
+import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 
 interface MongoCollectionWorkbenchProps {
   panelId: string;
@@ -197,69 +198,81 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
 
       <div className="min-h-0 flex-1">
         {activeView === "data" ? (
-          <DocumentDataGrid
-            key={`${tabId}:${workbenchState.filterText ?? ""}`}
-            gridId={`document:${connectionId}:${database}:${collection}`}
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            className="h-full"
-            focused={focused}
-            sortGridId={perTabSortGridId(
-              `document:${connectionId}:${database}:${collection}`,
-              tabId,
-              metadata.syncSort,
-            )}
-            initialFilterText={workbenchState.filterText}
-            onAppliedFilterChange={handleAppliedFilterChange}
-            viewMode={workbenchState.dataViewMode}
-            onViewModeChange={handleViewModeChange}
-          />
+          <FeatureErrorBoundary featureName="Document Data">
+            <DocumentDataGrid
+              key={`${tabId}:${workbenchState.filterText ?? ""}`}
+              gridId={`document:${connectionId}:${database}:${collection}`}
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+              className="h-full"
+              focused={focused}
+              sortGridId={perTabSortGridId(
+                `document:${connectionId}:${database}:${collection}`,
+                tabId,
+                metadata.syncSort,
+              )}
+              initialFilterText={workbenchState.filterText}
+              onAppliedFilterChange={handleAppliedFilterChange}
+              viewMode={workbenchState.dataViewMode}
+              onViewModeChange={handleViewModeChange}
+            />
+          </FeatureErrorBoundary>
         ) : null}
 
         {activeView === "structure" ? (
-          <MongoStructureView
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-          />
+          <FeatureErrorBoundary featureName="Mongo Structure">
+            <MongoStructureView
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+              workbenchState={workbenchState}
+              onWorkbenchStateChange={updateWorkbenchState}
+            />
+          </FeatureErrorBoundary>
         ) : null}
 
         {activeView === "indexes" ? (
-          <MongoIndexesView target={target} />
+          <FeatureErrorBoundary featureName="Mongo Indexes">
+            <MongoIndexesView target={target} />
+          </FeatureErrorBoundary>
         ) : null}
 
         {activeView === "aggregation" ? (
-          <MongoAggregationView
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            tabId={tabId}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-            onOpenExplain={openExplainView}
-          />
+          <FeatureErrorBoundary featureName="Aggregation Pipeline">
+            <MongoAggregationView
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+              tabId={tabId}
+              workbenchState={workbenchState}
+              onWorkbenchStateChange={updateWorkbenchState}
+              onOpenExplain={openExplainView}
+            />
+          </FeatureErrorBoundary>
         ) : null}
 
         {activeView === "validation" ? (
-          <MongoValidationView
-            target={target}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-          />
+          <FeatureErrorBoundary featureName="Validation Rules">
+            <MongoValidationView
+              target={target}
+              workbenchState={workbenchState}
+              onWorkbenchStateChange={updateWorkbenchState}
+            />
+          </FeatureErrorBoundary>
         ) : null}
 
         {activeView === "explain" ? (
-          <MongoExplainView
-            connectionId={connectionId}
-            database={database}
-            collection={collection}
-            workbenchState={workbenchState}
-            onWorkbenchStateChange={updateWorkbenchState}
-            sortGridId={sortGridId}
-          />
+          <FeatureErrorBoundary featureName="Query Explain">
+            <MongoExplainView
+              connectionId={connectionId}
+              database={database}
+              collection={collection}
+              workbenchState={workbenchState}
+              onWorkbenchStateChange={updateWorkbenchState}
+              sortGridId={sortGridId}
+            />
+          </FeatureErrorBoundary>
         ) : null}
       </div>
     </div>

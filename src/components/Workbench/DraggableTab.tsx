@@ -217,7 +217,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               {...listeners}
               {...attributes}
               className={cn(
-                "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group backdrop-blur-lg",
+                "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
                 {
                   "bg-background text-foreground font-medium z-10 sticky left-0 right-0":
                     isActive && isFocused,

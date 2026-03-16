@@ -24,7 +24,7 @@ import { useSupportedColumnTypes } from "@/hooks/useSupportedColumnTypes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { ActionsCellRenderer } from "./ActionsCellRenderer";
@@ -43,6 +43,8 @@ import { StructureTableContextMenu } from "./StructureTableContextMenu";
 import type { StructureGridRow } from "./types";
 import { validateColumnName } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
+/** Stable empty array for Zustand selector fallback */
+const EMPTY_CMDS: never[] = [];
 import {
   createColumnAddCommand,
   createColumnModifyCommand,
@@ -211,15 +213,17 @@ export const TableStructure = memo(function TableStructure({
   // Get structure columns based on database type
   const structureColumns = useMemo(() => getStructureColumns(dbType), [dbType]);
   
+  const structureOptions = useMemo(
+    () => ({ includeConstraints: true, includeForeignKeys: true }),
+    [],
+  );
+
   const { structure, isLoading, error, refresh } = useTableFullStructure({
     connectionId,
     database,
     table,
     schema,
-    options: {
-      includeConstraints: true,
-      includeForeignKeys: true,
-    },
+    options: structureOptions,
   });
 
   const { targets: foreignKeyTargets } = useForeignKeyTargets({
@@ -289,7 +293,7 @@ export const TableStructure = memo(function TableStructure({
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
+  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_CMDS;
 
   const modifiedFieldsByColumn = useMemo(
     () => buildStructureModifiedFieldsMap(pendingCommands, foreignKeys),
@@ -394,8 +398,8 @@ export const TableStructure = memo(function TableStructure({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: structureColumns,
-      initialWidths: {},
-      onChange: () => {},
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // Handler: Add new column

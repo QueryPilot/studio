@@ -13,7 +13,7 @@ import { logger } from "@/lib/logger";
 import { databaseService, type TableIndex } from "@/services/databaseService";
 import type { IndexUsageStats } from "@/services/backend";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { indexColumns } from "./columns";
 import {
@@ -31,6 +31,8 @@ import { ActionsCellRenderer } from "@/components/TableStructure/ActionsCellRend
 import { IndexTableContextMenu } from "./IndexTableContextMenu";
 import type { IndexGridRow } from "./types";
 import { useCrudStore, buildCrudTableKey } from "@/stores/crudStore";
+/** Stable empty array for Zustand selector fallback */
+const EMPTY_CMDS: never[] = [];
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 import {
@@ -121,7 +123,7 @@ export const TableIndexes = memo(function TableIndexes({
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
+  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_CMDS;
 
   const loadIndexes = useCallback(async () => {
     setIsLoading(true);
@@ -521,8 +523,8 @@ export const TableIndexes = memo(function TableIndexes({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: effectiveColumns,
-      initialWidths: {},
-      onChange: () => {}, // No persistence needed for now
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // Cell content factory

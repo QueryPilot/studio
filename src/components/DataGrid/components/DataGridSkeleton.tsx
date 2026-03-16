@@ -21,13 +21,21 @@ export const DataGridSkeleton = memo(function DataGridSkeleton() {
 
     calculateVisibleRows();
 
-    // Recalculate on resize
-    const resizeObserver = new ResizeObserver(calculateVisibleRows);
+    // Recalculate on resize — RAF-debounced to avoid layout thrashing (#R5 fix)
+    let raf: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (raf !== null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        calculateVisibleRows();
+      });
+    });
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
     }
 
     return () => {
+      if (raf !== null) cancelAnimationFrame(raf);
       resizeObserver.disconnect();
     };
   }, []);

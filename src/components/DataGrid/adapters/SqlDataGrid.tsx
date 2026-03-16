@@ -1181,7 +1181,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         })
       : plainDocuments;
     if (editsByPk.size > 0) {
-      result = plainDocuments.map((doc) => {
+      result = result.map((doc) => {
         const pkKey = configuredIdentityColumns
           .map((col) => String(doc[col] ?? ""))
           .join("·");
@@ -1208,11 +1208,14 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
   useEffect(() => { plainDocumentsRef.current = plainDocuments; });
   const stagedCommandsRef = useRef(stagedCommands);
   useEffect(() => { stagedCommandsRef.current = stagedCommands; });
+  // Track displayed docs (after staged edits/deletes/inserts) for correct index mapping
+  const displayedDocsRef = useRef(documentsWithStagedEdits);
+  useEffect(() => { displayedDocsRef.current = documentsWithStagedEdits; });
 
   const handleTreeFieldEdit = useCallback(
     (docIndex: number, fieldPath: string, newValue: unknown) => {
       if (!commandFactory) return;
-      const doc = plainDocumentsRef.current[docIndex];
+      const doc = displayedDocsRef.current[docIndex];
       if (!doc) return;
       const primaryKeys: Record<string, JsonValue> = {};
       for (const col of configuredIdentityColumns) {
@@ -1243,7 +1246,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     (docIndex: number) => {
       const cmds = stagedCommandsRef.current;
       if (!cmds) return;
-      const doc = plainDocumentsRef.current[docIndex];
+      const doc = displayedDocsRef.current[docIndex];
       if (!doc) return;
       const pkKey = configuredIdentityColumns.map((col) => String(doc[col] ?? "")).join("·");
       const idsToUnstage = cmds
@@ -1270,7 +1273,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
   const handleTreeDeleteDocument = useCallback(
     (docIndex: number) => {
-      const doc = plainDocumentsRef.current[docIndex];
+      const doc = displayedDocsRef.current[docIndex];
       if (!doc || !configuredIdentityColumns.length) return;
       const primaryKeys: Record<string, JsonValue> = {};
       for (const col of configuredIdentityColumns) {

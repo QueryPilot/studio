@@ -406,6 +406,8 @@ export function useTableDataQuery(
     },
     // Keep previous data visible while refetching (e.g., during sort change)
     placeholderData: (previousData) => previousData,
+    // Cap retained pages to prevent unbounded memory growth (M1 fix)
+    maxPages: 10000,
   });
 
   const cancelStream = useCallback(() => {

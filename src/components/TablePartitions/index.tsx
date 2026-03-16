@@ -12,7 +12,7 @@ import { GridCellKind, type Item } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconLayoutGrid } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import { usePartitionsQuery } from "@/hooks/usePartitionsQuery";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { DbType } from "@/types/connection";
@@ -111,8 +111,8 @@ export const TablePartitions = memo(function TablePartitions({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: partitionColumns,
-      initialWidths: {},
-      onChange: () => {},
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // Cell content factory

@@ -43,7 +43,7 @@ import type {
   DocumentIndexDropPayload,
 } from "@/types/crud";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
@@ -350,10 +350,8 @@ export const MongoIndexesView = memo(function MongoIndexesView({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: indexColumns,
-      initialWidths: {},
-      onChange: () => {
-        // No persistence needed
-      },
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // ---- Custom renderers ----

@@ -85,7 +85,14 @@ export function useTableFullStructure({
 
   const normalizedOptions = useMemo(
     () => normalizeOptions(options),
-    [options],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      options?.includeIndexes,
+      options?.includeConstraints,
+      options?.includeTriggers,
+      options?.includeStatistics,
+      options?.includeForeignKeys,
+    ],
   );
 
   const queryKey = tableStructureQueryKey({

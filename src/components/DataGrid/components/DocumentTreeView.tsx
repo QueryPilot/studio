@@ -350,6 +350,9 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
     }
     if (/^[a-fA-F0-9]{24}$/.test(trimmed)) {
       onSave(trimmed);
+    } else {
+      // Invalid ObjectId — cancel instead of trapping user in edit mode (#5 fix)
+      onCancel();
     }
   }, [draft, raw, onSave, onCancel]);
 
