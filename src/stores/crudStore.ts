@@ -716,6 +716,30 @@ export const useCrudStore = create<CrudStoreState>()((set, get) => {
         const execResult = await executor.execute(commands);
 
         if (!execResult.success) {
+          // For non-transactional executors (MongoDB, Redis), some commands may have
+          // succeeded before the failure. Remove those from staged commands to prevent
+          // re-execution on retry.
+          if (execResult.committedCommandIds && execResult.committedCommandIds.length > 0) {
+            const succeededIds = new Set(execResult.committedCommandIds);
+            set((state) => {
+              const stagedCommands = new Map(state.stagedCommands);
+              const currentCommands = stagedCommands.get(tableKey) ?? [];
+              const remaining = currentCommands.filter((cmd) => !succeededIds.has(cmd.id));
+              if (remaining.length > 0) {
+                stagedCommands.set(tableKey, remaining);
+              } else {
+                stagedCommands.delete(tableKey);
+              }
+              const commandIndex = new Map(state.commandIndex);
+              for (const id of succeededIds) {
+                commandIndex.delete(id);
+              }
+              // Track partially committed IDs for optimistic-update clearing
+              const committedCommandIds = new Map(state.committedCommandIds);
+              committedCommandIds.set(tableKey, succeededIds);
+              return { stagedCommands, commandIndex, committedCommandIds };
+            });
+          }
           throw new Error(execResult.errors[0]?.message ?? "Execution failed");
         }
 
@@ -899,6 +923,7 @@ export const crudSelectors = {
   canUndo: (state: CrudStoreState) => state.historyIndex > 0,
   canRedo: (state: CrudStoreState) =>
     state.historyIndex < state.history.length - 1,
+  /** Returns table keys — use with Zustand's `useShallow` to avoid re-renders on array reference changes */
   getTableKeys: (state: CrudStoreState) =>
     Array.from(state.stagedCommands.keys()),
 };

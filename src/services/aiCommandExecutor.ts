@@ -1607,12 +1607,12 @@ async function executeQueryRun(params: QueryRunParams): Promise<CommandResult> {
         rows = [[result.data]];
         rowCount = 1;
         break;
-      case "key_type":
+      case "keyType":
         columns = ["type"];
         rows = [[result.data]];
         rowCount = 1;
         break;
-      case "server_info":
+      case "serverInfo":
         records = Object.entries(result.data).map(([key, value]) => ({ key, value }));
         rowCount = records.length;
         ({ columns, rows } = toDocumentRows(records));

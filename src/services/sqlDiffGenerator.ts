@@ -723,9 +723,10 @@ export class SqlDiffGenerator {
         break;
       }
       case DbType.SQLServer: {
-        const schemaName = command.target.schema ?? "dbo";
-        const qualifiedOldName = `${schemaName}.${command.target.table ?? ""}`;
-        sql = `EXEC sp_rename '${qualifiedOldName}', '${newTableName}';`;
+        const schemaName = escapeStringLiteral(command.target.schema ?? "dbo");
+        const tableNameEscaped = escapeStringLiteral(command.target.table ?? "");
+        const qualifiedOldName = `${schemaName}.${tableNameEscaped}`;
+        sql = `EXEC sp_rename '${qualifiedOldName}', '${escapeStringLiteral(newTableName)}';`;
         break;
       }
       default:
@@ -890,8 +891,8 @@ export class SqlDiffGenerator {
     const options = [
       def.onUpdate ? `ON UPDATE ${def.onUpdate}` : undefined,
       def.onDelete ? `ON DELETE ${def.onDelete}` : undefined,
-      def.deferrable ? 'DEFERRABLE' : undefined,
-      def.initiallyDeferred ? 'INITIALLY DEFERRED' : undefined,
+      (dbType === DbType.PostgreSQL && def.deferrable) ? 'DEFERRABLE' : undefined,
+      (dbType === DbType.PostgreSQL && def.deferrable && def.initiallyDeferred) ? 'INITIALLY DEFERRED' : undefined,
     ]
       .filter(Boolean)
       .join(' ');
