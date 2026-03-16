@@ -194,7 +194,14 @@ function showRefactorMenu(params: {
   menu.style.left = `${position.left}px`;
   menu.style.top = `${position.top}px`;
 
+  let listenerRaf: number | null = null;
+
   const removeMenu = () => {
+    // Cancel pending listener registration (M3 fix: prevents leak if menu removed early)
+    if (listenerRaf !== null) {
+      cancelAnimationFrame(listenerRaf);
+      listenerRaf = null;
+    }
     if (menu.parentNode) {
       document.body.removeChild(menu);
     }
@@ -248,10 +255,12 @@ function showRefactorMenu(params: {
     menu.appendChild(item);
   }
 
-  setTimeout(() => {
-    document.addEventListener("mousedown", closeMenu);
-  }, 0);
   document.body.appendChild(menu);
+  // Defer listener to next frame to avoid closing on the same click that opened the menu
+  listenerRaf = requestAnimationFrame(() => {
+    listenerRaf = null;
+    document.addEventListener("mousedown", closeMenu);
+  });
 }
 
 /**

@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconBolt } from "@tabler/icons-react";
 import { databaseService, type TriggerMeta } from "@/services/databaseService";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import { TextSingleLineCellRenderer } from "@/components/DataGrid/renderers/TextCell";
 import { triggerColumns } from "./columns";
 import {
@@ -32,6 +32,8 @@ import { TableActionsToolbar } from "@/components/shared/TableActionsToolbar";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { toast } from "sonner";
+/** Stable empty array for Zustand selector fallback */
+const EMPTY_CMDS: never[] = [];
 import type {
   CrudCommandTarget,
   TriggerDropPayload,
@@ -82,7 +84,7 @@ export const TableTriggers = memo(function TableTriggers({
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
+  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_CMDS;
 
   const loadTriggers = useCallback(async () => {
     setIsLoading(true);
@@ -155,8 +157,8 @@ export const TableTriggers = memo(function TableTriggers({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: triggerColumns,
-      initialWidths: {},
-      onChange: () => {},
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // Helper to extract value from cell data

@@ -985,9 +985,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             }}
             className="border-r bg-background"
             style={{
-              // GPU acceleration for smooth resizing and scrolling
+              // GPU acceleration for smooth scrolling
               transform: 'translateZ(0)',
-              willChange: 'width',
               backfaceVisibility: 'hidden',
             }}
           >

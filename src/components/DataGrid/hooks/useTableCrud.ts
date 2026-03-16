@@ -18,6 +18,10 @@ import type {
 import type { JsonValue, CellValue } from "@/types";
 import type { EditableDataGridRef } from "../base";
 import { convertEditValue } from "./crudConversion";
+import type { CrudCommand } from "@/types/crud";
+
+/** Stable empty array — prevents Zustand selector from returning new [] on every call */
+const EMPTY_COMMANDS: CrudCommand[] = [];
 
 /**
  * Compare two values for equality, handling null/undefined and type coercion
@@ -109,7 +113,9 @@ export function useTableCrud({
     ? getTableKey({ connectionId, database, schema, table })
     : "";
   // Scoped selector: only re-render when THIS table's commands change (#15 fix)
-  const pendingChanges = useCrudStore((s) => (enabled ? s.stagedCommands.get(tableKey) ?? [] : []));
+  const pendingChanges = useCrudStore((s) =>
+    enabled ? s.stagedCommands.get(tableKey) : undefined,
+  ) ?? EMPTY_COMMANDS;
 
   const target = createCrudTarget(connectionId, database, schema, table);
 

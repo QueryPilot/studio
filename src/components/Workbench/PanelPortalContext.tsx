@@ -239,17 +239,50 @@ export function PanelPortal({
   children: React.ReactNode;
 }) {
   const { getPanelRect, subscribeToRect, getRootContainer } = usePanelPortal();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  // Use React state ONLY for the initial rect resolution (null → valid rect).
+  // Once we have a rect, all subsequent updates go through imperative DOM writes
+  // to avoid React re-renders during resize drag (#R1 fix).
   const [rect, setRect] = useState<PanelRect | null>(() =>
     getPanelRect(panelId),
   );
+  const hasInitialRect = useRef(rect !== null);
 
   useLayoutEffect(() => {
-    // Get initial rect (may have been registered by PanelContainer already)
-    setRect(getPanelRect(panelId));
+    // If we don't have an initial rect yet, get it now (container may have registered)
+    if (!hasInitialRect.current) {
+      const r = getPanelRect(panelId);
+      if (r) {
+        hasInitialRect.current = true;
+        setRect(r);
+      }
+    }
 
-    // Subscribe to updates — React state drives re-renders for position changes
+    // Subscribe to updates
     return subscribeToRect(panelId, () => {
-      setRect(getPanelRect(panelId));
+      const newRect = getPanelRect(panelId);
+      const wrapper = wrapperRef.current;
+
+      if (!hasInitialRect.current) {
+        // First rect — use React setState so the component renders with valid dimensions
+        if (newRect) {
+          hasInitialRect.current = true;
+          setRect(newRect);
+        }
+        return;
+      }
+
+      // Subsequent updates — imperative DOM writes, zero React re-renders
+      if (!wrapper) return;
+      if (newRect) {
+        wrapper.style.top = `${newRect.top}px`;
+        wrapper.style.left = `${newRect.left}px`;
+        wrapper.style.width = `${newRect.width}px`;
+        wrapper.style.height = `${newRect.height}px`;
+        wrapper.style.visibility = "visible";
+      } else {
+        wrapper.style.visibility = "hidden";
+      }
     });
   }, [panelId, getPanelRect, subscribeToRect]);
 
@@ -262,6 +295,7 @@ export function PanelPortal({
   // Position absolutely to match the PanelContainer location
   return createPortal(
     <div
+      ref={wrapperRef}
       style={{
         position: "absolute",
         top: rect?.top ?? 0,

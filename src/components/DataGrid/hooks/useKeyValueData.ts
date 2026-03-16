@@ -250,6 +250,7 @@ export function useKeyValueData(
     },
     enabled: enabled && !!connectionId && isBrowserMode,
     staleTime: 10000, // 10 seconds
+    maxPages: 10000, // Cap retained pages to prevent unbounded memory growth
   });
 
   // Flatten browser pages into single array

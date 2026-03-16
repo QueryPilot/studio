@@ -27,13 +27,13 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
   const resizePanelAction = useWorkbenchStore((s) => s.resizePanelAction);
   const panelGroupRef = useRef<GroupImperativeHandle | null>(null);
   const isSyncingRef = useRef(false);
-  const resizeRafRef = useRef<number | null>(null);
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cancel pending RAF on unmount to prevent stale store updates
+  // Cancel pending timer on unmount to prevent stale store updates
   useEffect(() => {
     return () => {
-      if (resizeRafRef.current !== null) {
-        cancelAnimationFrame(resizeRafRef.current);
+      if (resizeTimerRef.current !== null) {
+        clearTimeout(resizeTimerRef.current);
       }
     };
   }, []);
@@ -48,12 +48,14 @@ export const GridRenderer: React.FC<GridRendererProps> = ({
       ) {
         // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         const newRatio = sizes[0]! / 100;
-        // RAF-debounce the store update to avoid re-renders during drag
-        if (resizeRafRef.current !== null) cancelAnimationFrame(resizeRafRef.current);
-        resizeRafRef.current = requestAnimationFrame(() => {
-          resizeRafRef.current = null;
+        // Debounce store write — only commit after drag settles (#R2 fix)
+        // react-resizable-panels handles visual resize internally;
+        // the store only needs the final value for persistence
+        if (resizeTimerRef.current !== null) clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = setTimeout(() => {
+          resizeTimerRef.current = null;
           resizePanelAction(path, newRatio);
-        });
+        }, 150);
       }
     },
     [node.type, path, resizePanelAction],

@@ -10,7 +10,7 @@ import {
 } from "@glideapps/glide-data-grid";
 import { IconSparkles } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing } from "@/components/DataGrid/hooks/useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
 import type { GridColumnV2 } from "@/components/DataGrid/types";
 import { useCrudStore } from "@/stores/crudStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
@@ -253,8 +253,8 @@ export const IndexDesigner = memo(function IndexDesigner({
   const { sizedColumns, handleColumnResize, handleColumnResizeEnd } =
     useColumnSizing({
       columns: designerIndexColumns,
-      initialWidths: {},
-      onChange: () => {},
+      initialWidths: EMPTY_INITIAL_WIDTHS,
+      onChange: NOOP_ON_CHANGE,
     });
 
   // ---- Custom cell renderers -------------------------------------------

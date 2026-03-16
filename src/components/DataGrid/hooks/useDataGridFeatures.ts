@@ -7,7 +7,7 @@ import type { CrudCommand } from "@/types/crud";
 import { useColumnSorting } from "./useColumnSorting";
 import { useColumnPinning } from "./useColumnPinning";
 import { useColumnVisibility } from "./useColumnVisibility";
-import { useColumnSizing } from "./useColumnSizing";
+import { useColumnSizing, EMPTY_INITIAL_WIDTHS } from "./useColumnSizing";
 import { useRowPinning } from "./useRowPinning";
 import { useOptimisticRows } from "./useOptimisticRows";
 import { usePersistentViewState } from "./usePersistentViewState";
@@ -148,7 +148,7 @@ export function useDataGridFeatures(
   // Column sizing
   const columnSizing = useColumnSizing({
     columns: columnVisibility.visibleColumns,
-    initialWidths: {},
+    initialWidths: EMPTY_INITIAL_WIDTHS,
     // TODO: Add persistence with debouncing to prevent infinite loops
     // onChange: (widths) => { ... }
   });

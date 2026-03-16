@@ -10,6 +10,12 @@ export interface UseColumnSizingOptions {
   onChange?: (widths: Record<string, number>) => void;
 }
 
+/** Stable empty-object constant – avoids new references when no initial widths are needed. */
+export const EMPTY_INITIAL_WIDTHS: Record<string, number> = {};
+
+/** Stable no-op callback – avoids new references when persistence is not needed. */
+export const NOOP_ON_CHANGE = () => {};
+
 export interface UseColumnSizingResult {
   sizedColumns: GridColumnV2[];
   columnWidths: Record<string, number>;

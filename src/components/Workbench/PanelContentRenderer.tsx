@@ -317,92 +317,100 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         return "function";
       })();
       return (
-        <ObjectDefinition
-          connectionId={metadata.connectionId || ""}
-          database={metadata.database || ""}
-          schema={metadata.schema || "public"}
-          objectName={(() => {
-            const m = metadata as unknown as
-              | { functionName?: unknown }
-              | undefined;
-            return typeof m?.functionName === "string" ? m.functionName : "";
-          })()}
-          objectType={objectType}
-          className="h-full"
-          onDefinitionLoad={(def) => {
-            definitionRef.current = def;
-          }}
-        />
+        <FeatureErrorBoundary featureName="Object Definition">
+          <ObjectDefinition
+            connectionId={metadata.connectionId || ""}
+            database={metadata.database || ""}
+            schema={metadata.schema || "public"}
+            objectName={(() => {
+              const m = metadata as unknown as
+                | { functionName?: unknown }
+                | undefined;
+              return typeof m?.functionName === "string" ? m.functionName : "";
+            })()}
+            objectType={objectType}
+            className="h-full"
+            onDefinitionLoad={(def) => {
+              definitionRef.current = def;
+            }}
+          />
+        </FeatureErrorBoundary>
       );
     }
 
     if (type === "erd") {
       return (
-        <ERDPanel
-          connectionId={metadata?.connectionId || activeConnectionId || ""}
-          tabId={tabId}
-          database={metadata?.database}
-          schema={metadata?.schema}
-        />
+        <FeatureErrorBoundary featureName="ERD Diagram">
+          <ERDPanel
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            tabId={tabId}
+            database={metadata?.database}
+            schema={metadata?.schema}
+          />
+        </FeatureErrorBoundary>
       );
     }
 
     if (type === "design") {
       return (
-        <TableDesigner
-          panelId={panelId}
-          tabId={tabId}
-          connectionId={metadata?.connectionId || activeConnectionId || ""}
-          database={metadata?.database || ""}
-          schema={metadata?.schema}
-          dbType={dbType}
-          className="h-full"
-          onSave={(tableName, sql) => {
-            const tableSchema = metadata?.schema || getDefaultSchema(dbType ?? DbType.PostgreSQL, metadata?.database) || "";
-            const tableConnectionId =
-              metadata?.connectionId || activeConnectionId || "";
+        <FeatureErrorBoundary featureName="Table Designer">
+          <TableDesigner
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={metadata?.database || ""}
+            schema={metadata?.schema}
+            dbType={dbType}
+            className="h-full"
+            onSave={(tableName, sql) => {
+              const tableSchema = metadata?.schema || getDefaultSchema(dbType ?? DbType.PostgreSQL, metadata?.database) || "";
+              const tableConnectionId =
+                metadata?.connectionId || activeConnectionId || "";
 
-            updateTabMetadata(panelId, tabId, {
-              type: "table",
-              title: tableName,
-              table: tableName,
-              schema: tableSchema,
-              connectionId: tableConnectionId,
-              database: metadata?.database || "",
-              kind: "Table",
-              isView: false,
-              viewType: "data",
-              objectKey: `table-${tableConnectionId}-${tableSchema}-${tableName}`,
-              sql,
-            });
-          }}
-        />
+              updateTabMetadata(panelId, tabId, {
+                type: "table",
+                title: tableName,
+                table: tableName,
+                schema: tableSchema,
+                connectionId: tableConnectionId,
+                database: metadata?.database || "",
+                kind: "Table",
+                isView: false,
+                viewType: "data",
+                objectKey: `table-${tableConnectionId}-${tableSchema}-${tableName}`,
+                sql,
+              });
+            }}
+          />
+        </FeatureErrorBoundary>
       );
     }
 
     if (type === "collection-design") {
       return (
-        <CollectionDesigner
-          panelId={panelId}
-          tabId={tabId}
-          connectionId={metadata?.connectionId || activeConnectionId || ""}
-          database={metadata?.database || ""}
-          className="h-full"
-          onSave={(collectionName) => {
-            const collectionConnectionId =
-              metadata?.connectionId || activeConnectionId || "";
-            const collectionDatabase = metadata?.database || "";
-            updateTabMetadata(panelId, tabId, {
-              type: "mongo-collection",
-              title: collectionName,
-              table: collectionName,
-              connectionId: collectionConnectionId,
-              database: collectionDatabase,
-              schema: "",
-              objectKey: `mongo-${collectionConnectionId}-${collectionDatabase}-${collectionName}`,
-            });
-          }}
-        />
+        <FeatureErrorBoundary featureName="Collection Designer">
+          <CollectionDesigner
+            panelId={panelId}
+            tabId={tabId}
+            connectionId={metadata?.connectionId || activeConnectionId || ""}
+            database={metadata?.database || ""}
+            className="h-full"
+            onSave={(collectionName) => {
+              const collectionConnectionId =
+                metadata?.connectionId || activeConnectionId || "";
+              const collectionDatabase = metadata?.database || "";
+              updateTabMetadata(panelId, tabId, {
+                type: "mongo-collection",
+                title: collectionName,
+                table: collectionName,
+                connectionId: collectionConnectionId,
+                database: collectionDatabase,
+                schema: "",
+                objectKey: `mongo-${collectionConnectionId}-${collectionDatabase}-${collectionName}`,
+              });
+            }}
+          />
+        </FeatureErrorBoundary>
       );
     }
 
@@ -528,76 +536,86 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 )}
 
                 {activeView === "structure" && (
-                  <TableStructure
-                    panelId={panelId}
-                    tabId={tabId}
-                    connectionId={
-                      metadata.connectionId || activeConnectionId || ""
-                    }
-                    database={metadata.database || ""}
-                    schema={metadata.schema}
-                    table={metadata.table || ""}
-                    isView={isView}
-                    kind={metadata.kind}
-                    onActionsChange={handleViewActionsChange}
-                  />
+                  <FeatureErrorBoundary featureName="Table Structure">
+                    <TableStructure
+                      panelId={panelId}
+                      tabId={tabId}
+                      connectionId={
+                        metadata.connectionId || activeConnectionId || ""
+                      }
+                      database={metadata.database || ""}
+                      schema={metadata.schema}
+                      table={metadata.table || ""}
+                      isView={isView}
+                      kind={metadata.kind}
+                      onActionsChange={handleViewActionsChange}
+                    />
+                  </FeatureErrorBoundary>
                 )}
 
                 {activeView === "indexes" && (
-                  <TableIndexes
-                    connectionId={
-                      metadata.connectionId || activeConnectionId || ""
-                    }
-                    database={metadata.database || ""}
-                    schema={metadata.schema}
-                    table={metadata.table || ""}
-                    dbType={dbType}
-                    onActionsChange={handleViewActionsChange}
-                  />
+                  <FeatureErrorBoundary featureName="Table Indexes">
+                    <TableIndexes
+                      connectionId={
+                        metadata.connectionId || activeConnectionId || ""
+                      }
+                      database={metadata.database || ""}
+                      schema={metadata.schema}
+                      table={metadata.table || ""}
+                      dbType={dbType}
+                      onActionsChange={handleViewActionsChange}
+                    />
+                  </FeatureErrorBoundary>
                 )}
 
                 {activeView === "triggers" && (
-                  <TableTriggers
-                    connectionId={
-                      metadata.connectionId || activeConnectionId || ""
-                    }
-                    database={metadata.database || ""}
-                    schema={metadata.schema}
-                    table={metadata.table || ""}
-                    onActionsChange={handleViewActionsChange}
-                  />
+                  <FeatureErrorBoundary featureName="Table Triggers">
+                    <TableTriggers
+                      connectionId={
+                        metadata.connectionId || activeConnectionId || ""
+                      }
+                      database={metadata.database || ""}
+                      schema={metadata.schema}
+                      table={metadata.table || ""}
+                      onActionsChange={handleViewActionsChange}
+                    />
+                  </FeatureErrorBoundary>
                 )}
 
                 {activeView === "partitions" && dbType && isMySQLCompatible(dbType) && (
-                  <TablePartitions
-                    connectionId={
-                      metadata.connectionId || activeConnectionId || ""
-                    }
-                    database={metadata.database || ""}
-                    schema={metadata.schema}
-                    table={metadata.table || ""}
-                    onActionsChange={handleViewActionsChange}
-                  />
+                  <FeatureErrorBoundary featureName="Table Partitions">
+                    <TablePartitions
+                      connectionId={
+                        metadata.connectionId || activeConnectionId || ""
+                      }
+                      database={metadata.database || ""}
+                      schema={metadata.schema}
+                      table={metadata.table || ""}
+                      onActionsChange={handleViewActionsChange}
+                    />
+                  </FeatureErrorBoundary>
                 )}
 
                 {activeView === "definition" && (
-                  <ObjectDefinition
-                    connectionId={
-                      metadata.connectionId || activeConnectionId || ""
-                    }
-                    database={metadata.database || ""}
-                    schema={metadata.schema || "public"}
-                    objectName={metadata.table || ""}
-                    objectType={
-                      isMaterializedView
-                        ? "materialized_view"
-                        : isView
-                        ? "view"
-                        : "table"
-                    }
-                    className="h-full"
-                    onDefinitionLoad={handleDefinitionLoad}
-                  />
+                  <FeatureErrorBoundary featureName="Object Definition">
+                    <ObjectDefinition
+                      connectionId={
+                        metadata.connectionId || activeConnectionId || ""
+                      }
+                      database={metadata.database || ""}
+                      schema={metadata.schema || "public"}
+                      objectName={metadata.table || ""}
+                      objectType={
+                        isMaterializedView
+                          ? "materialized_view"
+                          : isView
+                          ? "view"
+                          : "table"
+                      }
+                      className="h-full"
+                      onDefinitionLoad={handleDefinitionLoad}
+                    />
+                  </FeatureErrorBoundary>
                 )}
               </div>
             </Suspense>

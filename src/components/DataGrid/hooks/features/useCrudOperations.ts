@@ -3,6 +3,9 @@ import type { GridEditCommitEvent, GridRowModel } from "../../types";
 import { useCrudStore } from "@/stores/crudStore";
 import type { CrudCommand, CrudCommandTarget, JsonValue } from "@/types/crud";
 
+/** Stable empty array — prevents Zustand selector from returning new [] on every call */
+const EMPTY_COMMANDS: CrudCommand[] = [];
+
 export interface UseCrudOperationsOptions {
   connectionId: string;
   database: string;
@@ -53,7 +56,7 @@ export function useCrudOperations(
   const target: CrudCommandTarget = { connectionId, database, schema, table };
   const tableKey = getTableKey(target);
   // Scoped selector: only re-render when THIS table's commands change (#15 fix)
-  const commands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
+  const commands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_COMMANDS;
   const pendingCount = commands.length;
 
   const stageEdit = useCallback<UseCrudOperationsResult["stageEdit"]>(
