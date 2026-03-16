@@ -319,29 +319,40 @@ impl LintRule for InvalidStarUsageRule {
     fn check(&self, stmt: &ParsedStatement, result: &mut ValidationResult) {
         let text_lower = stmt.text.to_lowercase();
 
-        // Pattern: * followed immediately by alphanumeric (not space/comma/FROM)
-        // Example: "select *sd from" or "select *foo,"
         let chars: Vec<char> = text_lower.chars().collect();
-        for i in 0..chars.len().saturating_sub(1) {
-            if chars[i] == '*' {
-                let next_char = chars[i + 1];
-                // Check if next char is alphanumeric (invalid)
-                if next_char.is_alphanumeric() && next_char != ' ' {
-                    // Make sure it's not part of a valid pattern like "table.*col"
-                    let prev_char = if i > 0 { Some(chars[i - 1]) } else { None };
-                    let is_qualified_star = prev_char == Some('.');
 
-                    if !is_qualified_star {
-                        result.add_error(SqlError {
-                            from: stmt.range.0 + i,
-                            to: stmt.range.0 + i + 2,
-                            message: "Invalid use of '*'. Did you mean to separate this from the identifier?".to_string(),
-                            severity: ErrorSeverity::Error,
-                            source: ErrorSource::Syntax,
-                        });
-                    }
+        for i in 0..chars.len().saturating_sub(1) {
+            if chars[i] != '*' {
+                continue;
+            }
+
+            let next_char = chars[i + 1];
+            if !next_char.is_alphanumeric() {
+                continue;
+            }
+
+            // Skip qualified star: table.*column
+            let prev_char = if i > 0 { Some(chars[i - 1]) } else { None };
+            if prev_char == Some('.') {
+                continue;
+            }
+
+            // Skip multiplication: identifier * identifier/number
+            // If the character before * is alphanumeric or _, it's multiplication
+            if let Some(pc) = prev_char {
+                if pc.is_alphanumeric() || pc == '_' || pc == ')' {
+                    continue;
                 }
             }
+
+            result.add_error(SqlError {
+                from: stmt.range.0 + i,
+                to: stmt.range.0 + i + 2,
+                message: "Invalid use of '*'. Did you mean to separate this from the identifier?"
+                    .to_string(),
+                severity: ErrorSeverity::Error,
+                source: ErrorSource::Syntax,
+            });
         }
     }
 }
@@ -1055,6 +1066,45 @@ mod tests {
             .errors
             .iter()
             .any(|e| e.message.contains("Invalid use of '*'")));
+    }
+
+    #[test]
+    fn test_multiplication_does_not_trigger_invalid_star() {
+        let doc = parse_document("SELECT price*2 FROM products", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Invalid use of '*'")),
+            "Multiplication should not trigger invalid star rule"
+        );
+    }
+
+    #[test]
+    fn test_multiplication_with_identifier_does_not_trigger_invalid_star() {
+        let doc = parse_document("SELECT a*b FROM t", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Invalid use of '*'")),
+            "Multiplication of identifiers should not trigger invalid star rule"
+        );
+    }
+
+    #[test]
+    fn test_star_after_space_is_fine() {
+        let doc = parse_document("SELECT * FROM t", SqlDialect::PostgreSQL);
+        let result = validate_document(&doc, None, None);
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("Invalid use of '*'")),
+            "SELECT * FROM t should not trigger InvalidStarUsageRule"
+        );
     }
 
     #[test]
