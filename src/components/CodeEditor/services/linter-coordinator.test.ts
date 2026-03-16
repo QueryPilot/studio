@@ -24,7 +24,8 @@ describe("linterCoordinator schema sync", () => {
     linterCoordinator.clearCache();
   });
 
-  it("validates without triggering schema sync on the lint hot path", async () => {
+  it("always syncs schema before validation even when schema is provided", async () => {
+    syncSchemaToRustMock.mockResolvedValue(undefined);
     getRustSchemaSyncStatusMock.mockReturnValue("stale_schema");
     invokeMock.mockResolvedValue({
       valid: true,
@@ -52,7 +53,7 @@ describe("linterCoordinator schema sync", () => {
       status: "stale_schema",
     });
 
-    expect(syncSchemaToRustMock).not.toHaveBeenCalled();
+    expect(syncSchemaToRustMock).toHaveBeenCalledWith("conn-1", "public");
     expect(getRustSchemaSyncStatusMock).toHaveBeenCalledWith("conn-1", "public");
     expect(invokeMock).toHaveBeenCalledWith("sql_validate", {
       request: {

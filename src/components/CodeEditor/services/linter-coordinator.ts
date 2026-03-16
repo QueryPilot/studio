@@ -120,9 +120,7 @@ class LinterCoordinator {
             if (request.connectionId) {
               const schemaName = this.getSyncSchema(request);
               if (schemaName) {
-                if (!request.schema?.trim()) {
-                  await syncSchemaToRust(request.connectionId, schemaName);
-                }
+                await syncSchemaToRust(request.connectionId, schemaName);
                 status = getRustSchemaSyncStatus(request.connectionId, schemaName);
               } else {
                 status = "unavailable";
