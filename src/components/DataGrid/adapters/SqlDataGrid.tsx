@@ -1203,6 +1203,95 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     return result;
   }, [plainDocuments, stagedCommands, configuredIdentityColumns, viewMode]);
 
+  // Stable CRUD callbacks for tree view (same pattern as DocumentDataGrid)
+  const plainDocumentsRef = useRef(plainDocuments);
+  useEffect(() => { plainDocumentsRef.current = plainDocuments; });
+  const stagedCommandsRef = useRef(stagedCommands);
+  useEffect(() => { stagedCommandsRef.current = stagedCommands; });
+
+  const handleTreeFieldEdit = useCallback(
+    (docIndex: number, fieldPath: string, newValue: unknown) => {
+      if (!commandFactory) return;
+      const doc = plainDocumentsRef.current[docIndex];
+      if (!doc) return;
+      const primaryKeys: Record<string, JsonValue> = {};
+      for (const col of configuredIdentityColumns) {
+        primaryKeys[col] = (doc[col] ?? null) as JsonValue;
+      }
+      const cmd: CrudCommand = {
+        id: nanoid(),
+        type: "data.update",
+        target: { connectionId, database: database ?? "", schema, table },
+        payload: {
+          column: fieldPath,
+          primaryKeys,
+          oldValue: (doc[fieldPath] ?? null) as JsonValue,
+          newValue: newValue as JsonValue,
+        },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          description: `Update ${fieldPath}`,
+        },
+        state: "staged",
+      };
+      stageCommand(cmd);
+    },
+    [commandFactory, configuredIdentityColumns, connectionId, database, schema, table, stageCommand],
+  );
+
+  const handleTreeDocumentUndo = useCallback(
+    (docIndex: number) => {
+      const cmds = stagedCommandsRef.current;
+      if (!cmds) return;
+      const doc = plainDocumentsRef.current[docIndex];
+      if (!doc) return;
+      const pkKey = configuredIdentityColumns.map((col) => String(doc[col] ?? "")).join("·");
+      const idsToUnstage = cmds
+        .filter((cmd) => {
+          if (cmd.type !== "data.update" || cmd.state !== "staged") return false;
+          const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys;
+          if (!pk) return false;
+          const key = configuredIdentityColumns.map((col) => String(pk[col] ?? "")).join("·");
+          return key === pkKey;
+        })
+        .map((cmd) => cmd.id);
+      if (idsToUnstage.length > 0) unstageCommands(idsToUnstage);
+    },
+    [configuredIdentityColumns, unstageCommands],
+  );
+
+  const handleTreeInsertDocument = useCallback(
+    (doc: Record<string, unknown>) => {
+      const cmd = commandFactory?.createInsertCommand?.(doc);
+      if (cmd) stageCommand(cmd);
+    },
+    [commandFactory, stageCommand],
+  );
+
+  const handleTreeDeleteDocument = useCallback(
+    (docIndex: number) => {
+      const doc = plainDocumentsRef.current[docIndex];
+      if (!doc || !configuredIdentityColumns.length) return;
+      const primaryKeys: Record<string, JsonValue> = {};
+      for (const col of configuredIdentityColumns) {
+        primaryKeys[col] = (doc[col] ?? null) as JsonValue;
+      }
+      const cmd: CrudCommand = {
+        id: nanoid(),
+        type: "data.delete",
+        target: { connectionId, database: database ?? "", schema, table },
+        payload: { primaryKeys },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          description: "Delete row",
+        },
+        state: "staged",
+      };
+      stageCommand(cmd);
+    },
+    [configuredIdentityColumns, connectionId, database, schema, table, stageCommand],
+  );
+
   // --- Loading States ---
   if (isLoading) {
     return <DataGridSkeleton />;
@@ -1277,73 +1366,10 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
               allowStructuralEdits={false}
               onExpandCollapseRef={expandCollapseRef}
               stagedDocIds={stagedDocIds}
-              onFieldEdit={(docIndex, fieldPath, newValue) => {
-                if (!commandFactory) return;
-                const doc = plainDocuments[docIndex];
-                if (!doc) return;
-                // Build primary keys from identifierFields
-                const primaryKeys: Record<string, JsonValue> = {};
-                for (const col of configuredIdentityColumns) {
-                  primaryKeys[col] = (doc[col] ?? null) as JsonValue;
-                }
-                const cmd: CrudCommand = {
-                  id: nanoid(),
-                  type: "data.update",
-                  target: { connectionId, database: database ?? "", schema, table },
-                  payload: {
-                    column: fieldPath,
-                    primaryKeys,
-                    oldValue: (doc[fieldPath] ?? null) as JsonValue,
-                    newValue: newValue as JsonValue,
-                  },
-                  metadata: {
-                    timestamp: new Date().toISOString(),
-                    description: `Update ${fieldPath}`,
-                  },
-                  state: "staged",
-                };
-                stageCommand(cmd);
-              }}
-              onDocumentUndo={(docIndex) => {
-                if (!stagedCommands) return;
-                const doc = plainDocuments[docIndex];
-                if (!doc) return;
-                const pkKey = configuredIdentityColumns.map((col) => String(doc[col] ?? "")).join("·");
-                const idsToUnstage = stagedCommands
-                  .filter((cmd) => {
-                    if (cmd.type !== "data.update" || cmd.state !== "staged") return false;
-                    const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys;
-                    if (!pk) return false;
-                    const key = configuredIdentityColumns.map((col) => String(pk[col] ?? "")).join("·");
-                    return key === pkKey;
-                  })
-                  .map((cmd) => cmd.id);
-                if (idsToUnstage.length > 0) unstageCommands(idsToUnstage);
-              }}
-              onInsertDocument={!isReadOnly && commandFactory ? (doc) => {
-                const cmd = commandFactory.createInsertCommand?.(doc);
-                if (cmd) stageCommand(cmd);
-              } : undefined}
-              onDeleteDocument={!isReadOnly && commandFactory ? (docIndex) => {
-                const doc = plainDocuments[docIndex];
-                if (!doc || !configuredIdentityColumns.length) return;
-                const primaryKeys: Record<string, JsonValue> = {};
-                for (const col of configuredIdentityColumns) {
-                  primaryKeys[col] = (doc[col] ?? null) as JsonValue;
-                }
-                const cmd: CrudCommand = {
-                  id: nanoid(),
-                  type: "data.delete",
-                  target: { connectionId, database: database ?? "", schema, table },
-                  payload: { primaryKeys },
-                  metadata: {
-                    timestamp: new Date().toISOString(),
-                    description: "Delete row",
-                  },
-                  state: "staged",
-                };
-                stageCommand(cmd);
-              } : undefined}
+              onFieldEdit={handleTreeFieldEdit}
+              onDocumentUndo={handleTreeDocumentUndo}
+              onInsertDocument={!isReadOnly && commandFactory ? handleTreeInsertDocument : undefined}
+              onDeleteDocument={!isReadOnly && commandFactory ? handleTreeDeleteDocument : undefined}
             />
           ) : (
             <DocumentJsonView

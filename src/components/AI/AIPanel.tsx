@@ -934,7 +934,7 @@ function PanelHeader({
   );
 
   return (
-    <div className="flex items-center gap-1 border-b px-3 py-2 bg-background/50">
+    <div className="flex items-center gap-1 border-b px-3 py-1 bg-background/50">
       {/* Session History Dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger

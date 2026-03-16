@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   GridCellKind,
   type Item,
@@ -152,7 +153,23 @@ export const IndexDesigner = memo(function IndexDesigner({
   designerTag,
 }: IndexDesignerProps) {
   // ---- Stores ----------------------------------------------------------
-  const stagedCommands = useCrudStore((s) => s.stagedCommands);
+  // Scoped selector: only re-renders when THIS designer's index commands change (#10 fix)
+  const designerIndexCommands = useCrudStore(
+    useShallow((s) => {
+      const commands: CrudCommand[] = [];
+      s.stagedCommands.forEach((items) => {
+        items.forEach((command) => {
+          if (
+            command.type === "index.create" &&
+            command.metadata.tags?.includes(designerTag)
+          ) {
+            commands.push(command);
+          }
+        });
+      });
+      return commands;
+    }),
+  );
   const stageCommand = useCrudStore((s) => s.stageCommand);
   const stageBatchWithSingleHistoryEntry = useCrudStore(
     (s) => s.stageBatchWithSingleHistoryEntry,
@@ -176,22 +193,6 @@ export const IndexDesigner = memo(function IndexDesigner({
     () => `table-designer-idx:${panelId}:${tabId}:`,
     [panelId, tabId],
   );
-
-  // ---- Filter staged commands to those belonging to this designer ------
-  const designerIndexCommands = useMemo(() => {
-    const commands: CrudCommand[] = [];
-    stagedCommands.forEach((items) => {
-      items.forEach((command) => {
-        if (
-          command.type === "index.create" &&
-          command.metadata.tags?.includes(designerTag)
-        ) {
-          commands.push(command);
-        }
-      });
-    });
-    return commands;
-  }, [designerTag, stagedCommands]);
 
   // ---- Local drafts for incomplete indexes (not yet staged) -----------
   const [localDrafts, setLocalDrafts] = useState<IndexDraft[]>([]);

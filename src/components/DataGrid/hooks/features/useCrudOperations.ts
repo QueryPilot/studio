@@ -45,12 +45,15 @@ export function useCrudOperations(
   options: UseCrudOperationsOptions,
 ): UseCrudOperationsResult {
   const { connectionId, database, schema, table, primaryKeyColumns } = options;
-  const { stageCommand, commitChanges: commitForTable, discardChanges: discardForTable, getTableKey, stagedCommands } =
-    useCrudStore();
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const commitForTable = useCrudStore((s) => s.commitChanges);
+  const discardForTable = useCrudStore((s) => s.discardChanges);
+  const getTableKey = useCrudStore((s) => s.getTableKey);
 
   const target: CrudCommandTarget = { connectionId, database, schema, table };
   const tableKey = getTableKey(target);
-  const commands = stagedCommands.get(tableKey) ?? [];
+  // Scoped selector: only re-render when THIS table's commands change (#15 fix)
+  const commands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
   const pendingCount = commands.length;
 
   const stageEdit = useCallback<UseCrudOperationsResult["stageEdit"]>(
