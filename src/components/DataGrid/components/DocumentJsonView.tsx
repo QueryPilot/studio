@@ -67,16 +67,7 @@ export const DocumentJsonView = memo(function DocumentJsonView({
   );
 
   if (documents.length === 0) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center text-sm text-muted-foreground",
-          className,
-        )}
-      >
-        No documents to display
-      </div>
-    );
+    return null;
   }
 
   return (

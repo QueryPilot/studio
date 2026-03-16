@@ -19,18 +19,23 @@ export function useGridSearchWorker(
   const requestIdRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Stable column fields list — avoids re-serializing all cells when column widths change (#9 fix)
+  const columnFieldsKey = useMemo(() => columns.map((c) => c.field).join("\0"), [columns]);
+
   // Stringify row values once (shared between main-thread and worker paths)
   const rowValues = useMemo(() => {
+    const fields = columnFieldsKey.split("\0");
     return rows.map((row) =>
-      columns.map((col) => {
-        const cell = row[col.field];
+      fields.map((field) => {
+        const cell = row[field];
         if (!cell || cell.value === null || cell.value === undefined) return "";
         return typeof cell.value === "string"
           ? cell.value
           : JSON.stringify(cell.value);
       }),
     );
-  }, [rows, columns]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- columnFieldsKey is a stable string derived from columns
+  }, [rows, columnFieldsKey]);
 
   // Initialize worker lazily
   const getWorker = useCallback(() => {
@@ -76,34 +81,34 @@ export function useGridSearchWorker(
       return;
     }
 
-    // Small dataset - filter on main thread immediately
-    if (rows.length <= WORKER_THRESHOLD) {
-      const term = trimmed.toLowerCase();
-      const indices: number[] = [];
-      for (let i = 0; i < rowValues.length; i++) {
-        const row = rowValues[i];
-        if (!row) continue;
-        for (const cellValue of row) {
-          if (cellValue.toLowerCase().includes(term)) {
-            indices.push(i);
-            break;
+    // Debounce both paths to avoid work on every keystroke (#8 fix)
+    debounceTimerRef.current = setTimeout(() => {
+      if (rows.length <= WORKER_THRESHOLD) {
+        // Small dataset - filter on main thread
+        const term = trimmed.toLowerCase();
+        const indices: number[] = [];
+        for (let i = 0; i < rowValues.length; i++) {
+          const row = rowValues[i];
+          if (!row) continue;
+          for (const cellValue of row) {
+            if (cellValue.toLowerCase().includes(term)) {
+              indices.push(i);
+              break;
+            }
           }
         }
+        setWorkerResult(indices); // eslint-disable-line react-hooks/set-state-in-effect
+      } else {
+        // Large dataset - send to worker
+        const id = ++requestIdRef.current;
+        const worker = getWorker();
+        const request: GridSearchRequest = {
+          id,
+          rowValues,
+          searchTerm: trimmed,
+        };
+        worker.postMessage(request);
       }
-      setWorkerResult(indices); // eslint-disable-line react-hooks/set-state-in-effect
-      return;
-    }
-
-    // Large dataset - debounce and send to worker
-    debounceTimerRef.current = setTimeout(() => {
-      const id = ++requestIdRef.current;
-      const worker = getWorker();
-      const request: GridSearchRequest = {
-        id,
-        rowValues,
-        searchTerm: trimmed,
-      };
-      worker.postMessage(request);
     }, DEBOUNCE_MS);
   }, [searchTerm, rows.length, rowValues, getWorker]);
 

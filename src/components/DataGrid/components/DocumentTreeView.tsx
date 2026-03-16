@@ -11,7 +11,17 @@
  * - Inline editing for leaf values and structured JSON editing for objects/arrays
  */
 
-import { memo, useState, useCallback, useRef, useEffect, useMemo } from "react";
+import {
+  memo,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  createContext,
+  useContext,
+  useSyncExternalStore,
+} from "react";
 import {
   IconChevronRight,
   IconPencil,
@@ -75,7 +85,10 @@ export interface DocumentTreeViewProps {
   ) => void;
   editable?: boolean;
   /** Callback to get expand/collapse all handlers for external UI (status bar) */
-  onExpandCollapseRef?: React.MutableRefObject<{ expandAll: () => void; collapseAll: () => void } | null>;
+  onExpandCollapseRef?: React.MutableRefObject<{
+    expandAll: () => void;
+    collapseAll: () => void;
+  } | null>;
   /** Allow adding/removing fields via JSON editor. False for SQL (fixed schema). Default: true */
   allowStructuralEdits?: boolean;
 }
@@ -193,6 +206,74 @@ function valueToEditString(value: unknown): string {
 }
 
 // ============================================================================
+// Expanded Paths Store (granular subscriptions via useSyncExternalStore)
+// ============================================================================
+
+interface ExpandedPathsStore {
+  subscribe: (listener: () => void) => () => void;
+  has: (path: string) => boolean;
+  toggle: (path: string) => void;
+  expandAll: (paths: string[]) => void;
+  collapseAll: () => void;
+  getAll: () => Set<string>;
+  getVersion: () => number;
+}
+
+function createExpandedPathsStore(initial?: Set<string>): ExpandedPathsStore {
+  let paths = initial ?? new Set<string>();
+  let version = 0;
+  const listeners = new Set<() => void>();
+
+  function emit() {
+    version++;
+    for (const l of listeners) l();
+  }
+
+  return {
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    has: (path) => paths.has(path),
+    toggle: (path) => {
+      const next = new Set(paths);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      paths = next;
+      emit();
+    },
+    expandAll: (newPaths) => {
+      paths = new Set([...paths, ...newPaths]);
+      emit();
+    },
+    collapseAll: () => {
+      paths = new Set();
+      emit();
+    },
+    getAll: () => paths,
+    getVersion: () => version,
+  };
+}
+
+/** Hook for granular subscription — only re-renders when THIS path's expanded state changes */
+function useIsExpanded(store: ExpandedPathsStore, path: string): boolean {
+  const subscribe = store.subscribe;
+  const getSnapshot = useCallback(() => store.has(path), [store, path]);
+  return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+const ExpandStoreContext = createContext<ExpandedPathsStore | null>(null);
+
+function useExpandStore(): ExpandedPathsStore {
+  const store = useContext(ExpandStoreContext);
+  if (!store)
+    throw new Error("useExpandStore must be used within ExpandStoreContext");
+  return store;
+}
+
+// ============================================================================
 // Inline Edit Component
 // ============================================================================
 
@@ -208,7 +289,9 @@ function buildInsertTemplate(
   sample: Record<string, unknown> | undefined,
   isDocument: boolean,
 ): Record<string, unknown> {
-  const doc: Record<string, unknown> = isDocument ? { _id: generateObjectId() } : {};
+  const doc: Record<string, unknown> = isDocument
+    ? { _id: generateObjectId() }
+    : {};
   if (!sample) return doc;
 
   for (const [key, value] of Object.entries(sample)) {
@@ -261,7 +344,10 @@ const InlineObjectIdEdit = memo(function InlineObjectIdEdit({
   const save = useCallback(() => {
     if (cancelledRef.current) return;
     const trimmed = draft.trim();
-    if (trimmed === raw) { onCancel(); return; }
+    if (trimmed === raw) {
+      onCancel();
+      return;
+    }
     if (/^[a-fA-F0-9]{24}$/.test(trimmed)) {
       onSave(trimmed);
     }
@@ -548,8 +634,6 @@ interface TreeValueNodeProps {
   expandKeyPrefix: string;
   editable: boolean;
   onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
-  expandedPaths: Set<string>;
-  onToggleExpand: (path: string) => void;
 }
 
 /** Renders a single key-value pair within the tree */
@@ -561,21 +645,20 @@ const TreeValueNode = memo(function TreeValueNode({
   expandKeyPrefix,
   editable,
   onFieldEdit,
-  expandedPaths,
-  onToggleExpand,
 }: TreeValueNodeProps) {
+  const store = useExpandStore();
   // expandKey is used for expand/collapse state (scoped per document)
   // fieldPath is the actual dotted path used for edits (e.g. "address.city")
   const expandKey = `${expandKeyPrefix}:${fieldPath}`;
-  const expanded = expandedPaths.has(expandKey);
+  const expanded = useIsExpanded(store, expandKey);
   const [editing, setEditing] = useState(false);
   const type = detectBsonType(value);
   const colorClass = BSON_TEXT_CLASSES[type];
   const isExpandable = type === "object" || type === "array";
 
   const toggleExpanded = useCallback(() => {
-    onToggleExpand(expandKey);
-  }, [expandKey, onToggleExpand]);
+    store.toggle(expandKey);
+  }, [expandKey, store]);
 
   const handleSave = useCallback(
     (newValue: unknown) => {
@@ -602,14 +685,13 @@ const TreeValueNode = memo(function TreeValueNode({
         : Object.entries(value as Record<string, unknown>);
 
     return (
-      <div
-        className="select-text"
-        style={{ paddingLeft: depth > 0 ? 16 : 0 }}
-      >
+      <div className="select-text" style={{ paddingLeft: depth > 0 ? 16 : 0 }}>
         <ContextMenu>
           <ContextMenuTrigger
             className="flex items-center gap-1 py-0.5 rounded hover:bg-muted/30 group/node"
-            onContextMenu={(e: React.MouseEvent) => { e.stopPropagation(); }}
+            onContextMenu={(e: React.MouseEvent) => {
+              e.stopPropagation();
+            }}
           >
             <button
               type="button"
@@ -633,10 +715,7 @@ const TreeValueNode = memo(function TreeValueNode({
               </span>
               {!expanded && (
                 <span
-                  className={cn(
-                    "font-mono text-[11px] truncate",
-                    colorClass,
-                  )}
+                  className={cn("font-mono text-[11px] truncate", colorClass)}
                 >
                   {formatValuePreview(value)}
                 </span>
@@ -696,8 +775,6 @@ const TreeValueNode = memo(function TreeValueNode({
                 expandKeyPrefix={expandKeyPrefix}
                 editable={editable}
                 onFieldEdit={onFieldEdit}
-                expandedPaths={expandedPaths}
-                onToggleExpand={onToggleExpand}
               />
             ))}
           </div>
@@ -712,7 +789,9 @@ const TreeValueNode = memo(function TreeValueNode({
       <ContextMenuTrigger
         className="flex items-baseline gap-1 py-0.5 select-text group/leaf"
         style={{ paddingLeft: depth > 0 ? 16 : 0 }}
-        onContextMenu={(e: React.MouseEvent) => { e.stopPropagation(); }}
+        onContextMenu={(e: React.MouseEvent) => {
+          e.stopPropagation();
+        }}
       >
         <span className="ml-5 font-mono text-[11px] text-foreground/80 shrink-0">
           {fieldKey}
@@ -730,9 +809,7 @@ const TreeValueNode = memo(function TreeValueNode({
           />
         ) : (
           <>
-            <span
-              className={cn("font-mono text-[11px] truncate", colorClass)}
-            >
+            <span className={cn("font-mono text-[11px] truncate", colorClass)}>
               {type === "objectId"
                 ? `ObjectId("${formatObjectId(value)}")`
                 : formatValuePreview(value)}
@@ -785,12 +862,14 @@ interface DocumentCardProps {
   hasStagedEdits: boolean;
   identifierFields?: string[];
   allowStructuralEdits: boolean;
-  onFieldEdit?: (fieldPath: string, newValue: unknown) => void;
-  onDocumentUndo?: () => void;
-  onDeleteDocument?: () => void;
+  onFieldEdit?: (
+    docIndex: number,
+    fieldPath: string,
+    newValue: unknown,
+  ) => void;
+  onDocumentUndo?: (docIndex: number) => void;
+  onDeleteDocument?: (docIndex: number) => void;
   onOpenInsertEditor?: () => void;
-  expandedPaths: Set<string>;
-  onToggleExpand: (path: string) => void;
   docKey: string;
 }
 
@@ -806,12 +885,11 @@ const DocumentCard = memo(function DocumentCard({
   onDocumentUndo,
   onDeleteDocument,
   onOpenInsertEditor,
-  expandedPaths,
-  onToggleExpand,
   docKey,
 }: DocumentCardProps) {
+  const store = useExpandStore();
   const cardPath = `__card__${docKey}`;
-  const expanded = expandedPaths.has(cardPath);
+  const expanded = useIsExpanded(store, cardPath);
   const [editingDoc, setEditingDoc] = useState(false);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -825,8 +903,24 @@ const DocumentCard = memo(function DocumentCard({
   const themeMode = resolvedTheme === "dark" ? "dark" : "light";
 
   const toggleExpanded = useCallback(() => {
-    onToggleExpand(cardPath);
-  }, [cardPath, onToggleExpand]);
+    store.toggle(cardPath);
+  }, [cardPath, store]);
+
+  // Stable callbacks that capture docIndex (#4 fix)
+  const handleFieldEditForDoc = useCallback(
+    (fieldPath: string, newValue: unknown) => {
+      onFieldEdit?.(index, fieldPath, newValue);
+    },
+    [index, onFieldEdit],
+  );
+
+  const handleUndoForDoc = useCallback(() => {
+    onDocumentUndo?.(index);
+  }, [index, onDocumentUndo]);
+
+  const handleDeleteForDoc = useCallback(() => {
+    onDeleteDocument?.(index);
+  }, [index, onDeleteDocument]);
 
   // Build display ID from identifier fields (PK for SQL, _id for MongoDB)
   const displayId = useMemo(() => {
@@ -848,13 +942,13 @@ const DocumentCard = memo(function DocumentCard({
     return `Row ${index + 1}`;
   }, [document, identifierFields, index]);
 
-  const entries = Object.entries(document);
-
-  // One-line preview: show top-level field names and abbreviated values
-  const previewText = entries
-    .slice(0, 6)
-    .map(([key, val]) => `${key}: ${formatValuePreview(val)}`)
-    .join(", ");
+  // Memoize previewText (#6 fix)
+  const previewText = useMemo(() => {
+    return Object.entries(document)
+      .slice(0, 6)
+      .map(([key, val]) => `${key}: ${formatValuePreview(val)}`)
+      .join(", ");
+  }, [document]);
 
   const handleCopy = useCallback(
     (e: React.MouseEvent) => {
@@ -874,9 +968,9 @@ const DocumentCard = memo(function DocumentCard({
   const handleUndo = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onDocumentUndo?.();
+      handleUndoForDoc();
     },
-    [onDocumentUndo],
+    [handleUndoForDoc],
   );
 
   const handleEditDoc = useCallback((e: React.MouseEvent) => {
@@ -897,7 +991,7 @@ const DocumentCard = memo(function DocumentCard({
         if (skipFields.has(key)) continue;
         const oldVal = document[key];
         if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-          onFieldEdit?.(key, newVal);
+          handleFieldEditForDoc(key, newVal);
         }
       }
 
@@ -905,13 +999,13 @@ const DocumentCard = memo(function DocumentCard({
       for (const [key] of oldEntries) {
         if (skipFields.has(key)) continue;
         if (!(key in newDoc)) {
-          onFieldEdit?.(key, null);
+          handleFieldEditForDoc(key, null);
         }
       }
 
       setEditingDoc(false);
     },
-    [document, onFieldEdit, identifierFields],
+    [document, handleFieldEditForDoc, identifierFields],
   );
 
   return (
@@ -1003,7 +1097,7 @@ const DocumentCard = memo(function DocumentCard({
           {!editingDoc && (
             <CollapsibleContent>
               <div className="border-t border-border/50 px-3 py-2">
-                {entries.map(([key, value]) => (
+                {Object.entries(document).map(([key, value]) => (
                   <TreeValueNode
                     key={key}
                     fieldKey={key}
@@ -1012,9 +1106,7 @@ const DocumentCard = memo(function DocumentCard({
                     fieldPath={key}
                     expandKeyPrefix={docKey}
                     editable={editable}
-                    onFieldEdit={onFieldEdit}
-                    expandedPaths={expandedPaths}
-                    onToggleExpand={onToggleExpand}
+                    onFieldEdit={handleFieldEditForDoc}
                   />
                 ))}
               </div>
@@ -1047,9 +1139,10 @@ const DocumentCard = memo(function DocumentCard({
         )}
         {editable && (
           <>
-            {(allowStructuralEdits || onOpenInsertEditor || hasStagedEdits || onDeleteDocument) && (
-              <ContextMenuSeparator />
-            )}
+            {(allowStructuralEdits ||
+              onOpenInsertEditor ||
+              hasStagedEdits ||
+              onDeleteDocument) && <ContextMenuSeparator />}
             {allowStructuralEdits && (
               <ContextMenuItem
                 onClick={() => {
@@ -1067,7 +1160,7 @@ const DocumentCard = memo(function DocumentCard({
               </ContextMenuItem>
             )}
             {hasStagedEdits && (
-              <ContextMenuItem onClick={() => onDocumentUndo?.()}>
+              <ContextMenuItem onClick={handleUndoForDoc}>
                 <IconArrowBackUp className="size-3.5" />
                 Undo Changes
               </ContextMenuItem>
@@ -1077,7 +1170,7 @@ const DocumentCard = memo(function DocumentCard({
                 <ContextMenuSeparator />
                 <ContextMenuItem
                   variant="destructive"
-                  onClick={onDeleteDocument}
+                  onClick={handleDeleteForDoc}
                 >
                   <IconTrash className="size-3.5" />
                   Delete Document
@@ -1219,67 +1312,68 @@ export const DocumentTreeView = memo(function DocumentTreeView({
     [onInsertDocument],
   );
 
-  // Expand state — persisted to sessionStorage so it survives tab switches
+  // Expand state — using external store for granular subscriptions
   const storageKey = gridId ? `treeview-expanded:${gridId}` : undefined;
 
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
-    if (!storageKey) return new Set();
-    try {
-      const stored = sessionStorage.getItem(storageKey);
-      if (stored) return new Set(JSON.parse(stored) as string[]);
-    } catch { /* ignore */ }
-    return new Set();
-  });
+  const expandStore = useMemo(() => {
+    let initial: Set<string> | undefined;
+    if (storageKey) {
+      try {
+        const stored = sessionStorage.getItem(storageKey);
+        if (stored) initial = new Set(JSON.parse(stored) as string[]);
+      } catch {
+        /* ignore */
+      }
+    }
+    return createExpandedPathsStore(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only create once per mount
+  }, []);
 
   // Persist to sessionStorage on changes (debounced)
-  const expandedPathsRef = useRef(expandedPaths);
-  expandedPathsRef.current = expandedPaths;
   useEffect(() => {
     if (!storageKey) return;
-    const timer = setTimeout(() => {
-      try {
-        sessionStorage.setItem(storageKey, JSON.stringify([...expandedPathsRef.current]));
-      } catch { /* ignore quota errors */ }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [expandedPaths, storageKey]);
-
-  const toggleExpand = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
+    let timer: ReturnType<typeof setTimeout>;
+    const unsub = expandStore.subscribe(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          sessionStorage.setItem(
+            storageKey,
+            JSON.stringify([...expandStore.getAll()]),
+          );
+        } catch {
+          /* ignore quota errors */
+        }
+      }, 300);
     });
-  }, []);
+    return () => {
+      clearTimeout(timer);
+      unsub();
+    };
+  }, [expandStore, storageKey]);
 
   // Expose expand/collapse all for external UI (status bar)
   const expandAll = useCallback(() => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      for (let i = 0; i < documents.length; i++) {
-        const doc = documents[i];
-        if (!doc) continue;
-        let key: string;
-        if (identifierFields?.length) {
-          key = identifierFields.map((f) => String(doc[f] ?? "")).join("·");
-        } else if (doc._id) {
-          key = formatObjectId(doc._id);
-        } else {
-          key = `doc-${i}`;
-        }
-        next.add(`__card__${key}`);
+    const cardPaths: string[] = [];
+    for (let i = 0; i < documents.length; i++) {
+      const doc = documents[i];
+      if (!doc) continue;
+      let key: string;
+      if (identifierFields?.length) {
+        key = identifierFields.map((f) => String(doc[f] ?? "")).join("·");
+      } else if (doc._id) {
+        key = formatObjectId(doc._id);
+      } else {
+        key = `doc-${i}`;
       }
-      return next;
-    });
-  }, [documents, identifierFields]);
+      cardPaths.push(`__card__${key}`);
+    }
+    expandStore.expandAll(cardPaths);
+  }, [documents, identifierFields, expandStore]);
 
   const collapseAll = useCallback(() => {
-    setExpandedPaths(new Set());
-  }, []);
+    expandStore.collapseAll();
+  }, [expandStore]);
 
   // Assign to ref so parent can render buttons in status bar
   useEffect(() => {
@@ -1312,14 +1406,29 @@ export const DocumentTreeView = memo(function DocumentTreeView({
   });
 
   // Infinite scroll: load more when scrolling near the bottom
-  const loadMoreRef = useRef({ hasMore, isLoadingMore, onLoadMore, docLen: documents.length });
-  loadMoreRef.current = { hasMore, isLoadingMore, onLoadMore, docLen: documents.length };
+  const loadMoreRef = useRef({
+    hasMore,
+    isLoadingMore,
+    onLoadMore,
+    docLen: documents.length,
+  });
+  loadMoreRef.current = {
+    hasMore,
+    isLoadingMore,
+    onLoadMore,
+    docLen: documents.length,
+  };
 
   useEffect(() => {
     const el = parentRef.current;
     if (!el) return;
     const check = () => {
-      const { hasMore: hm, isLoadingMore: ilm, onLoadMore: olm, docLen } = loadMoreRef.current;
+      const {
+        hasMore: hm,
+        isLoadingMore: ilm,
+        onLoadMore: olm,
+        docLen,
+      } = loadMoreRef.current;
       if (!hm || ilm || !olm) return;
       const items = virtualizer.getVirtualItems();
       const lastItem = items.at(-1);
@@ -1328,164 +1437,139 @@ export const DocumentTreeView = memo(function DocumentTreeView({
       }
     };
     // Check on scroll
-    const onScroll = () => { check(); };
+    const onScroll = () => {
+      check();
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
     // Also check on mount / data changes
     check();
-    return () => { el.removeEventListener("scroll", onScroll); };
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+    };
   }, [virtualizer, documents.length]);
 
-  // Memoize per-document edit handlers so cards don't re-render unnecessarily
-  const makeFieldEditHandler = useCallback(
-    (docIndex: number) => {
-      if (!onFieldEdit) return undefined;
-      return (fieldPath: string, newValue: unknown) => {
-        onFieldEdit(docIndex, fieldPath, newValue);
-      };
-    },
-    [onFieldEdit],
-  );
-
-  const makeUndoHandler = useCallback(
-    (docIndex: number) => {
-      if (!onDocumentUndo) return undefined;
-      return () => {
-        onDocumentUndo(docIndex);
-      };
-    },
-    [onDocumentUndo],
-  );
-
-  const makeDeleteHandler = useCallback(
-    (docIndex: number) => {
-      if (!onDeleteDocument) return undefined;
-      return () => {
-        onDeleteDocument(docIndex);
-      };
-    },
-    [onDeleteDocument],
-  );
+  // Stable insert editor opener
+  const handleOpenInsertEditor = useCallback(() => {
+    setShowInsertEditor(true);
+  }, []);
 
   if (documents.length === 0) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center text-sm text-muted-foreground",
-          className,
-        )}
-      >
-        No documents to display
-      </div>
-    );
+    return null;
   }
 
   return (
-    <ContextMenu>
-      <ContextMenuTrigger
-        className={cn("overflow-auto h-full block", className)}
-        ref={parentRef}
-      >
-        {/* Insert document editor — shown at top */}
-        {showInsertEditor && (
-          <div className="pb-0">
-            <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
-              <div className="flex items-center gap-2 mb-1.5">
-                <IconPlus className="size-3.5 text-primary" />
-                <span className="text-xs font-medium flex-1">{allowStructuralEdits ? "Insert Document" : "Insert Row"}</span>
-                <button
-                  type="button"
-                  onClick={() => setShowInsertEditor(false)}
-                  className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  title="Close"
-                >
-                  <IconX className="size-3.5" />
-                </button>
-              </div>
-              <DocumentJsonEditor
-                key={insertCounter}
-                document={buildInsertTemplate(documents[0], allowStructuralEdits)}
-                themeMode={insertThemeMode}
-                onSave={handleInsertSave}
-                onCancel={() => {
-                  setShowInsertEditor(false);
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        <div
-          className="p-2"
-          style={{
-            height: `${virtualizer.getTotalSize()}px`,
-            position: "relative",
-          }}
+    <ExpandStoreContext.Provider value={expandStore}>
+      <ContextMenu>
+        <ContextMenuTrigger
+          className={cn("overflow-auto h-full block", className)}
+          ref={parentRef}
         >
-          {virtualizer.getVirtualItems().map((virtualRow) => {
-            const doc = documents[virtualRow.index];
-            if (!doc) return null;
-
-            return (
-              <div
-                key={virtualRow.key}
-                data-index={virtualRow.index}
-                ref={virtualizer.measureElement}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${virtualRow.start}px)`,
-                  paddingBottom: "6px",
-                }}
-              >
-                <DocumentCard
-                  document={doc}
-                  index={virtualRow.index}
-                  editable={editable}
-                  identifierFields={identifierFields}
-                  allowStructuralEdits={allowStructuralEdits}
-                  hasStagedEdits={
-                    stagedDocIds
-                      ? stagedDocIds.has(String(virtualRow.key))
-                      : false
-                  }
-                  onFieldEdit={makeFieldEditHandler(virtualRow.index)}
-                  onDocumentUndo={makeUndoHandler(virtualRow.index)}
-                  onDeleteDocument={makeDeleteHandler(virtualRow.index)}
-                  onOpenInsertEditor={() => {
-                    setShowInsertEditor(true);
+          {/* Insert document editor — shown at top */}
+          {showInsertEditor && (
+            <div className="pb-0">
+              <div className="rounded-lg border border-primary/30 bg-card p-2 mb-1.5">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <IconPlus className="size-3.5 text-primary" />
+                  <span className="text-xs font-medium flex-1">
+                    {allowStructuralEdits ? "Insert Document" : "Insert Row"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowInsertEditor(false);
+                    }}
+                    className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    title="Close"
+                  >
+                    <IconX className="size-3.5" />
+                  </button>
+                </div>
+                <DocumentJsonEditor
+                  key={insertCounter}
+                  document={buildInsertTemplate(
+                    documents[0],
+                    allowStructuralEdits,
+                  )}
+                  themeMode={insertThemeMode}
+                  onSave={handleInsertSave}
+                  onCancel={() => {
+                    setShowInsertEditor(false);
                   }}
-                  expandedPaths={expandedPaths}
-                  onToggleExpand={toggleExpand}
-                  docKey={String(virtualRow.key)}
                 />
               </div>
-            );
-          })}
-        </div>
+            </div>
+          )}
 
-        {/* Loading indicator for infinite scroll */}
-        {isLoadingMore && (
-          <div className="flex items-center justify-center py-3 text-muted-foreground">
-            <IconLoader2 className="size-4 animate-spin mr-2" />
-            <span className="text-xs">Loading more documents...</span>
-          </div>
-        )}
-
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {editable && onInsertDocument && (
-          <ContextMenuItem
-            onClick={() => {
-              setShowInsertEditor(true);
+          <div
+            className="p-2"
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              position: "relative",
             }}
           >
-            <IconPlus className="size-3.5" />
-            {allowStructuralEdits ? "Insert Document" : "Insert Row"}
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const doc = documents[virtualRow.index];
+              if (!doc) return null;
+
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                    paddingBottom: "6px",
+                  }}
+                >
+                  <DocumentCard
+                    document={doc}
+                    index={virtualRow.index}
+                    editable={editable}
+                    identifierFields={identifierFields}
+                    allowStructuralEdits={allowStructuralEdits}
+                    hasStagedEdits={
+                      stagedDocIds
+                        ? stagedDocIds.has(String(virtualRow.key))
+                        : false
+                    }
+                    onFieldEdit={onFieldEdit}
+                    onDocumentUndo={onDocumentUndo}
+                    onDeleteDocument={onDeleteDocument}
+                    onOpenInsertEditor={
+                      onInsertDocument ? handleOpenInsertEditor : undefined
+                    }
+                    docKey={String(virtualRow.key)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Loading indicator for infinite scroll */}
+          {isLoadingMore && (
+            <div className="flex items-center justify-center py-3 text-muted-foreground">
+              <IconLoader2 className="size-4 animate-spin mr-2" />
+              <span className="text-xs">Loading more documents...</span>
+            </div>
+          )}
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {editable && onInsertDocument && (
+            <ContextMenuItem
+              onClick={() => {
+                setShowInsertEditor(true);
+              }}
+            >
+              <IconPlus className="size-3.5" />
+              {allowStructuralEdits ? "Insert Document" : "Insert Row"}
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    </ExpandStoreContext.Provider>
   );
 });

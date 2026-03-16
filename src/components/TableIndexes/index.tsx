@@ -86,9 +86,10 @@ export const TableIndexes = memo(function TableIndexes({
   const [searchQuery, setSearchQuery] = useState("");
   const contextMenuRowRef = useRef<IndexGridRow | null>(null);
 
-  // crudStore integration
-  const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
-    useCrudStore();
+  // crudStore integration — scoped selectors (#16 fix)
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const unstageCommand = useCrudStore((s) => s.unstageCommand);
+  const discardChanges = useCrudStore((s) => s.discardChanges);
 
   // Get connection info for dbType
   const connection = useConnectionStore((s) => s.getConnection(connectionId));
@@ -120,9 +121,7 @@ export const TableIndexes = memo(function TableIndexes({
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useMemo(() => {
-    return stagedCommands.get(tableKey) ?? [];
-  }, [stagedCommands, tableKey]);
+  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
 
   const loadIndexes = useCallback(async () => {
     setIsLoading(true);

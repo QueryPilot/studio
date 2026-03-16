@@ -125,6 +125,21 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
     [setQueryState, tabId, workbenchState],
   );
 
+  // Stable callbacks for DocumentDataGrid props (#2 fix)
+  const handleAppliedFilterChange = useCallback(
+    (state: { text: string }) => {
+      updateWorkbenchState({ filterText: state.text });
+    },
+    [updateWorkbenchState],
+  );
+
+  const handleViewModeChange = useCallback(
+    (mode: "table" | "tree" | "json") => {
+      updateWorkbenchState({ dataViewMode: mode });
+    },
+    [updateWorkbenchState],
+  );
+
   const openExplainView = useCallback(() => {
     updateWorkbenchState({ explainSource: "aggregation" });
     handleActiveViewChange("explain");
@@ -196,13 +211,9 @@ export const MongoCollectionWorkbench = memo(function MongoCollectionWorkbench({
               metadata.syncSort,
             )}
             initialFilterText={workbenchState.filterText}
-            onAppliedFilterChange={(state) => {
-              updateWorkbenchState({ filterText: state.text });
-            }}
+            onAppliedFilterChange={handleAppliedFilterChange}
             viewMode={workbenchState.dataViewMode}
-            onViewModeChange={(mode) => {
-              updateWorkbenchState({ dataViewMode: mode });
-            }}
+            onViewModeChange={handleViewModeChange}
           />
         ) : null}
 

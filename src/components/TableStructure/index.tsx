@@ -228,8 +228,9 @@ export const TableStructure = memo(function TableStructure({
     schema,
   });
 
-  const { stagedCommands, stageCommand, unstageCommand, discardChanges } =
-    useCrudStore();
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const unstageCommand = useCrudStore((s) => s.unstageCommand);
+  const discardChanges = useCrudStore((s) => s.discardChanges);
   const updateTabMetadata = useWorkbenchStore(
     (state) => state.updateTabMetadata,
   );
@@ -282,15 +283,13 @@ export const TableStructure = memo(function TableStructure({
     [structure?.constraints],
   );
 
-  // Get pending commands for this table - FIX: subscribe to stagedCommands directly
+  // Scoped selector: only re-render when THIS table's commands change
   const tableKey = useMemo(
     () => buildCrudTableKey({ connectionId, database, schema, table }),
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useMemo(() => {
-    return stagedCommands.get(tableKey) ?? [];
-  }, [stagedCommands, tableKey]);
+  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
 
   const modifiedFieldsByColumn = useMemo(
     () => buildStructureModifiedFieldsMap(pendingCommands, foreignKeys),

@@ -48,6 +48,7 @@ import type { FilterMode } from "@/utils/filterParser";
 import type { CrudCommand, JsonValue } from "@/types/crud";
 import { useTableInvalidation } from "@/hooks/useTableInvalidation";
 import { nanoid } from "nanoid";
+import { useDebounce } from "@/hooks/useDebounce";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import { useGridPreferencesStore } from "../stores/gridPreferencesStore";
 import type { InspectorTab } from "../components/inspector";
@@ -272,14 +273,17 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     return "";
   }, [documentFilter]);
 
-  // Filter rawDocuments for tree/JSON views using the client search text
+  // Debounce client search to avoid JSON.stringify on every keystroke (#5 fix)
+  const debouncedClientSearchText = useDebounce(clientSearchText, 150);
+
+  // Filter rawDocuments for tree/JSON views using the debounced client search text
   const filteredRawDocuments = useMemo(() => {
-    if (!clientSearchText) return dedupedRawDocuments;
-    const q = clientSearchText.toLowerCase();
+    if (!debouncedClientSearchText) return dedupedRawDocuments;
+    const q = debouncedClientSearchText.toLowerCase();
     return dedupedRawDocuments.filter((doc) =>
       JSON.stringify(doc).toLowerCase().includes(q),
     );
-  }, [dedupedRawDocuments, clientSearchText]);
+  }, [dedupedRawDocuments, debouncedClientSearchText]);
 
   const filteredRows = useGridSearchWorker(
     data.rows,
@@ -537,6 +541,9 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
   const stageCommand = useCrudStore((s) => s.stageCommand);
   const expandCollapseRef = useRef<{ expandAll: () => void; collapseAll: () => void } | null>(null);
   const unstageCommands = useCrudStore((s) => s.unstageCommands);
+  // Keep refs for stable callbacks so DocumentTreeView memo isn't defeated
+  const filteredRawDocumentsRef = useRef(filteredRawDocuments);
+  useEffect(() => { filteredRawDocumentsRef.current = filteredRawDocuments; });
 
   // Get staged update commands for this collection to overlay on tree/JSON views
   const tableKey = useMemo(
@@ -675,6 +682,97 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
     return ids.size > 0 ? ids : undefined;
   }, [stagedCommands]);
 
+  // Stable CRUD callbacks for tree/JSON views (fixes #3 — inline callbacks defeated memo)
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; });
+  const stagedCommandsRef = useRef(stagedCommands);
+  useEffect(() => { stagedCommandsRef.current = stagedCommands; });
+
+  const handleTreeFieldEdit = useCallback(
+    (docIndex: number, fieldPath: string, newValue: unknown) => {
+      const doc = filteredRawDocumentsRef.current[docIndex];
+      if (!doc) return;
+      const originalIndex = dataRef.current.rawDocuments.findIndex(
+        (d) =>
+          d === doc ||
+          (d._id &&
+            doc._id &&
+            JSON.stringify(d._id) === JSON.stringify(doc._id)),
+      );
+      if (originalIndex === -1) return;
+      const cmd = dataRef.current.createTreeEditCommand(
+        originalIndex,
+        fieldPath,
+        newValue,
+      );
+      if (cmd) {
+        stageCommand(cmd);
+      }
+    },
+    [stageCommand],
+  );
+
+  const handleTreeDocumentUndo = useCallback(
+    (docIndex: number) => {
+      const cmds = stagedCommandsRef.current;
+      if (!cmds) return;
+      const doc = filteredRawDocumentsRef.current[docIndex];
+      if (!doc) return;
+      const docId = doc._id;
+      if (docId === undefined || docId === null) return;
+      const idKey =
+        typeof docId === "object" && docId !== null && "$oid" in docId
+          ? String((docId as Record<string, unknown>).$oid)
+          : String(docId);
+      const idsToUnstage = cmds
+        .filter((cmd) => {
+          if (cmd.type !== "data.update" || cmd.state !== "staged") return false;
+          const pk = (cmd.payload as { primaryKeys?: Record<string, unknown> }).primaryKeys?._id;
+          if (pk === undefined || pk === null) return false;
+          const pkKey =
+            typeof pk === "object" && "$oid" in pk
+              ? String((pk as Record<string, unknown>).$oid)
+              : String(pk);
+          return pkKey === idKey;
+        })
+        .map((cmd) => cmd.id);
+      if (idsToUnstage.length > 0) {
+        unstageCommands(idsToUnstage);
+      }
+    },
+    [unstageCommands],
+  );
+
+  const handleTreeInsertDocument = useCallback(
+    (doc: Record<string, unknown>) => {
+      const cmd = dataRef.current.createInsertCommand(doc);
+      stageCommand(cmd);
+    },
+    [stageCommand],
+  );
+
+  const handleTreeDeleteDocument = useCallback(
+    (docIndex: number) => {
+      const doc = filteredRawDocumentsRef.current[docIndex];
+      if (!doc) return;
+      const docId = doc._id;
+      if (docId === undefined || docId === null) return;
+      const deleteCmd: CrudCommand = {
+        id: nanoid(),
+        type: "data.delete",
+        target: { connectionId, database, table: collection },
+        payload: { primaryKeys: { _id: docId as JsonValue } },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          description: `Delete document`,
+        },
+        state: "staged",
+      };
+      stageCommand(deleteCmd);
+    },
+    [connectionId, database, collection, stageCommand],
+  );
+
   // Loading and error states
   const isLoading = data.isLoading && data.rows.length === 0;
   const errorMessage = data.error ? data.error.message : null;
@@ -756,80 +854,11 @@ const DocumentCollectionDataGrid = memo(function DocumentCollectionDataGrid({
             onLoadMore={data.fetchNextPage}
             editable={!readOnly}
             onExpandCollapseRef={expandCollapseRef}
-            onFieldEdit={(docIndex, fieldPath, newValue) => {
-              // docIndex is into filteredRawDocuments, find the original index
-              const doc = filteredRawDocuments[docIndex];
-              if (!doc) return;
-              const originalIndex = data.rawDocuments.findIndex(
-                (d) =>
-                  d === doc ||
-                  (d._id &&
-                    doc._id &&
-                    JSON.stringify(d._id) === JSON.stringify(doc._id)),
-              );
-              if (originalIndex === -1) return;
-              const cmd = data.createTreeEditCommand(
-                originalIndex,
-                fieldPath,
-                newValue,
-              );
-              if (cmd) {
-                stageCommand(cmd);
-              }
-            }}
+            onFieldEdit={handleTreeFieldEdit}
             stagedDocIds={stagedDocIds}
-            onDocumentUndo={(docIndex) => {
-              if (!stagedCommands) return;
-              const doc = filteredRawDocuments[docIndex];
-              if (!doc) return;
-              const docId = doc._id;
-              if (docId === undefined || docId === null) return;
-              const idKey =
-                typeof docId === "object" && docId !== null && "$oid" in docId
-                  ? String((docId as Record<string, unknown>).$oid)
-                  : String(docId);
-              // Find all staged update commands for this document and unstage them
-              const idsToUnstage = stagedCommands
-                .filter((cmd) => {
-                  if (cmd.type !== "data.update" || cmd.state !== "staged")
-                    return false;
-                  const pk = (
-                    cmd.payload as { primaryKeys?: Record<string, unknown> }
-                  ).primaryKeys?._id;
-                  if (pk === undefined || pk === null) return false;
-                  const pkKey =
-                    typeof pk === "object" && "$oid" in pk
-                      ? String((pk as Record<string, unknown>).$oid)
-                      : String(pk);
-                  return pkKey === idKey;
-                })
-                .map((cmd) => cmd.id);
-              if (idsToUnstage.length > 0) {
-                unstageCommands(idsToUnstage);
-              }
-            }}
-            onInsertDocument={(doc) => {
-              const cmd = data.createInsertCommand(doc);
-              stageCommand(cmd);
-            }}
-            onDeleteDocument={(docIndex) => {
-              const doc = filteredRawDocuments[docIndex];
-              if (!doc) return;
-              const docId = doc._id;
-              if (docId === undefined || docId === null) return;
-              const deleteCmd: CrudCommand = {
-                id: nanoid(),
-                type: "data.delete",
-                target: { connectionId, database, table: collection },
-                payload: { primaryKeys: { _id: docId as JsonValue } },
-                metadata: {
-                  timestamp: new Date().toISOString(),
-                  description: `Delete document`,
-                },
-                state: "staged",
-              };
-              stageCommand(deleteCmd);
-            }}
+            onDocumentUndo={handleTreeDocumentUndo}
+            onInsertDocument={handleTreeInsertDocument}
+            onDeleteDocument={handleTreeDeleteDocument}
           />
           <DataGridStatusBar
             loadedRows={filteredRawDocuments.length}

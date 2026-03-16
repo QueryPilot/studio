@@ -399,7 +399,19 @@ export const ConnectionSection = forwardRef<
     })),
   );
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
-  const stagedCommands = useCrudStore((s) => s.stagedCommands);
+  // Scoped version: only re-render when THIS connection's commands change (#10 fix)
+  const connectionCommandsVersion = useCrudStore((s) => {
+    let hash = "";
+    s.stagedCommands.forEach((cmds, tableKey) => {
+      if (tableKey.startsWith(`${connectionId}:`)) {
+        hash += `${tableKey}:${cmds.length}:${cmds.map((c) => c.id).join(",")};`;
+      }
+    });
+    return hash;
+  });
+  // Read stagedCommands imperatively only when the scoped version changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const stagedCommands = useMemo(() => useCrudStore.getState().stagedCommands, [connectionCommandsVersion]);
   const stageBatchWithSingleHistoryEntry = useCrudStore(
     (s) => s.stageBatchWithSingleHistoryEntry,
   );

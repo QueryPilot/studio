@@ -73,17 +73,16 @@ export const TableTriggers = memo(function TableTriggers({
   const [previewTrigger, setPreviewTrigger] = useState<TriggerGridRow | null>(null);
   const contextMenuRowRef = useRef<TriggerGridRow | null>(null);
 
-  // crudStore integration
-  const { stagedCommands, stageCommand, unstageCommand } = useCrudStore();
+  // crudStore integration — scoped selectors (#16 fix)
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const unstageCommand = useCrudStore((s) => s.unstageCommand);
 
   const tableKey = useMemo(
     () => buildCrudTableKey({ connectionId, database, schema, table }),
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useMemo(() => {
-    return stagedCommands.get(tableKey) ?? [];
-  }, [stagedCommands, tableKey]);
+  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey) ?? []);
 
   const loadTriggers = useCallback(async () => {
     setIsLoading(true);

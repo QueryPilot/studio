@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -61,6 +61,51 @@ interface MongoAggregationViewProps {
 }
 
 // ---------------------------------------------------------------------------
+// Stable-callback wrapper for StageCard (#14 fix — inline arrows defeated memo)
+// ---------------------------------------------------------------------------
+
+const StageCardRow = memo(function StageCardRow({
+  id,
+  index,
+  stageJson,
+  enabled,
+  selected,
+  onJsonChange,
+  onEnabledChange,
+  onDelete,
+  onSelect,
+}: {
+  id: string;
+  index: number;
+  stageJson: string;
+  enabled: boolean;
+  selected: boolean;
+  onJsonChange: (index: number, json: string) => void;
+  onEnabledChange: (index: number, enabled: boolean) => void;
+  onDelete: (index: number) => void;
+  onSelect: (index: number) => void;
+}) {
+  const handleJson = useCallback((json: string) => onJsonChange(index, json), [index, onJsonChange]);
+  const handleEnabled = useCallback((e: boolean) => onEnabledChange(index, e), [index, onEnabledChange]);
+  const handleDelete = useCallback(() => onDelete(index), [index, onDelete]);
+  const handleSelect = useCallback(() => onSelect(index), [index, onSelect]);
+
+  return (
+    <StageCard
+      id={id}
+      index={index}
+      stageJson={stageJson}
+      enabled={enabled}
+      selected={selected}
+      onJsonChange={handleJson}
+      onEnabledChange={handleEnabled}
+      onDelete={handleDelete}
+      onSelect={handleSelect}
+    />
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -96,22 +141,25 @@ export const MongoAggregationView = memo(function MongoAggregationView({
     stages.map(() => nanoid(8)),
   );
 
-  // Sync length: grow with new IDs when stages are added externally, trim when removed.
-  // Persists back to stageKeys so future renders stay consistent.
+  // Sync stageKeys length with stages via useEffect (#13 fix — no setState in useMemo)
+  useEffect(() => {
+    setStageKeys((prev) => {
+      if (prev.length === stages.length) return prev;
+      if (prev.length < stages.length) {
+        return [...prev, ...Array.from({ length: stages.length - prev.length }, () => nanoid(8))];
+      }
+      return prev.slice(0, stages.length);
+    });
+  }, [stages.length]);
+
+  // Derive stable IDs for rendering — safe pure computation
   const stageIds = useMemo(() => {
     if (stageKeys.length === stages.length) return stageKeys;
+    // Fallback during the render before useEffect syncs
     if (stageKeys.length < stages.length) {
-      const grown = [
-        ...stageKeys,
-        ...Array.from({ length: stages.length - stageKeys.length }, () => nanoid(8)),
-      ];
-      // Persist the grown array so it doesn't regenerate new IDs each render
-      queueMicrotask(() => { setStageKeys(grown); });
-      return grown;
+      return [...stageKeys, ...Array.from({ length: stages.length - stageKeys.length }, () => nanoid(8))];
     }
-    const trimmed = stageKeys.slice(0, stages.length);
-    queueMicrotask(() => { setStageKeys(trimmed); });
-    return trimmed;
+    return stageKeys.slice(0, stages.length);
   }, [stages.length, stageKeys]);
 
   // -- Callbacks -------------------------------------------------------------
@@ -340,21 +388,17 @@ export const MongoAggregationView = memo(function MongoAggregationView({
                   >
                     <div className="space-y-2">
                       {stages.map((stageJson, index) => (
-                        <StageCard
+                        <StageCardRow
                           key={stageIds[index]}
                           id={stageIds[index] ?? `stage-${index}`}
                           index={index}
                           stageJson={stageJson}
                           enabled={stageEnabled[index] !== false}
                           selected={selectedStageIndex === index}
-                          onJsonChange={(json) => {
-                            handleStageJsonChange(index, json);
-                          }}
-                          onEnabledChange={(enabled) => {
-                            handleStageEnabledChange(index, enabled);
-                          }}
-                          onDelete={() => { handleDeleteStage(index); }}
-                          onSelect={() => { setSelectedStageIndex(index); }}
+                          onJsonChange={handleStageJsonChange}
+                          onEnabledChange={handleStageEnabledChange}
+                          onDelete={handleDeleteStage}
+                          onSelect={setSelectedStageIndex}
                         />
                       ))}
                     </div>

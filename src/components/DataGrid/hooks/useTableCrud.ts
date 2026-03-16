@@ -101,12 +101,15 @@ export function useTableCrud({
   // Non-blocking batch operations via useTransition
   const [isBatchPending, startBatchTransition] = useTransition();
 
-  const { stageCommand, stageBatchWithSingleHistoryEntry, getTableKey, stagedCommands } = useCrudStore();
+  const stageCommand = useCrudStore((s) => s.stageCommand);
+  const stageBatchWithSingleHistoryEntry = useCrudStore((s) => s.stageBatchWithSingleHistoryEntry);
+  const getTableKey = useCrudStore((s) => s.getTableKey);
 
   const tableKey = enabled
     ? getTableKey({ connectionId, database, schema, table })
     : "";
-  const pendingChanges = enabled ? stagedCommands.get(tableKey) ?? [] : [];
+  // Scoped selector: only re-render when THIS table's commands change (#15 fix)
+  const pendingChanges = useCrudStore((s) => (enabled ? s.stagedCommands.get(tableKey) ?? [] : []));
 
   const target = createCrudTarget(connectionId, database, schema, table);
 
@@ -126,7 +129,7 @@ export function useTableCrud({
       if (!enabled) return undefined;
 
       try {
-        const commands = stagedCommands.get(tableKey) ?? [];
+        const commands = useCrudStore.getState().stagedCommands.get(tableKey) ?? [];
         const insertCommands = commands.filter(
           (cmd) => cmd.type === "data.insert"
         );
@@ -198,7 +201,7 @@ export function useTableCrud({
         setIsEditingCell(false);
       }
     },
-    [enabled, tableKey, target, columns, stageCommand, stagedCommands, setIsEditingCell]
+    [enabled, tableKey, target, columns, stageCommand, setIsEditingCell]
   );
 
   // Handler: Row append
