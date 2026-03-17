@@ -179,6 +179,19 @@ pub struct ValidationResult {
     pub warnings: Vec<SqlError>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ValidationOptions {
+    pub include_editor_owned_rules: bool,
+}
+
+impl Default for ValidationOptions {
+    fn default() -> Self {
+        Self {
+            include_editor_owned_rules: true,
+        }
+    }
+}
+
 impl ValidationResult {
     pub fn new() -> Self {
         Self::default()
@@ -215,6 +228,15 @@ pub fn validate_document(
     schema: Option<&CachedSchema>,
     version_features: Option<&VersionFeatures>,
 ) -> ValidationResult {
+    validate_document_with_options(doc, schema, version_features, ValidationOptions::default())
+}
+
+pub fn validate_document_with_options(
+    doc: &ParsedDocument,
+    schema: Option<&CachedSchema>,
+    version_features: Option<&VersionFeatures>,
+    options: ValidationOptions,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     for error in &doc.errors {
@@ -228,7 +250,7 @@ pub fn validate_document(
     }
 
     for stmt in &doc.statements {
-        let stmt_result = validate_statement(stmt, schema, version_features);
+        let stmt_result = validate_statement_with_options(stmt, schema, version_features, options);
         result.merge(stmt_result);
     }
 
@@ -241,6 +263,20 @@ pub fn validate_statement(
     schema: Option<&CachedSchema>,
     _version_features: Option<&VersionFeatures>,
 ) -> ValidationResult {
+    validate_statement_with_options(
+        stmt,
+        schema,
+        _version_features,
+        ValidationOptions::default(),
+    )
+}
+
+pub fn validate_statement_with_options(
+    stmt: &ParsedStatement,
+    schema: Option<&CachedSchema>,
+    _version_features: Option<&VersionFeatures>,
+    options: ValidationOptions,
+) -> ValidationResult {
     let mut result = ValidationResult::new();
 
     if let Some(schema) = schema {
@@ -252,7 +288,7 @@ pub fn validate_statement(
         }
     }
 
-    validate_common_issues(stmt, schema, &mut result);
+    validate_common_issues(stmt, schema, &mut result, options);
 
     result
 }
@@ -602,6 +638,7 @@ fn validate_common_issues(
     stmt: &ParsedStatement,
     schema: Option<&CachedSchema>,
     result: &mut ValidationResult,
+    options: ValidationOptions,
 ) {
     // Heuristic rules should ignore commented-out SQL.
     let lint_stmt = ParsedStatement {
@@ -610,16 +647,24 @@ fn validate_common_issues(
     };
 
     // Run all validation rules
-    let rules: Vec<Box<dyn LintRule>> = vec![
-        Box::new(KeywordTypoRule),
-        Box::new(InvalidStarUsageRule),
+    let mut rules: Vec<Box<dyn LintRule>> = vec![
         Box::new(MissingOperatorRule),
-        Box::new(MissingWhereClauseRule),
-        Box::new(SelectStarRule),
         Box::new(UnusedCteRule),
         Box::new(AmbiguousColumnRule { schema }),
         Box::new(FuzzyReferenceRule { schema }),
     ];
+
+    if options.include_editor_owned_rules {
+        rules.splice(
+            0..0,
+            [
+                Box::new(KeywordTypoRule) as Box<dyn LintRule>,
+                Box::new(InvalidStarUsageRule),
+                Box::new(MissingWhereClauseRule),
+                Box::new(SelectStarRule),
+            ],
+        );
+    }
 
     for rule in rules {
         rule.check(&lint_stmt, result);
@@ -1379,6 +1424,84 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_missing_column_inside_explain_wrapped_query() {
+        use crate::sql_engine::schema_store::{
+            CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
+        };
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "users",
+                vec![ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "INT".to_string(),
+                    nullable: false,
+                    default_value: None,
+                    is_primary_key: true,
+                    is_unique: true,
+                    comment: None,
+                    enum_values: None,
+                    ordinal: 1,
+                    precision: None,
+                    scale: None,
+                }],
+            )
+            .build();
+
+        let doc = parse_document(
+            "EXPLAIN ANALYZE SELECT missing_col FROM users",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, Some(&schema), None);
+
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("missing_col")),
+            "Expected missing column diagnostic inside EXPLAIN wrapper, got {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_validate_missing_table_inside_exists_subquery() {
+        use crate::sql_engine::schema_store::{CachedSchemaBuilder, TableInfo, TableType};
+
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "users".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .build();
+
+        let doc = parse_document(
+            "SELECT * FROM users u WHERE EXISTS (SELECT 1 FROM ordres o WHERE o.user_id = u.id)",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, Some(&schema), None);
+
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("ordres")),
+            "Expected missing table diagnostic from EXISTS subquery, got {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
     fn test_comment_text_is_ignored_by_heuristic_rules() {
         let doc = parse_document(
             "-- selct * form users\nSELECT id FROM users",
@@ -1394,7 +1517,7 @@ mod tests {
 
     #[test]
     #[ignore = "Benchmark harness: run manually for latency tracking"]
-    fn benchmark_lint_latency() {
+    fn benchmark_semantic_lint_latency() {
         use crate::sql_engine::schema_store::{
             CachedSchemaBuilder, ColumnInfo, TableInfo, TableType,
         };
@@ -1464,7 +1587,14 @@ mod tests {
             let query = queries[i % queries.len()];
             let started = Instant::now();
             let doc = parse_document(query, SqlDialect::PostgreSQL);
-            let _ = validate_document(&doc, Some(&schema), None);
+            let _ = validate_document_with_options(
+                &doc,
+                Some(&schema),
+                None,
+                ValidationOptions {
+                    include_editor_owned_rules: false,
+                },
+            );
             let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
 
             if i >= WARMUP {
@@ -1481,7 +1611,7 @@ mod tests {
         let max_ms = samples_ms[samples_ms.len() - 1];
 
         println!(
-            "BENCH_LINT {{\"iterations\":{},\"avg_ms\":{:.3},\"p50_ms\":{:.3},\"p95_ms\":{:.3},\"min_ms\":{:.3},\"max_ms\":{:.3}}}",
+            "BENCH_SEMANTIC_LINT {{\"iterations\":{},\"avg_ms\":{:.3},\"p50_ms\":{:.3},\"p95_ms\":{:.3},\"min_ms\":{:.3},\"max_ms\":{:.3}}}",
             ITERATIONS, avg_ms, p50_ms, p95_ms, min_ms, max_ms
         );
     }

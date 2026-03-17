@@ -13,33 +13,34 @@ src/components/CodeEditor/
 │   ├── sql/                 # SQL language support
 │   │   ├── context.ts       # SQL context analyzer (the "Brain")
 │   │   ├── completion.ts    # Intelligent autocomplete
-│   │   ├── linter-strategy.ts       # Unified dialect linter
-│   │   ├── pg-parser-linter.ts      # PostgreSQL WASM parser
-│   │   ├── linter-worker-manager.ts # Worker pool
+│   │   ├── linter-strategy.ts       # Two-stage dialect linter entrypoint
+│   │   ├── unified-linter.ts        # Fast pass + deferred semantic pass
+│   │   ├── dialect-lint-adapter.ts  # Canonical SQL + offset remapping
 │   │   ├── metadataProvider.ts      # Schema metadata
 │   │   └── dialect-validators/      # Dialect-specific validators
-│   └── dbml/                # DBML language for ERD
+├── services/
+│   └── linter-coordinator.ts # Deduped semantic IPC batching + cache
+└── languages/dbml/           # DBML language for ERD
 ```
 
 ## Multi-Dialect Linting
 
-Different strategies per dialect:
+All SQL dialects now use the same two-stage CodeMirror pipeline:
 
-| Dialect | Linter | Notes |
-|---------|--------|-------|
-| PostgreSQL | `pg-parser` WASM | 100% compatibility, including PL/pgSQL |
-| MySQL | Web Worker | Non-blocking validation |
-| SQLite | Web Worker | Non-blocking validation |
-| MSSQL | Web Worker | Non-blocking validation |
+1. **Fast pass**: local token-aware checks in the editor for cheap feedback (`SELECT *`, invalid `*`, keyword typos, destructive updates/deletes without `WHERE`).
+2. **Semantic pass**: deferred Rust `sql_validate` call with schema-aware validation and nested-query traversal.
 
-**Worker isolation**: CPU-intensive validation runs in Web Workers to prevent UI freezing.
+For PostgreSQL, the dialect adapter canonicalizes parser-hostile but semantics-preserving syntax before the Rust pass. Current examples include `EXPLAIN ANALYSE ...` normalization to `EXPLAIN ANALYZE ...`.
+
+Semantic diagnostics are computed against canonical SQL and then remapped back to raw editor offsets before display.
 
 ## Smart SQL Features
 
 - **Context-aware autocomplete**: Table/column suggestions from active connection
 - **Real-time semantic linting**: Validates against actual schema
+- **Fast local diagnostics**: Cheap lint rules stay responsive while typing
 - **Hover tooltips**: Table/column information on hover
-- **Symbol table tracking**: CTE and subquery reference resolution
+- **Symbol table tracking**: CTE, `EXPLAIN`, and nested subquery reference resolution
 
 ## Key Components
 
@@ -47,7 +48,10 @@ Different strategies per dialect:
 |------|---------|
 | `context.ts` | SQL context analyzer - determines cursor position context |
 | `completion.ts` | Autocomplete provider with schema awareness |
-| `linter-strategy.ts` | Unified interface for dialect linters |
+| `linter-strategy.ts` | Public dialect linter entrypoint returning fast + semantic extensions |
+| `unified-linter.ts` | CodeMirror lint sources for fast pass and semantic pass |
+| `dialect-lint-adapter.ts` | Canonical SQL preparation, offset mapping, and fast diagnostics |
+| `linter-coordinator.ts` | Semantic-only IPC batching, caching, and schema sync |
 | `metadataProvider.ts` | Bridges schema metadata to editor features |
 
 ## DBML Support
@@ -59,4 +63,4 @@ Separate language support in `languages/dbml/` for Entity Relationship Diagram e
 1. Create validator in `dialect-validators/`
 2. Implement linter strategy in `linter-strategy.ts`
 3. Register in the dialect detection logic
-4. Add Web Worker if needed for non-blocking validation
+4. Add any dialect-specific canonicalization to `dialect-lint-adapter.ts`

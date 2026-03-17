@@ -13,7 +13,7 @@ use super::{
         CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo,
         FunctionParam, ParamMode, TableInfo, TableType,
     },
-    validate_document, CompletionRequest, SqlDialect, SCHEMA_STORE,
+    CompletionRequest, SqlDialect, SCHEMA_STORE,
 };
 
 /// Parse request from frontend
@@ -69,6 +69,7 @@ pub struct ValidateRequest {
     pub dialect: String,
     pub connection_id: Option<String>,
     pub schema: Option<String>,
+    pub include_heuristics: Option<bool>,
 }
 
 /// Validation response
@@ -125,6 +126,23 @@ fn parse_dialect(dialect: &str) -> SqlDialect {
     }
 }
 
+fn default_schema_name(dialect: &SqlDialect) -> Option<&'static str> {
+    match dialect {
+        SqlDialect::SQLite => Some("main"),
+        SqlDialect::MsSQL => Some("dbo"),
+        SqlDialect::PostgreSQL | SqlDialect::PlSQL => Some("public"),
+        SqlDialect::MySQL => None,
+    }
+}
+
+fn resolved_schema_name(dialect: &SqlDialect, schema: Option<&str>) -> Option<String> {
+    schema
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| default_schema_name(dialect).map(ToOwned::to_owned))
+}
+
 /// Parse SQL document
 #[tauri::command]
 pub async fn sql_parse(request: ParseRequest) -> Result<ParseResponse, String> {
@@ -171,12 +189,19 @@ pub async fn sql_validate(request: ValidateRequest) -> Result<ValidateResponse, 
 
     // Get schema from cache if connection_id provided (pushed via sql_set_schema)
     let schema = request.connection_id.as_ref().and_then(|conn_id| {
-        let schema_name = request.schema.as_deref().unwrap_or("public");
-        let cache_key = CacheKey::new(conn_id, schema_name);
+        let schema_name = resolved_schema_name(&dialect, request.schema.as_deref())?;
+        let cache_key = CacheKey::new(conn_id, &schema_name);
         SCHEMA_STORE.get(&cache_key)
     });
 
-    let result = validate_document(&doc, schema.as_ref(), None);
+    let result = super::validator::validate_document_with_options(
+        &doc,
+        schema.as_ref(),
+        None,
+        super::validator::ValidationOptions {
+            include_editor_owned_rules: request.include_heuristics.unwrap_or(true),
+        },
+    );
 
     Ok(ValidateResponse {
         valid: result.is_valid(),
@@ -213,8 +238,8 @@ pub async fn sql_complete(request: CompleteRequest) -> Result<CompleteResponse, 
 
     // Get schema from cache if connection_id provided (pushed via sql_set_schema)
     let schema = request.connection_id.as_ref().and_then(|conn_id| {
-        let schema_name = request.schema.as_deref().unwrap_or("public");
-        let cache_key = CacheKey::new(conn_id, schema_name);
+        let schema_name = resolved_schema_name(&dialect, request.schema.as_deref())?;
+        let cache_key = CacheKey::new(conn_id, &schema_name);
         SCHEMA_STORE.get(&cache_key)
     });
 
