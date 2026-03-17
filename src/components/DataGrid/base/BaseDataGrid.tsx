@@ -856,6 +856,16 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
+      // Fallback: when relatedTarget is null (e.g., portal auto-focus on double-click
+      // activation), check document.activeElement directly. By the time the blur event
+      // fires, activeElement has already updated to the newly focused element.
+      if (!relatedTarget) {
+        const active = document.activeElement;
+        if (active instanceof Element && isEditorOverlayElement(active)) {
+          return;
+        }
+      }
+
       // Focus is leaving the grid - update synchronously
       contextService.setValue("dataGridFocus", false, scopeId);
       isGridFocusedRef.current = false;

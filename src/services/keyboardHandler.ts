@@ -18,7 +18,9 @@ const isNativeTextInputElement = (element: EventTarget | null): boolean => {
   if (!(element instanceof HTMLElement)) return false;
   // Exclude GlideDataGrid's internal hidden keyboard-capture input
   // (lives inside `.gdg-style`) — it's not a real user-facing text field.
-  if (element.closest(".gdg-style")) return false;
+  // But DO NOT exclude real text inputs inside cell editor overlays
+  // (which also render inside `.gdg-style` in Glide's portal).
+  if (element.closest(".gdg-style") && !element.closest(".gdg-editor-shell")) return false;
   return (
     element.tagName === "INPUT" ||
     element.tagName === "TEXTAREA" ||

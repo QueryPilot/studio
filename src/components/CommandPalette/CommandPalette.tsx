@@ -74,7 +74,8 @@ import {
 
 const MAX_RECENT_ITEMS_EMPTY = 12;
 const MAX_RECENT_ITEMS_SEARCH = 8;
-const MAX_RESULTS_PER_GROUP = 50;
+const MAX_RESULTS_PER_GROUP = 20;
+const MAX_SEARCH_RESULTS = 100;
 
 type ItemGroup =
   | "Recently Used"
@@ -195,7 +196,7 @@ export function CommandPalette(): React.ReactElement {
   const setSchema = useWorkspaceSelectionStore((state) => state.setSchema);
 
   const { unifiedItems, isLoading, connectionCount } = useUnifiedItems();
-  const { recordAccess, getTopFrecencyItems, sortByFrecency } = useFrecency();
+  const { recordAccess, getFrecencyScore, getTopFrecencyItems, sortByFrecency } = useFrecency();
 
   // Invalidate cache when commands or keybindings change
   useEffect(() => {
@@ -293,7 +294,7 @@ export function CommandPalette(): React.ReactElement {
     const normalizedQuery = normalizeSearchValue(searchQuery);
     const queryToMatch = normalizedQuery || searchQuery;
 
-    return matchSorter(filteredItems, queryToMatch, {
+    const results = matchSorter(filteredItems, queryToMatch, {
       keys: [
         {
           key: (item) => buildSearchVariants(item.name),
@@ -310,6 +311,11 @@ export function CommandPalette(): React.ReactElement {
       ],
       threshold: rankings.MATCHES,
     });
+
+    // Cap results — we display ~80 items max across all groups
+    return results.length > MAX_SEARCH_RESULTS
+      ? results.slice(0, MAX_SEARCH_RESULTS)
+      : results;
   }, [searchQuery, filteredItems]);
 
   const searchRankMap = useMemo(() => {
@@ -334,12 +340,8 @@ export function CommandPalette(): React.ReactElement {
       return [];
     }
 
-    // When searching, filter recent items by query match
-    const matchedIds = new Set(searchResults.map((item) => item.id));
-    return getTopFrecencyItems(
-      filteredItems.filter((item) => matchedIds.has(item.id)),
-      limit,
-    );
+    // Use searchResults directly (already filtered to matches, much smaller)
+    return getTopFrecencyItems(searchResults, limit);
   }, [contentReady, filteredItems, searchQuery, searchResults, getTopFrecencyItems]);
 
   const recentItemIds = useMemo(
@@ -352,11 +354,7 @@ export function CommandPalette(): React.ReactElement {
     // Skip computation until content is ready (after first paint)
     if (!contentReady) return [];
 
-    let itemsToGroup = filteredItems.filter(
-      (item) => !recentItemIds.has(item.id),
-    );
-
-    // Track ranking positions when searching
+    let itemsToGroup: UnifiedItem[];
     let rankMap: Map<string, number> | null = null;
 
     if (searchQuery) {
@@ -365,8 +363,12 @@ export function CommandPalette(): React.ReactElement {
       }
 
       rankMap = searchRankMap;
-      const matchedIds = new Set(searchResults.map((item) => item.id));
-      itemsToGroup = itemsToGroup.filter((item) => matchedIds.has(item.id));
+      // Start from searchResults (already filtered to matches, much smaller)
+      itemsToGroup = searchResults.filter((item) => !recentItemIds.has(item.id));
+    } else {
+      itemsToGroup = filteredItems.filter(
+        (item) => !recentItemIds.has(item.id),
+      );
     }
 
     // Group by type
@@ -391,8 +393,8 @@ export function CommandPalette(): React.ReactElement {
           const rankA = ranks.get(a.id) ?? Number.MAX_SAFE_INTEGER;
           const rankB = ranks.get(b.id) ?? Number.MAX_SAFE_INTEGER;
           if (rankA !== rankB) return rankA - rankB;
-          const frecencySorted = sortByFrecency([a, b]);
-          return frecencySorted[0]?.id === a.id ? -1 : 1;
+          // Direct score comparison instead of allocating+sorting a 2-element array
+          return getFrecencyScore(b.id) - getFrecencyScore(a.id);
         });
       } else {
         // When not searching, sort by frecency
@@ -407,13 +409,19 @@ export function CommandPalette(): React.ReactElement {
       const items = groups.get(group);
       return [group, items ?? []] as [ItemGroup, UnifiedItem[]];
     });
-  }, [contentReady, filteredItems, searchQuery, searchResults, searchRankMap, recentItemIds, sortByFrecency]);
+  }, [contentReady, filteredItems, searchQuery, searchResults, searchRankMap, recentItemIds, sortByFrecency, getFrecencyScore]);
+
+  // O(1) item lookup map — used by selectedItem and handleSelect
+  const itemMap = useMemo(
+    () => new Map(unifiedItems.map((item) => [item.id, item])),
+    [unifiedItems],
+  );
 
   // Find the selected item for actions
   const selectedItem = useMemo(() => {
     if (!selectedValue) return null;
-    return unifiedItems.find((item) => item.id === selectedValue) ?? null;
-  }, [selectedValue, unifiedItems]);
+    return itemMap.get(selectedValue) ?? null;
+  }, [selectedValue, itemMap]);
 
   // Get actions for the selected item
   const { actions: itemActions, executeAction } = useItemActions(
@@ -504,7 +512,9 @@ export function CommandPalette(): React.ReactElement {
     };
   }, [isOpen, actionsOpen]);
 
-  // Reset selection and scroll when results or query change
+  // Reset selection and scroll when results change.
+  // Uses deferredQuery (not query) so we only scroll/reset when results
+  // actually update, avoiding forced layout on every keystroke.
   useEffect(() => {
     if (!isOpen) return;
     if (nestedMode) {
@@ -520,7 +530,7 @@ export function CommandPalette(): React.ReactElement {
     });
 
     listRef.current?.scrollTo({ top: 0 });
-  }, [isOpen, nestedMode, query, firstVisibleItemId]);
+  }, [isOpen, nestedMode, deferredQuery, firstVisibleItemId]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -535,7 +545,7 @@ export function CommandPalette(): React.ReactElement {
 
   const handleSelect = useCallback(
     async (value: string, openInSplit: boolean) => {
-      const item = unifiedItems.find((i) => i.id === value);
+      const item = itemMap.get(value);
       if (!item) {
         closePalette();
         return;
@@ -640,11 +650,18 @@ export function CommandPalette(): React.ReactElement {
       closePalette();
     },
     [
-      unifiedItems,
+      itemMap,
       closePalette,
       services,
       recordAccess,
     ],
+  );
+
+  const handleSelectItem = useCallback(
+    (id: string) => {
+      void handleSelect(id, false);
+    },
+    [handleSelect],
   );
 
   // Database selection is now handled by NestedDatabaseList using add-to-workspace flow.
@@ -1039,7 +1056,7 @@ export function CommandPalette(): React.ReactElement {
                       <UnifiedItemRow
                         key={item.id}
                         item={item}
-                        onSelect={(id) => handleSelect(id, false)}
+                        onSelect={handleSelectItem}
                         showConnectionName={connectionCount > 1}
                       />
                     ))}
@@ -1052,7 +1069,7 @@ export function CommandPalette(): React.ReactElement {
                       <UnifiedItemRow
                         key={item.id}
                         item={item}
-                        onSelect={(id) => handleSelect(id, false)}
+                        onSelect={handleSelectItem}
                         showConnectionName={connectionCount > 1}
                       />
                     ))}
@@ -1111,7 +1128,11 @@ function getBadgeText(item: UnifiedItem, showConnectionName: boolean): string {
   return parts.join(" › ");
 }
 
-function UnifiedItemRow({ item, onSelect, showConnectionName = false }: UnifiedItemRowProps) {
+const UnifiedItemRow = React.memo(function UnifiedItemRow({
+  item,
+  onSelect,
+  showConnectionName = false,
+}: UnifiedItemRowProps) {
   const keywords = [
     item.name,
     item.subtitle,
@@ -1156,4 +1177,4 @@ function UnifiedItemRow({ item, onSelect, showConnectionName = false }: UnifiedI
       </div>
     </CommandItem>
   );
-}
+});
