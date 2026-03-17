@@ -1,7 +1,5 @@
 import { memo } from "react";
-import type { ViewMode } from "@/types/viewMode";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -56,22 +54,17 @@ interface QueryToolbarProps {
   hasQuery: boolean;
   showResults: boolean;
   showOutline?: boolean;
-  viewMode: ViewMode;
   runLabel?: string;
   executeHint?: string;
   beautifyHint?: string;
-  focused?: boolean;
   dialect?: SqlDialect | "auto";
   detectedDialect?: SqlDialect;
-  /** Whether the current result is from an EXPLAIN query */
-  isExplainResult?: boolean;
   onExecute: () => void;
   onExecuteAll?: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
-  onViewModeChange: (mode: ViewMode) => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
 }
 
@@ -80,21 +73,17 @@ export const QueryToolbar = memo(function QueryToolbar({
   hasQuery,
   showResults,
   showOutline = false,
-  viewMode,
   runLabel = "Run",
   executeHint,
   beautifyHint: _beautifyHint,
-  focused = false,
   dialect = "auto",
   detectedDialect,
-  isExplainResult = false,
   onExecute,
   onExecuteAll,
   onCancel,
   onBeautify,
   onToggleResults,
   onToggleOutline,
-  onViewModeChange,
   onDialectChange,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
@@ -125,70 +114,6 @@ export const QueryToolbar = memo(function QueryToolbar({
           >
             <IconLayoutRows className="h-3.5 w-3.5" />
           </Button>
-
-          {/* View Mode Tabs - always visible when results showing */}
-          {showResults && (
-            <Tabs
-              value={viewMode}
-              onValueChange={(value) => {
-                onViewModeChange(
-                  value as ViewMode,
-                );
-              }}
-              enableShortcuts={true}
-              tabGroupId="query-view-mode"
-              focused={focused}
-              enableGlobalShortcuts={false}
-            >
-              <TabsList className="!h-6 !p-0.5">
-                {/* Show Table/JSON only for non-EXPLAIN results */}
-                {!isExplainResult && (
-                  <>
-                    <TabsTrigger
-                      value="table"
-                      className="text-xs !h-5 !px-2"
-                      tabIndex={0}
-                    >
-                      Table
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="json"
-                      className="text-xs !h-5 !px-2"
-                      tabIndex={1}
-                    >
-                      JSON
-                    </TabsTrigger>
-                  </>
-                )}
-                {/* Show Plan/Raw/Stats only for EXPLAIN results */}
-                {isExplainResult && (
-                  <>
-                    <TabsTrigger
-                      value="explain"
-                      className="text-xs !h-5 !px-2"
-                      tabIndex={0}
-                    >
-                      Plan
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="raw"
-                      className="text-xs !h-5 !px-2"
-                      tabIndex={1}
-                    >
-                      Raw
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="stats"
-                      className="text-xs !h-5 !px-2"
-                      tabIndex={2}
-                    >
-                      Stats
-                    </TabsTrigger>
-                  </>
-                )}
-              </TabsList>
-            </Tabs>
-          )}
 
           <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />
 

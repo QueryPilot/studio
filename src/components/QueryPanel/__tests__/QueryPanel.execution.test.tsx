@@ -94,13 +94,16 @@ vi.mock("../QueryToolbar", () => ({
 vi.mock("../ResultViewer", () => ({
   ResultViewer: ({
     executionStatus,
+    viewMode,
     onRefreshResults,
   }: {
     executionStatus?: string;
+    viewMode?: string;
     onRefreshResults?: () => void;
   }) => (
     <div>
       <div data-testid="result-status">{executionStatus}</div>
+      <div data-testid="result-view-mode">{viewMode}</div>
       {onRefreshResults ? <button type="button">Refresh results</button> : null}
     </div>
   ),
@@ -354,5 +357,203 @@ describe("QueryPanel execution state", () => {
     await waitFor(() => {
       expect(screen.getByTestId("result-status")).toHaveTextContent("cancelled");
     });
+  });
+
+  it("renders result-header view tabs for a single statement result", async () => {
+    streamQueryMock.mockImplementation(
+      (
+        _connectionId: string,
+        _tabId: string,
+        _sql: string,
+        _pageSize: number | undefined,
+        onProgress?: (progress: {
+          started?: boolean;
+          columns?: Array<{ name: string }>;
+          newRows?: unknown[][];
+        }) => void,
+      ) => {
+        onProgress?.({
+          started: true,
+          columns: [{ name: "id" }],
+          newRows: [[1]],
+        });
+        return Promise.resolve({
+          columns: [{ name: "id" }],
+          rows: [[1]],
+          totalRows: 1,
+          executionTimeMs: 0,
+        });
+      },
+    );
+
+    render(
+      <QueryPanel
+        panelId="panel-1"
+        tabId="tab-1"
+        connectionId="conn-1"
+        database="app"
+        initialSql="SELECT 1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("result-view-mode")).toHaveTextContent("table");
+    });
+
+    expect(screen.getByRole("tab", { name: "Table" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "JSON" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "JSON" }));
+    expect(screen.getByTestId("result-view-mode")).toHaveTextContent("json");
+  });
+
+  it("hides mode tabs for no-row statement results", async () => {
+    streamQueryMock.mockResolvedValue({
+      columns: [],
+      rows: [],
+      totalRows: 0,
+      executionTimeMs: 0,
+    });
+
+    render(
+      <QueryPanel
+        panelId="panel-1"
+        tabId="tab-1"
+        connectionId="conn-1"
+        database="app"
+        initialSql="UPDATE users SET name = 'x'"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("result-status")).toHaveTextContent("success");
+    });
+
+    expect(screen.queryByRole("tab", { name: "Table" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "JSON" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Plan" })).not.toBeInTheDocument();
+  });
+
+  it("isolates per-statement view mode in mixed batch results and remembers each statement mode", async () => {
+    streamQueryMock.mockImplementation(
+      (
+        _connectionId: string,
+        _tabId: string,
+        sql: string,
+        _pageSize: number | undefined,
+        onProgress?: (progress: {
+          started?: boolean;
+          columns?: Array<{ name: string }>;
+          newRows?: unknown[][];
+        }) => void,
+      ) => {
+        const normalizedSql = sql.trim().replace(/;\s*$/, "").toUpperCase();
+
+        if (
+          normalizedSql === "BEGIN" ||
+          normalizedSql === "COMMIT" ||
+          normalizedSql === "ROLLBACK"
+        ) {
+          return Promise.resolve({
+            columns: [],
+            rows: [],
+            totalRows: 0,
+            executionTimeMs: 0,
+          });
+        }
+
+        if (normalizedSql.startsWith("EXPLAIN")) {
+          onProgress?.({
+            started: true,
+            columns: [{ name: "QUERY PLAN" }],
+            newRows: [["Seq Scan on users  (cost=0.00..1.01 rows=1 width=4)"]],
+          });
+          return Promise.resolve({
+            columns: [{ name: "QUERY PLAN" }],
+            rows: [["Seq Scan on users  (cost=0.00..1.01 rows=1 width=4)"]],
+            totalRows: 1,
+            executionTimeMs: 0,
+          });
+        }
+
+        if (normalizedSql.startsWith("SELECT")) {
+          onProgress?.({
+            started: true,
+            columns: [{ name: "id" }],
+            newRows: [[1]],
+          });
+          return Promise.resolve({
+            columns: [{ name: "id" }],
+            rows: [[1]],
+            totalRows: 1,
+            executionTimeMs: 0,
+          });
+        }
+
+        // INSERT / UPDATE return no rows for this test.
+        return Promise.resolve({
+          columns: [],
+          rows: [],
+          totalRows: 1,
+          executionTimeMs: 0,
+        });
+      },
+    );
+
+    render(
+      <QueryPanel
+        panelId="panel-1"
+        tabId="tab-1"
+        connectionId="conn-1"
+        database="app"
+        initialSql={
+          "INSERT INTO users(id) VALUES (1); EXPLAIN SELECT 1; UPDATE users SET id = 1; SELECT 1;"
+        }
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /#4\s+SELECT/i }),
+      ).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("result-view-mode")).toHaveTextContent("table");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /#2\s+EXPLAIN/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("result-view-mode")).toHaveTextContent(
+        "explain",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Raw" }));
+    expect(screen.getByTestId("result-view-mode")).toHaveTextContent("raw");
+
+    fireEvent.click(screen.getByRole("button", { name: /#4\s+SELECT/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("result-view-mode")).toHaveTextContent("table");
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "JSON" }));
+    expect(screen.getByTestId("result-view-mode")).toHaveTextContent("json");
+
+    fireEvent.click(screen.getByRole("button", { name: /#2\s+EXPLAIN/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("result-view-mode")).toHaveTextContent("raw");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /#1\s+INSERT/i }));
+    expect(screen.queryByRole("tab", { name: "Table" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "JSON" })).not.toBeInTheDocument();
   });
 });
