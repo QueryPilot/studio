@@ -64,6 +64,7 @@ export function createColumnModifyCommand(
     ...(newDefinition.length !== undefined && { length: newDefinition.length }),
     ...(newDefinition.precision !== undefined && { precision: newDefinition.precision }),
     ...(newDefinition.scale !== undefined && { scale: newDefinition.scale }),
+    ...(newDefinition.previousDefault !== undefined && { previousDefault: newDefinition.previousDefault }),
   } as ColumnDefinitionInput;
 
   return {

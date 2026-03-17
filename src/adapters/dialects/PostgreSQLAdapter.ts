@@ -1266,7 +1266,8 @@ SELECT
         parts.push('NOT NULL');
       }
       if (definition.defaultValue !== undefined && definition.defaultValue !== null) {
-        parts.push(`DEFAULT ${this.formatValue(definition.defaultValue, { name: definition.name })}`);
+        // Default values are raw SQL expressions — use directly
+        parts.push(`DEFAULT ${definition.defaultValue}`);
       }
     }
 

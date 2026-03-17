@@ -260,9 +260,8 @@ export class SQLiteAdapter extends SqlAdapter {
 
     // SQLite ADD COLUMN has restrictions on what can be specified
     if (column.defaultValue !== undefined && column.defaultValue !== null) {
-      parts.push(
-        `DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`,
-      );
+      // Default values are raw SQL expressions — use directly
+      parts.push(`DEFAULT ${column.defaultValue}`);
     }
 
     // NOT NULL requires a default value in SQLite ADD COLUMN
@@ -365,9 +364,10 @@ export class SQLiteAdapter extends SqlAdapter {
     const table = this.formatTableRef(target);
     const triggerName = this.quoteIdentifier(definition.name);
     const timing = definition.timing;
-    const events = definition.events.join(", ");
+    // SQLite supports only single-event triggers — use the first event
+    const event = definition.events[0] ?? "INSERT";
 
-    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${events} ON ${table}`;
+    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${event} ON ${table}`;
     sql += ` FOR EACH ROW`;
 
     if (definition.condition) {
