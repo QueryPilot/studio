@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor/types";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -40,14 +41,12 @@ interface QueryPanelLayoutProps {
   showOutline: boolean;
   focused: boolean;
   detectedDialect: SqlDialect;
-  isExplainResult: boolean;
   runButtonLabel: string;
   onExecuteAll: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline: () => void;
-  onViewModeChange: (mode: ViewMode) => void;
   onDialectChange: (dialect: SqlDialect | "auto") => void;
   deferredQuery: string;
   onCloseOutline: () => void;
@@ -59,7 +58,9 @@ interface QueryPanelLayoutProps {
   isStreaming: boolean;
   executionStatus: QueryExecutionStatus;
   queryGridId: string;
-  viewMode: ViewMode;
+  activeResultMode: ViewMode;
+  activeSupportedModes: ViewMode[];
+  onModeChange: (mode: ViewMode) => void;
   onFixWithAI: (errorMessage: string) => void;
   refreshNotice?: string;
   onRefreshResults?: () => void;
@@ -94,14 +95,12 @@ export function QueryPanelLayout({
   showOutline,
   focused,
   detectedDialect,
-  isExplainResult,
   runButtonLabel,
   onExecuteAll,
   onCancel,
   onBeautify,
   onToggleResults,
   onToggleOutline,
-  onViewModeChange,
   onDialectChange,
   deferredQuery,
   onCloseOutline,
@@ -113,11 +112,27 @@ export function QueryPanelLayout({
   isStreaming,
   executionStatus,
   queryGridId,
-  viewMode,
+  activeResultMode,
+  activeSupportedModes,
+  onModeChange,
   onFixWithAI,
   refreshNotice,
   onRefreshResults,
 }: QueryPanelLayoutProps) {
+  const hasModeTabs = activeSupportedModes.length > 0;
+  const showResultHeader = batchResults.length > 0 || hasModeTabs;
+  const effectiveActiveBatchIndex =
+    activeBatchResultIndex < batchResults.length
+      ? activeBatchResultIndex
+      : batchResults.length - 1;
+  const tabLabelByMode: Record<ViewMode, string> = {
+    table: "Table",
+    json: "JSON",
+    explain: "Plan",
+    raw: "Raw",
+    stats: "Stats",
+  };
+
   return (
     <div
       ref={panelContainerRef}
@@ -186,11 +201,8 @@ export function QueryPanelLayout({
                       hasQuery={hasQuery}
                       showResults={showResults}
                       showOutline={showOutline}
-                      viewMode={viewMode}
-                      focused={focused}
                       dialect={selectedDialect}
                       detectedDialect={detectedDialect}
-                      isExplainResult={isExplainResult}
                       runLabel={runButtonLabel}
                       onExecute={onExecute}
                       onExecuteAll={onExecuteAll}
@@ -198,7 +210,6 @@ export function QueryPanelLayout({
                       onBeautify={onBeautify}
                       onToggleResults={onToggleResults}
                       onToggleOutline={onToggleOutline}
-                      onViewModeChange={onViewModeChange}
                       onDialectChange={onDialectChange}
                     />
                   </ResizablePanel>
@@ -254,43 +265,74 @@ export function QueryPanelLayout({
 
                   <ResizablePanel id="qp-results" defaultSize="50" minSize="20">
                     <div className="flex flex-col h-full">
-                      {batchResults.length > 0 && (
+                      {showResultHeader && (
                         <div className="shrink-0 border-b border-border bg-muted/20 px-2 py-1">
-                          <div className="flex items-center gap-1 overflow-x-auto">
-                            {batchResults.map((entry, index) => (
-                              <button
-                                key={`${entry.statementIndex}-${index}`}
-                                type="button"
-                                onClick={() => {
-                                  onActiveBatchResultChange(index);
-                                }}
-                                className={cn(
-                                  "flex items-center gap-1 rounded-md border px-2 py-1 text-xs whitespace-nowrap",
-                                  activeBatchResultIndex === index
-                                    ? "border-primary bg-primary/10 text-primary"
-                                    : "border-border bg-background text-muted-foreground hover:text-foreground",
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "h-1.5 w-1.5 rounded-full",
-                                    entry.status === "success" &&
-                                      "bg-emerald-500",
-                                    entry.status === "error" && "bg-red-500",
-                                    entry.status === "skipped" &&
-                                      "bg-amber-500",
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              {batchResults.length > 0 && (
+                                <div className="flex items-center gap-1 overflow-x-auto">
+                                  {batchResults.map((entry, index) => (
+                                    <button
+                                      key={`${entry.statementIndex}-${index}`}
+                                      type="button"
+                                      onClick={() => {
+                                        onActiveBatchResultChange(index);
+                                      }}
+                                      className={cn(
+                                        "flex items-center gap-1 rounded-md border px-2 py-1 text-xs whitespace-nowrap",
+                                        effectiveActiveBatchIndex === index
+                                          ? "border-primary bg-primary/10 text-primary"
+                                          : "border-border bg-background text-muted-foreground hover:text-foreground",
+                                      )}
+                                    >
+                                      <span
+                                        className={cn(
+                                          "h-1.5 w-1.5 rounded-full",
+                                          entry.status === "success" &&
+                                            "bg-emerald-500",
+                                          entry.status === "error" && "bg-red-500",
+                                          entry.status === "skipped" &&
+                                            "bg-amber-500",
+                                        )}
+                                      />
+                                      <span>
+                                        #{entry.statementIndex}{" "}
+                                        {getStatementKeyword(entry.statement)}
+                                      </span>
+                                    </button>
+                                  ))}
+                                  {isBatchExecuting && (
+                                    <span className="text-[11px] text-muted-foreground px-2">
+                                      Running...
+                                    </span>
                                   )}
-                                />
-                                <span>
-                                  #{entry.statementIndex}{" "}
-                                  {getStatementKeyword(entry.statement)}
-                                </span>
-                              </button>
-                            ))}
-                            {isBatchExecuting && (
-                              <span className="text-[11px] text-muted-foreground px-2">
-                                Running...
-                              </span>
+                                </div>
+                              )}
+                            </div>
+                            {hasModeTabs && (
+                              <Tabs
+                                value={activeResultMode}
+                                onValueChange={(value) => {
+                                  onModeChange(value as ViewMode);
+                                }}
+                                enableShortcuts={true}
+                                tabGroupId="query-result-view-mode"
+                                focused={focused}
+                                enableGlobalShortcuts={false}
+                              >
+                                <TabsList className="!h-7 !p-0.5">
+                                  {activeSupportedModes.map((mode, index) => (
+                                    <TabsTrigger
+                                      key={mode}
+                                      value={mode}
+                                      className="text-xs !h-6 !px-2"
+                                      tabIndex={index}
+                                    >
+                                      {tabLabelByMode[mode]}
+                                    </TabsTrigger>
+                                  ))}
+                                </TabsList>
+                              </Tabs>
                             )}
                           </div>
                         </div>
@@ -306,7 +348,7 @@ export function QueryPanelLayout({
                           databaseType={dbType}
                           height="100%"
                           gridId={queryGridId}
-                          viewMode={viewMode}
+                          viewMode={activeResultMode}
                           cursorSetupMs={displayedResult?.cursorSetupMs}
                           totalStreamingMs={displayedResult?.totalStreamingMs}
                           fetchCount={displayedResult?.fetchCount}

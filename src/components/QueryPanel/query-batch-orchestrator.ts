@@ -1,11 +1,16 @@
 import type { QueryResult } from "@/stores/tabStateStore";
 import type { RunAllPlan } from "./query-execution-plan";
+import {
+  buildResultViewPresentation,
+  type ResultViewPresentation,
+} from "./query-result-view";
 
 export interface BatchStatementResult {
   statementIndex: number;
   statement: string;
   status: "success" | "error" | "skipped";
   result: QueryResult;
+  presentation: ResultViewPresentation;
 }
 
 export interface ExecuteBatchStatementOptions {
@@ -16,6 +21,7 @@ export interface ExecuteBatchStatementResult {
   success: boolean;
   cancelled?: boolean;
   result: QueryResult;
+  presentation?: ResultViewPresentation;
 }
 
 export interface OrchestrateRunAllExecutionInput {
@@ -87,6 +93,10 @@ export async function orchestrateRunAllExecution({
         statement,
         status: "skipped",
         result: makeSkippedResult("Skipped after cancellation"),
+        presentation: buildResultViewPresentation({
+          sql: statement,
+          result: makeSkippedResult("Skipped after cancellation"),
+        }),
       });
       if (runPlan.shouldAutoWrap) {
         batchFailed = true;
@@ -100,6 +110,10 @@ export async function orchestrateRunAllExecution({
         statement,
         status: "skipped",
         result: makeSkippedResult(skipReason),
+        presentation: buildResultViewPresentation({
+          sql: statement,
+          result: makeSkippedResult(skipReason),
+        }),
       });
       continue;
     }
@@ -114,20 +128,31 @@ export async function orchestrateRunAllExecution({
         statement,
         status: "success",
         result: statementResult.result,
+        presentation:
+          statementResult.presentation ??
+          buildResultViewPresentation({
+            sql: statement,
+            result: statementResult.result,
+          }),
       });
       continue;
     }
 
+    const cancelledResult = {
+      ...statementResult.result,
+      message: "Skipped due cancellation",
+    };
     if (statementResult.cancelled) {
       wasCancelled = true;
       appendResult({
         statementIndex: index + 1,
         statement,
         status: "skipped",
-        result: {
-          ...statementResult.result,
-          message: "Skipped due cancellation",
-        },
+        result: cancelledResult,
+        presentation: buildResultViewPresentation({
+          sql: statement,
+          result: cancelledResult,
+        }),
       });
       if (runPlan.shouldAutoWrap) {
         batchFailed = true;
@@ -140,6 +165,12 @@ export async function orchestrateRunAllExecution({
       statement,
       status: "error",
       result: statementResult.result,
+      presentation:
+        statementResult.presentation ??
+        buildResultViewPresentation({
+          sql: statement,
+          result: statementResult.result,
+        }),
     });
     if (runPlan.shouldAutoWrap) {
       batchFailed = true;

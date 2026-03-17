@@ -1,5 +1,12 @@
 import { logger } from "@/lib/logger";
-import { memo, startTransition, useCallback, useEffect, useRef } from "react";
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { tableStreamingService } from "@/services/tableStreamingService";
@@ -37,6 +44,11 @@ import { useAcpStore } from "@/stores/acpStore";
 import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { QueryPanelLayout } from "./QueryPanelLayout";
 import { useQueryPanelState } from "./useQueryPanelState";
+import {
+  buildResultViewPresentation,
+  createEmptyResultViewPresentation,
+  type ResultViewPresentation,
+} from "./query-result-view";
 
 interface QueryPanelProps {
   panelId: string;
@@ -62,6 +74,7 @@ interface ExecuteSingleStatementResult {
   cancelled?: boolean;
   sql: string;
   result: QueryResult;
+  presentation: ResultViewPresentation;
   errorMessage?: string;
 }
 
@@ -91,7 +104,6 @@ export const QueryPanel = memo(function QueryPanel({
     inTransaction,
     isBatchExecuting,
     isExecuting,
-    isExplainResult,
     isStreaming,
     lastExecutedQueryRef,
     lastSelectQueryRef,
@@ -109,7 +121,6 @@ export const QueryPanel = memo(function QueryPanel({
     setExecutionStatus,
     setIsBatchExecuting,
     setIsExecuting,
-    setIsExplainResult,
     setIsStreaming,
     setQuery,
     setQueryState,
@@ -120,11 +131,9 @@ export const QueryPanel = memo(function QueryPanel({
     setShowOutline,
     setShowResults,
     setShowSaveDialog,
-    setViewMode,
     showOutline,
     showResults,
     showSaveDialog,
-    viewMode,
     persistSql,
   } = useQueryPanelState({
     tabId,
@@ -183,6 +192,8 @@ export const QueryPanel = memo(function QueryPanel({
   // Ref to track if execution is in progress (prevents double-execution from duplicate events)
   const isExecutingRef = useRef(false);
   const cancelRequestedRef = useRef(false);
+  const [singleResultPresentation, setSingleResultPresentation] =
+    useState<ResultViewPresentation>(createEmptyResultViewPresentation);
 
   const executeSingleStatement = useCallback(
     async (
@@ -200,15 +211,20 @@ export const QueryPanel = memo(function QueryPanel({
 
       if (isExecutingRef.current && isSingleRun) {
         logger.info("[executeSingleStatement] Skipped - already executing");
+        const alreadyRunningResult: QueryResult = {
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          error: "Query execution is already in progress",
+        };
         return {
           success: false,
           sql: "",
-          result: {
-            columns: [],
-            rows: [],
-            rowCount: 0,
-            error: "Query execution is already in progress",
-          },
+          result: alreadyRunningResult,
+          presentation: buildResultViewPresentation({
+            sql: queryToExecute ?? "",
+            result: alreadyRunningResult,
+          }),
           errorMessage: "Query execution is already in progress",
         };
       }
@@ -223,16 +239,21 @@ export const QueryPanel = memo(function QueryPanel({
       if (preserveInputSql) {
         if (!sql.trim()) {
           const message = "Please enter a query to execute";
+          const emptyQueryResult: QueryResult = {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            error: message,
+          };
           toast.error(message);
           return {
             success: false,
             sql,
-            result: {
-              columns: [],
-              rows: [],
-              rowCount: 0,
-              error: message,
-            },
+            result: emptyQueryResult,
+            presentation: buildResultViewPresentation({
+              sql,
+              result: emptyQueryResult,
+            }),
             errorMessage: message,
           };
         }
@@ -242,25 +263,23 @@ export const QueryPanel = memo(function QueryPanel({
 
       if (!sql) {
         const message = "Please enter a query to execute";
+        const emptyQueryResult: QueryResult = {
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          error: message,
+        };
         toast.error(message);
         return {
           success: false,
           sql,
-          result: {
-            columns: [],
-            rows: [],
-            rowCount: 0,
-            error: message,
-          },
+          result: emptyQueryResult,
+          presentation: buildResultViewPresentation({
+            sql,
+            result: emptyQueryResult,
+          }),
           errorMessage: message,
         };
-      }
-
-      if (!internalTxnStep) {
-        const sqlUpper = sql.trim().toUpperCase();
-        const isExplain = sqlUpper.startsWith("EXPLAIN");
-        setIsExplainResult(isExplain);
-        setViewMode(isExplain ? "explain" : "table");
       }
 
       if (isSingleRun) {
@@ -476,10 +495,18 @@ export const QueryPanel = memo(function QueryPanel({
           conversionMs: final.conversionMs,
           ipcSendMs: final.ipcSendMs,
         };
+        const presentation = buildResultViewPresentation({
+          sql,
+          result: finalResult,
+          previousMode: isSingleRun ? singleResultPresentation.mode : undefined,
+        });
 
         setResult(finalResult);
         setIsStreaming(false);
         setExecutionStatus("success");
+        if (isSingleRun) {
+          setSingleResultPresentation(presentation);
+        }
 
         if (effectiveConnectionId && wasMutation) {
           handleMutationCache(sql, effectiveConnectionId);
@@ -575,6 +602,7 @@ export const QueryPanel = memo(function QueryPanel({
           success: true,
           sql,
           result: finalResult,
+          presentation,
         };
       } catch (error) {
         const isCancellation =
@@ -585,16 +613,26 @@ export const QueryPanel = memo(function QueryPanel({
 
         if (isCancellation) {
           setExecutionStatus("cancelled");
+          const cancelledResult: QueryResult = {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            message: "Query cancelled",
+          };
+          const cancelledPresentation = buildResultViewPresentation({
+            sql,
+            result: cancelledResult,
+            previousMode: isSingleRun ? singleResultPresentation.mode : undefined,
+          });
+          if (isSingleRun) {
+            setSingleResultPresentation(cancelledPresentation);
+          }
           return {
             success: false,
             cancelled: true,
             sql,
-            result: {
-              columns: [],
-              rows: [],
-              rowCount: 0,
-              message: "Query cancelled",
-            },
+            result: cancelledResult,
+            presentation: cancelledPresentation,
             errorMessage: "Query cancelled",
           };
         }
@@ -615,9 +653,17 @@ export const QueryPanel = memo(function QueryPanel({
           rowCount: 0,
           error: errorMessage,
         };
+        const errorPresentation = buildResultViewPresentation({
+          sql,
+          result: errorResult,
+          previousMode: isSingleRun ? singleResultPresentation.mode : undefined,
+        });
 
         setResult(errorResult);
         setExecutionStatus("error");
+        if (isSingleRun) {
+          setSingleResultPresentation(errorPresentation);
+        }
         if (runContext === "single") {
           toast.error(errorMessage, {
             duration: 5000,
@@ -653,6 +699,7 @@ export const QueryPanel = memo(function QueryPanel({
           success: false,
           sql,
           result: errorResult,
+          presentation: errorPresentation,
           errorMessage,
         };
       } finally {
@@ -674,10 +721,9 @@ export const QueryPanel = memo(function QueryPanel({
       lastSelectQueryRef,
       queryRef,
       effectiveConnectionId,
+      singleResultPresentation.mode,
       tabId,
       setExecutionStatus,
-      setIsExplainResult,
-      setViewMode,
       setIsExecuting,
       setIsStreaming,
       setResult,
@@ -738,9 +784,8 @@ export const QueryPanel = memo(function QueryPanel({
       setIsExecuting(true);
       setIsBatchExecuting(true);
       setShowResults(true);
-      setViewMode("table");
-      setIsExplainResult(false);
       setExecutionStatus("executing");
+      setResult(null);
       setBatchResults([]);
       setActiveBatchResultIndex(0);
 
@@ -761,6 +806,7 @@ export const QueryPanel = memo(function QueryPanel({
               success: statementResult.success,
               cancelled: statementResult.cancelled,
               result: statementResult.result,
+              presentation: statementResult.presentation,
             };
           },
         });
@@ -803,12 +849,10 @@ export const QueryPanel = memo(function QueryPanel({
       setExecutionStatus,
       setIsBatchExecuting,
       setIsExecuting,
-      setIsExplainResult,
       setIsStreaming,
       setQueryState,
       setResult,
       setShowResults,
-      setViewMode,
       tabId,
     ],
   );
@@ -998,10 +1042,60 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [isPanelFocused]);
 
-  const displayedResult =
-    batchResults[activeBatchResultIndex]?.result ??
-    batchResults[batchResults.length - 1]?.result ??
-    result;
+  const resolvedBatchResultIndex =
+    activeBatchResultIndex < batchResults.length
+      ? activeBatchResultIndex
+      : batchResults.length - 1;
+  const activeBatchResult =
+    resolvedBatchResultIndex >= 0
+      ? batchResults[resolvedBatchResultIndex]
+      : undefined;
+  const displayedResult = activeBatchResult?.result ?? result;
+  const activeResultPresentation =
+    activeBatchResult?.presentation ?? singleResultPresentation;
+
+  const handleResultModeChange = useCallback(
+    (mode: "table" | "json" | "explain" | "raw" | "stats") => {
+      if (!activeResultPresentation.supportedModes.includes(mode)) {
+        return;
+      }
+
+      if (activeBatchResult) {
+        setBatchResults((prev) =>
+          prev.map((entry, index) => {
+            if (index !== resolvedBatchResultIndex) {
+              return entry;
+            }
+            return {
+              ...entry,
+              presentation: {
+                ...entry.presentation,
+                mode,
+              },
+            };
+          }),
+        );
+        return;
+      }
+
+      setSingleResultPresentation((prev) => {
+        if (!prev.supportedModes.includes(mode)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          mode,
+        };
+      });
+    },
+    [
+      activeBatchResult,
+      activeResultPresentation.supportedModes,
+      resolvedBatchResultIndex,
+      setBatchResults,
+    ],
+  );
+
   const runButtonLabel = selectedStatementCount >= 2 ? "Run Selections" : "Run";
   const canRefreshResults = Boolean(
     refreshActionQuery ?? lastSelectQueryRef.current,
@@ -1038,7 +1132,6 @@ export const QueryPanel = memo(function QueryPanel({
         showOutline={showOutline}
         focused={isPanelFocused}
         detectedDialect={detectedDialect}
-        isExplainResult={isExplainResult}
         runButtonLabel={runButtonLabel}
         onExecuteAll={() => {
           void handleExecuteAll();
@@ -1047,7 +1140,6 @@ export const QueryPanel = memo(function QueryPanel({
         onBeautify={handleBeautify}
         onToggleResults={toggleResults}
         onToggleOutline={toggleOutline}
-        onViewModeChange={setViewMode}
         onDialectChange={setSelectedDialect}
         deferredQuery={deferredQuery}
         onCloseOutline={closeOutline}
@@ -1059,7 +1151,9 @@ export const QueryPanel = memo(function QueryPanel({
         isStreaming={isStreaming}
         executionStatus={executionStatus}
         queryGridId={queryGridId}
-        viewMode={viewMode}
+        activeResultMode={activeResultPresentation.mode}
+        activeSupportedModes={activeResultPresentation.supportedModes}
+        onModeChange={handleResultModeChange}
         onFixWithAI={handleFixWithAI}
         refreshNotice={
           refreshActionQuery
