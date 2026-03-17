@@ -1516,6 +1516,24 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_comment_on_view_statement_has_no_syntax_error() {
+        let doc = parse_document(
+            "COMMENT ON VIEW vw_promotion_by_program IS 'Aggregates promotion eligibility data by promotion program'",
+            SqlDialect::PostgreSQL,
+        );
+        let result = validate_document(&doc, None, None);
+
+        assert!(
+            !result
+                .errors
+                .iter()
+                .any(|e| e.source == ErrorSource::Syntax),
+            "COMMENT ON VIEW should not produce syntax diagnostics: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
     #[ignore = "Benchmark harness: run manually for latency tracking"]
     fn benchmark_semantic_lint_latency() {
         use crate::sql_engine::schema_store::{

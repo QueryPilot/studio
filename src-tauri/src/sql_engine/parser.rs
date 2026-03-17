@@ -8,6 +8,8 @@
 //! - Error position tracking
 
 use serde::Serialize;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use sqlparser::ast::{self, SetExpr, Statement, TableFactor};
 use sqlparser::parser::Parser;
 
@@ -257,6 +259,202 @@ fn infer_parse_error_span(stmt_text: &str, message: &str) -> Option<(usize, usiz
     nearest_token_span(stmt_text, stmt_text.len())
 }
 
+static COMMENT_ON_MATERIALIZED_VIEW_PREFIX_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?is)^\s*COMMENT\s+ON\s+MATERIALIZED\s+VIEW\b")
+        .expect("valid COMMENT ON MATERIALIZED VIEW prefix regex")
+});
+
+static COMMENT_ON_VIEW_PREFIX_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?is)^\s*COMMENT\s+ON\s+VIEW\b").expect("valid COMMENT ON VIEW prefix regex")
+});
+
+static COMMENT_ON_VIEW_SHAPE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?is)^\s*COMMENT\s+ON\s+(?:MATERIALIZED\s+)?VIEW\s+.+?\s+IS\s+(?P<comment>.+?)\s*;?\s*$",
+    )
+    .expect("valid COMMENT ON VIEW shape regex")
+});
+
+fn is_comment_on_view_statement(stmt_text: &str, dialect: SqlDialect) -> bool {
+    if !matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::PlSQL) {
+        return false;
+    }
+
+    let mut parts = stmt_text.split_whitespace();
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    if !first.eq_ignore_ascii_case("COMMENT") {
+        return false;
+    }
+
+    let Some(second) = parts.next() else {
+        return false;
+    };
+    if !second.eq_ignore_ascii_case("ON") {
+        return false;
+    }
+
+    let Some(object_type) = parts.next() else {
+        return false;
+    };
+
+    if object_type.eq_ignore_ascii_case("VIEW") {
+        return true;
+    }
+
+    if object_type.eq_ignore_ascii_case("MATERIALIZED") {
+        return parts
+            .next()
+            .map(|token| token.eq_ignore_ascii_case("VIEW"))
+            .unwrap_or(false);
+    }
+
+    false
+}
+
+fn rewrite_comment_on_view_for_parser(stmt_text: &str) -> Option<String> {
+    if COMMENT_ON_MATERIALIZED_VIEW_PREFIX_RE.is_match(stmt_text) {
+        return Some(
+            COMMENT_ON_MATERIALIZED_VIEW_PREFIX_RE
+                .replace(stmt_text, "COMMENT ON TABLE")
+                .to_string(),
+        );
+    }
+
+    if COMMENT_ON_VIEW_PREFIX_RE.is_match(stmt_text) {
+        return Some(
+            COMMENT_ON_VIEW_PREFIX_RE
+                .replace(stmt_text, "COMMENT ON TABLE")
+                .to_string(),
+        );
+    }
+
+    None
+}
+
+fn extract_comment_on_view_value(stmt_text: &str) -> Option<String> {
+    let captures = COMMENT_ON_VIEW_SHAPE_RE.captures(stmt_text)?;
+    captures.name("comment").map(|m| m.as_str().trim().to_string())
+}
+
+fn is_single_quoted_literal_from(
+    value: &str,
+    start_quote_index: usize,
+    allow_backslash_escape: bool,
+) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.get(start_quote_index).copied() != Some(b'\'') {
+        return false;
+    }
+
+    let mut i = start_quote_index + 1;
+    while i < bytes.len() {
+        let current = bytes[i];
+        if allow_backslash_escape && current == b'\\' && i + 1 < bytes.len() {
+            i += 2;
+            continue;
+        }
+
+        if current == b'\'' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                i += 2;
+                continue;
+            }
+            return i + 1 == bytes.len();
+        }
+
+        i += 1;
+    }
+
+    false
+}
+
+fn is_dollar_quoted_literal(value: &str) -> bool {
+    if !value.starts_with('$') {
+        return false;
+    }
+
+    let bytes = value.as_bytes();
+    let mut tag_end = 1usize;
+    while tag_end < bytes.len() && bytes[tag_end] != b'$' {
+        let ch = bytes[tag_end] as char;
+        if !ch.is_ascii_alphanumeric() && ch != '_' {
+            return false;
+        }
+        tag_end += 1;
+    }
+
+    if tag_end >= bytes.len() {
+        return false;
+    }
+
+    let delimiter = &value[..=tag_end];
+    value.len() >= delimiter.len() * 2 && value.ends_with(delimiter)
+}
+
+fn is_valid_comment_on_view_value(value: &str) -> bool {
+    if value.eq_ignore_ascii_case("NULL") {
+        return true;
+    }
+
+    if value.starts_with("E'") || value.starts_with("e'") {
+        return is_single_quoted_literal_from(value, 1, true);
+    }
+
+    if value.starts_with("U&'") || value.starts_with("u&'") {
+        return is_single_quoted_literal_from(value, 2, true);
+    }
+
+    is_single_quoted_literal_from(value, 0, false) || is_dollar_quoted_literal(value)
+}
+
+fn is_well_formed_comment_on_view_statement(stmt_text: &str, dialect: SqlDialect) -> bool {
+    if !is_comment_on_view_statement(stmt_text, dialect) {
+        return false;
+    }
+
+    let Some(comment_value) = extract_comment_on_view_value(stmt_text) else {
+        return false;
+    };
+    if !is_valid_comment_on_view_value(&comment_value) {
+        return false;
+    }
+
+    let Some(rewritten) = rewrite_comment_on_view_for_parser(stmt_text) else {
+        return false;
+    };
+
+    let parser_dialect = dialect.to_sqlparser_dialect();
+    Parser::parse_sql(&*parser_dialect, &rewritten).is_ok()
+}
+
+fn is_comment_on_view_parser_gap(message: &str, stmt_text: &str, dialect: SqlDialect) -> bool {
+    let lower = message.to_lowercase();
+    if !(lower.contains("comment object_type") && lower.contains("found: view")) {
+        return false;
+    }
+
+    is_well_formed_comment_on_view_statement(stmt_text, dialect)
+}
+
+fn build_fallback_statement(
+    statement_type: Option<String>,
+    range: (usize, usize),
+    text: String,
+) -> ParsedStatement {
+    ParsedStatement {
+        statement_type,
+        range,
+        text,
+        tables: vec![],
+        aliases: vec![],
+        output_aliases: vec![],
+        columns: vec![],
+        ctes: vec![],
+    }
+}
+
 /// Parse a SQL document into statements.
 pub fn parse_document(sql: &str, dialect: SqlDialect) -> ParsedDocument {
     let parser_dialect = dialect.to_sqlparser_dialect();
@@ -289,19 +487,23 @@ pub fn parse_document(sql: &str, dialect: SqlDialect) -> ParsedDocument {
             }
             Ok(_) => {
                 // Empty parse result
-                statements.push(ParsedStatement {
-                    statement_type: None,
-                    range: (start, end),
-                    text,
-                    tables: vec![],
-                    aliases: vec![],
-                    output_aliases: vec![],
-                    columns: vec![],
-                    ctes: vec![],
-                });
+                statements.push(build_fallback_statement(None, (start, end), text));
             }
             Err(e) => {
                 let message = e.to_string();
+
+                // sqlparser-rs currently rejects COMMENT ON VIEW with:
+                // "Expected: comment object_type, found: VIEW".
+                // Accept only this known parser gap; other COMMENT syntax errors should surface.
+                if is_comment_on_view_parser_gap(&message, &text, dialect) {
+                    statements.push(build_fallback_statement(
+                        Some("COMMENT".to_string()),
+                        (start, end),
+                        text,
+                    ));
+                    continue;
+                }
+
                 let (position, position_end) = infer_parse_error_span(&text, &message)
                     .map(|(rel_from, rel_to)| {
                         let abs_from = start + rel_from.min(text.len());
@@ -318,16 +520,7 @@ pub fn parse_document(sql: &str, dialect: SqlDialect) -> ParsedDocument {
 
                 // Keep a fallback statement so heuristic lint rules (typo detection,
                 // missing operators, etc.) can still run on syntactically invalid SQL.
-                statements.push(ParsedStatement {
-                    statement_type: None,
-                    range: (start, end),
-                    text,
-                    tables: vec![],
-                    aliases: vec![],
-                    output_aliases: vec![],
-                    columns: vec![],
-                    ctes: vec![],
-                });
+                statements.push(build_fallback_statement(None, (start, end), text));
             }
         }
     }
@@ -364,6 +557,15 @@ pub fn parse_statement(sql: &str, dialect: SqlDialect) -> Result<ParsedStatement
         }),
         Err(e) => {
             let message = e.to_string();
+
+            if is_comment_on_view_parser_gap(&message, sql, dialect) {
+                return Ok(build_fallback_statement(
+                    Some("COMMENT".to_string()),
+                    (0, sql.len()),
+                    sql.to_string(),
+                ));
+            }
+
             let span = infer_parse_error_span(sql, &message);
             let position = span.map(|(from, _)| from).unwrap_or(0);
             let position_end = span.map(|(from, to)| to.max(from + 1)).or(Some(sql.len()));
@@ -1851,6 +2053,53 @@ mod tests {
             .tables
             .iter()
             .any(|table| table.name == "client_sales_contexts"));
+    }
+
+    #[test]
+    fn test_parse_comment_on_view_statement() {
+        let doc = parse_document(
+            "COMMENT ON VIEW vw_promotion_by_program IS 'Aggregates promotion eligibility data by promotion program'",
+            SqlDialect::PostgreSQL,
+        );
+        assert!(doc.errors.is_empty(), "Parse errors: {:?}", doc.errors);
+        assert_eq!(doc.statements.len(), 1);
+        assert_eq!(
+            doc.statements[0].statement_type,
+            Some("COMMENT".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_statement_comment_on_view() {
+        let stmt = parse_statement(
+            "COMMENT ON VIEW vw_promotion_by_program IS 'x'",
+            SqlDialect::PostgreSQL,
+        )
+        .expect("COMMENT ON VIEW should parse for linting");
+        assert_eq!(stmt.statement_type, Some("COMMENT".to_string()));
+    }
+
+    #[test]
+    fn test_invalid_comment_on_view_still_reports_parse_error() {
+        let doc = parse_document("COMMENT ON VIEW vw_promotion_by_program", SqlDialect::PostgreSQL);
+        assert!(
+            !doc.errors.is_empty(),
+            "Invalid COMMENT ON VIEW should still produce parse errors"
+        );
+        assert_eq!(doc.statements[0].statement_type, None);
+    }
+
+    #[test]
+    fn test_invalid_comment_on_view_requires_literal_or_null_comment() {
+        let doc = parse_document(
+            "COMMENT ON VIEW vw_promotion_by_program IS invalid_comment",
+            SqlDialect::PostgreSQL,
+        );
+        assert!(
+            !doc.errors.is_empty(),
+            "COMMENT ON VIEW with non-literal comment should produce parse errors"
+        );
+        assert_eq!(doc.statements[0].statement_type, None);
     }
 
     #[test]
