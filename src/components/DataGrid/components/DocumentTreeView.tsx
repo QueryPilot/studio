@@ -609,14 +609,14 @@ const InlineJsonEdit = memo(function InlineJsonEdit({
         <button
           type="button"
           onClick={save}
-          className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Save (Cmd+Enter)
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Cancel (Esc)
         </button>
@@ -707,18 +707,18 @@ const TreeValueNode = memo(function TreeValueNode({
                   expanded && "rotate-90",
                 )}
               />
-              <span className="font-mono text-[11px] text-foreground/80 shrink-0">
+              <span className="font-mono text-xs text-foreground/80 shrink-0">
                 {fieldKey}
               </span>
               <span className="text-[11px] text-muted-foreground/60 shrink-0">
                 {type}
               </span>
-              <span className="text-[11px] text-muted-foreground shrink-0">
+              <span className="text-xs text-muted-foreground shrink-0">
                 :
               </span>
               {!expanded && (
                 <span
-                  className={cn("font-mono text-[11px] truncate", colorClass)}
+                  className={cn("font-mono text-xs truncate", colorClass)}
                 >
                   {formatValuePreview(value)}
                 </span>
@@ -796,13 +796,13 @@ const TreeValueNode = memo(function TreeValueNode({
           e.stopPropagation();
         }}
       >
-        <span className="ml-5 font-mono text-[11px] text-foreground/80 shrink-0">
+        <span className="ml-5 font-mono text-xs text-foreground/80 shrink-0">
           {fieldKey}
         </span>
         <span className="text-[11px] text-muted-foreground/60 shrink-0">
           {type}
         </span>
-        <span className="text-[11px] text-muted-foreground">:</span>
+        <span className="text-xs text-muted-foreground">:</span>
         {editing ? (
           <InlineEdit
             value={value}
@@ -812,7 +812,7 @@ const TreeValueNode = memo(function TreeValueNode({
           />
         ) : (
           <>
-            <span className={cn("font-mono text-[11px] truncate", colorClass)}>
+            <span className={cn("font-mono text-xs truncate", colorClass)}>
               {type === "objectId"
                 ? `ObjectId("${formatObjectId(value)}")`
                 : formatValuePreview(value)}
@@ -1039,7 +1039,7 @@ const DocumentCard = memo(function DocumentCard({
                 {displayId}
               </span>
               {!expanded && (
-                <span className="font-mono text-[11px] text-muted-foreground truncate pr-20">
+                <span className="font-mono text-xs text-muted-foreground truncate pr-20">
                   {previewText}
                 </span>
               )}
@@ -1262,14 +1262,14 @@ const DocumentJsonEditor = memo(function DocumentJsonEditor({
         <button
           type="button"
           onClick={handleSave}
-          className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Save (Cmd+Enter)
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
+          className="text-xs text-muted-foreground hover:text-foreground px-2 py-0.5 rounded bg-muted/50 hover:bg-muted"
         >
           Cancel (Esc)
         </button>

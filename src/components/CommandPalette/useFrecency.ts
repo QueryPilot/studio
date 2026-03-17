@@ -32,11 +32,19 @@ export function useFrecency() {
 
   const getTopFrecencyItems = useCallback(
     <T extends { id: string }>(itemList: T[], limit: number): T[] => {
-      return sortByFrecency(itemList)
-        .filter((item) => getFrecencyScore(item.id) > 0)
-        .slice(0, limit);
+      // Filter to items with scores first (typically very few), then sort
+      // only those — avoids sorting thousands of zero-score items
+      const scored: Array<{ item: T; score: number }> = [];
+      for (const item of itemList) {
+        const score = getFrecencyScore(item.id);
+        if (score > 0) {
+          scored.push({ item, score });
+        }
+      }
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, limit).map((entry) => entry.item);
     },
-    [sortByFrecency, getFrecencyScore]
+    [getFrecencyScore]
   );
 
   return {
