@@ -484,12 +484,20 @@ fn split_statements(sql: &str) -> Vec<(usize, usize, String)> {
     statements
 }
 
-fn get_statement_type(stmt: &Statement) -> String {
+fn unwrap_statement(stmt: &Statement) -> &Statement {
     match stmt {
+        Statement::Explain { statement, .. } => unwrap_statement(statement),
+        _ => stmt,
+    }
+}
+
+fn get_statement_type(stmt: &Statement) -> String {
+    match unwrap_statement(stmt) {
         Statement::Query(_) => "SELECT".to_string(),
         Statement::Insert(_) => "INSERT".to_string(),
         Statement::Update { .. } => "UPDATE".to_string(),
         Statement::Delete(_) => "DELETE".to_string(),
+        Statement::Merge { .. } => "MERGE".to_string(),
         Statement::CreateTable { .. } => "CREATE TABLE".to_string(),
         Statement::CreateView { .. } => "CREATE VIEW".to_string(),
         Statement::CreateIndex(_) => "CREATE INDEX".to_string(),
@@ -500,83 +508,421 @@ fn get_statement_type(stmt: &Statement) -> String {
     }
 }
 
+fn push_table_reference_from_name(
+    name: &ast::ObjectName,
+    alias: Option<&ast::TableAlias>,
+    tables: &mut Vec<TableReference>,
+) {
+    let parts: Vec<_> = name.0.iter().map(|ident| ident.value.clone()).collect();
+    let (schema, table_name) = if parts.len() >= 2 {
+        (
+            Some(parts[parts.len() - 2].clone()),
+            parts.last().cloned().unwrap_or_default(),
+        )
+    } else {
+        (None, parts.last().cloned().unwrap_or_default())
+    };
+
+    tables.push(TableReference {
+        name: table_name,
+        schema,
+        alias: alias.map(|table_alias| table_alias.name.value.clone()),
+        position: 0,
+    });
+}
+
+fn extract_tables(stmt: &Statement) -> Vec<TableReference> {
+    let mut tables = Vec::new();
+    extract_tables_from_statement(stmt, &mut tables);
+    tables
+}
+
+fn extract_tables_from_statement(stmt: &Statement, tables: &mut Vec<TableReference>) {
+    match stmt {
+        Statement::Explain { statement, .. } | Statement::Prepare { statement, .. } => {
+            extract_tables_from_statement(statement, tables);
+        }
+        Statement::Query(query) => extract_tables_from_query(query, tables),
+        Statement::Insert(insert) => {
+            push_table_reference_from_name(&insert.table_name, None, tables);
+            if let Some(source) = &insert.source {
+                extract_tables_from_query(source, tables);
+            }
+        }
+        Statement::Update {
+            table,
+            from,
+            selection,
+            returning,
+            ..
+        } => {
+            extract_tables_from_table_with_joins(table, tables);
+            if let Some(source) = from {
+                extract_tables_from_table_with_joins(source, tables);
+            }
+            if let Some(selection) = selection {
+                extract_tables_from_expr(selection, tables);
+            }
+            if let Some(items) = returning {
+                for item in items {
+                    extract_tables_from_select_item(item, tables);
+                }
+            }
+        }
+        Statement::Delete(delete) => {
+            let tables_vec = match &delete.from {
+                ast::FromTable::WithFromKeyword(tables_vec)
+                | ast::FromTable::WithoutKeyword(tables_vec) => tables_vec,
+            };
+            for table in tables_vec {
+                extract_tables_from_table_with_joins(table, tables);
+            }
+            if let Some(using) = &delete.using {
+                for table in using {
+                    extract_tables_from_table_with_joins(table, tables);
+                }
+            }
+            if let Some(selection) = &delete.selection {
+                extract_tables_from_expr(selection, tables);
+            }
+            for item in &delete.order_by {
+                extract_tables_from_expr(&item.expr, tables);
+            }
+            if let Some(limit) = &delete.limit {
+                extract_tables_from_expr(limit, tables);
+            }
+            if let Some(items) = &delete.returning {
+                for item in items {
+                    extract_tables_from_select_item(item, tables);
+                }
+            }
+        }
+        Statement::CreateView { query, .. } => extract_tables_from_query(query, tables),
+        Statement::Merge {
+            table, source, on, ..
+        } => {
+            extract_table_factor(table, tables);
+            extract_table_factor(source, tables);
+            extract_tables_from_expr(on, tables);
+        }
+        _ => {}
+    }
+}
+
 fn extract_tables_from_query(query: &ast::Query, tables: &mut Vec<TableReference>) {
-    // Extract tables from CTE bodies
     if let Some(with) = &query.with {
         for cte in &with.cte_tables {
             extract_tables_from_query(&cte.query, tables);
         }
     }
-    // Extract tables from the main SELECT body
-    if let SetExpr::Select(select) = query.body.as_ref() {
-        for table_with_joins in &select.from {
-            extract_table_factor(&table_with_joins.relation, tables);
-            for join in &table_with_joins.joins {
-                extract_table_factor(&join.relation, tables);
+
+    extract_tables_from_set_expr(query.body.as_ref(), tables);
+
+    if let Some(order_by) = &query.order_by {
+        for item in &order_by.exprs {
+            extract_tables_from_expr(&item.expr, tables);
+        }
+    }
+    if let Some(limit) = &query.limit {
+        extract_tables_from_expr(limit, tables);
+    }
+    for expr in &query.limit_by {
+        extract_tables_from_expr(expr, tables);
+    }
+    if let Some(offset) = &query.offset {
+        extract_tables_from_expr(&offset.value, tables);
+    }
+    if let Some(fetch) = &query.fetch {
+        if let Some(quantity) = &fetch.quantity {
+            extract_tables_from_expr(quantity, tables);
+        }
+    }
+}
+
+fn extract_tables_from_set_expr(set_expr: &SetExpr, tables: &mut Vec<TableReference>) {
+    match set_expr {
+        SetExpr::Select(select) => extract_tables_from_select(select, tables),
+        SetExpr::Query(query) => extract_tables_from_query(query, tables),
+        SetExpr::SetOperation { left, right, .. } => {
+            extract_tables_from_set_expr(left, tables);
+            extract_tables_from_set_expr(right, tables);
+        }
+        SetExpr::Values(values) => {
+            for row in &values.rows {
+                for expr in row {
+                    extract_tables_from_expr(expr, tables);
+                }
+            }
+        }
+        SetExpr::Insert(statement) | SetExpr::Update(statement) => {
+            extract_tables_from_statement(statement, tables);
+        }
+        SetExpr::Table(table) => {
+            let object_name = match (&table.schema_name, &table.table_name) {
+                (Some(schema_name), Some(table_name)) => Some(ast::ObjectName(vec![
+                    ast::Ident::new(schema_name.clone()),
+                    ast::Ident::new(table_name.clone()),
+                ])),
+                (None, Some(table_name)) => {
+                    Some(ast::ObjectName(vec![ast::Ident::new(table_name.clone())]))
+                }
+                _ => None,
+            };
+            if let Some(object_name) = object_name {
+                push_table_reference_from_name(&object_name, None, tables);
             }
         }
     }
 }
 
-fn extract_tables(stmt: &Statement) -> Vec<TableReference> {
-    let mut tables = Vec::new();
+fn extract_tables_from_select(select: &ast::Select, tables: &mut Vec<TableReference>) {
+    for item in &select.projection {
+        extract_tables_from_select_item(item, tables);
+    }
+    for table_with_joins in &select.from {
+        extract_tables_from_table_with_joins(table_with_joins, tables);
+    }
+    for lateral_view in &select.lateral_views {
+        extract_tables_from_expr(&lateral_view.lateral_view, tables);
+    }
+    if let Some(prewhere) = &select.prewhere {
+        extract_tables_from_expr(prewhere, tables);
+    }
+    if let Some(selection) = &select.selection {
+        extract_tables_from_expr(selection, tables);
+    }
+    if let ast::GroupByExpr::Expressions(exprs, _) = &select.group_by {
+        for expr in exprs {
+            extract_tables_from_expr(expr, tables);
+        }
+    }
+    for expr in &select.cluster_by {
+        extract_tables_from_expr(expr, tables);
+    }
+    for expr in &select.distribute_by {
+        extract_tables_from_expr(expr, tables);
+    }
+    for expr in &select.sort_by {
+        extract_tables_from_expr(expr, tables);
+    }
+    if let Some(having) = &select.having {
+        extract_tables_from_expr(having, tables);
+    }
+    if let Some(qualify) = &select.qualify {
+        extract_tables_from_expr(qualify, tables);
+    }
+    if let Some(connect_by) = &select.connect_by {
+        extract_tables_from_expr(&connect_by.condition, tables);
+        for expr in &connect_by.relationships {
+            extract_tables_from_expr(expr, tables);
+        }
+    }
+}
 
-    match stmt {
-        Statement::Query(query) => {
-            extract_tables_from_query(query, &mut tables);
+fn extract_tables_from_table_with_joins(
+    table_with_joins: &ast::TableWithJoins,
+    tables: &mut Vec<TableReference>,
+) {
+    extract_table_factor(&table_with_joins.relation, tables);
+    for join in &table_with_joins.joins {
+        extract_table_factor(&join.relation, tables);
+        extract_tables_from_join(join, tables);
+    }
+}
+
+fn extract_tables_from_join(join: &ast::Join, tables: &mut Vec<TableReference>) {
+    use ast::{JoinConstraint, JoinOperator};
+
+    fn extract_join_constraint_tables(
+        constraint: &JoinConstraint,
+        tables: &mut Vec<TableReference>,
+    ) {
+        match constraint {
+            JoinConstraint::On(expr) => extract_tables_from_expr(expr, tables),
+            JoinConstraint::Using(_) | JoinConstraint::Natural | JoinConstraint::None => {}
         }
-        Statement::Insert(insert) => {
-            tables.push(TableReference {
-                name: insert.table_name.to_string(),
-                schema: None,
-                alias: None,
-                position: 0,
-            });
-        }
-        Statement::Update { table, .. } => {
-            extract_table_factor(&table.relation, &mut tables);
-        }
-        Statement::Delete(delete) => {
-            // FromTable is an enum with WithFromKeyword(Vec<TableWithJoins>) or WithoutKeyword(Vec<TableWithJoins>)
-            let tables_vec = match &delete.from {
-                ast::FromTable::WithFromKeyword(t) | ast::FromTable::WithoutKeyword(t) => t,
-            };
-            for table in tables_vec {
-                extract_table_factor(&table.relation, &mut tables);
-            }
-        }
-        _ => {}
     }
 
-    tables
+    match &join.join_operator {
+        JoinOperator::Inner(constraint)
+        | JoinOperator::LeftOuter(constraint)
+        | JoinOperator::RightOuter(constraint)
+        | JoinOperator::FullOuter(constraint)
+        | JoinOperator::LeftSemi(constraint)
+        | JoinOperator::RightSemi(constraint)
+        | JoinOperator::LeftAnti(constraint)
+        | JoinOperator::RightAnti(constraint) => {
+            extract_join_constraint_tables(constraint, tables);
+        }
+        JoinOperator::AsOf {
+            match_condition,
+            constraint,
+        } => {
+            extract_tables_from_expr(match_condition, tables);
+            extract_join_constraint_tables(constraint, tables);
+        }
+        JoinOperator::CrossJoin | JoinOperator::CrossApply | JoinOperator::OuterApply => {}
+    }
+}
+
+fn extract_tables_from_select_item(item: &ast::SelectItem, tables: &mut Vec<TableReference>) {
+    match item {
+        ast::SelectItem::UnnamedExpr(expr) | ast::SelectItem::ExprWithAlias { expr, .. } => {
+            extract_tables_from_expr(expr, tables);
+        }
+        ast::SelectItem::QualifiedWildcard(_, _) | ast::SelectItem::Wildcard(_) => {}
+    }
 }
 
 fn extract_table_factor(factor: &TableFactor, tables: &mut Vec<TableReference>) {
     match factor {
         TableFactor::Table { name, alias, .. } => {
-            let parts: Vec<_> = name.0.iter().map(|i| i.value.clone()).collect();
-            let (schema, table_name) = if parts.len() >= 2 {
-                (
-                    Some(parts[parts.len() - 2].clone()),
-                    parts.last().unwrap().clone(),
-                )
-            } else {
-                (None, parts.last().cloned().unwrap_or_default())
-            };
-            tables.push(TableReference {
-                name: table_name,
-                schema,
-                alias: alias.as_ref().map(|a| a.name.value.clone()),
-                position: 0,
-            });
+            push_table_reference_from_name(name, alias.as_ref(), tables);
         }
-        TableFactor::Derived { alias: Some(a), .. } => {
-            tables.push(TableReference {
-                name: a.name.value.clone(),
-                schema: None,
-                alias: Some(a.name.value.clone()),
-                position: 0,
-            });
+        TableFactor::Derived { subquery, .. } => {
+            extract_tables_from_query(subquery, tables);
+        }
+        TableFactor::TableFunction { expr, .. } => {
+            extract_tables_from_expr(expr, tables);
+        }
+        TableFactor::UNNEST { array_exprs, .. } => {
+            for expr in array_exprs {
+                extract_tables_from_expr(expr, tables);
+            }
+        }
+        TableFactor::JsonTable { json_expr, .. } => {
+            extract_tables_from_expr(json_expr, tables);
+        }
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
+            extract_tables_from_table_with_joins(table_with_joins, tables);
+        }
+        TableFactor::Pivot {
+            table,
+            aggregate_functions,
+            default_on_null,
+            ..
+        } => {
+            extract_table_factor(table, tables);
+            for expr_with_alias in aggregate_functions {
+                extract_tables_from_expr(&expr_with_alias.expr, tables);
+            }
+            if let Some(expr) = default_on_null {
+                extract_tables_from_expr(expr, tables);
+            }
+        }
+        TableFactor::Unpivot { table, .. } => {
+            extract_table_factor(table, tables);
+        }
+        _ => {}
+    }
+}
+
+fn extract_tables_from_expr(expr: &ast::Expr, tables: &mut Vec<TableReference>) {
+    match expr {
+        ast::Expr::BinaryOp { left, right, .. }
+        | ast::Expr::Like {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::ILike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::SimilarTo {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::RLike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::AtTimeZone {
+            timestamp: left,
+            time_zone: right,
+        }
+        | ast::Expr::Position {
+            expr: left,
+            r#in: right,
+        }
+        | ast::Expr::IsDistinctFrom(left, right)
+        | ast::Expr::IsNotDistinctFrom(left, right)
+        | ast::Expr::AnyOp { left, right, .. }
+        | ast::Expr::AllOp { left, right, .. } => {
+            extract_tables_from_expr(left, tables);
+            extract_tables_from_expr(right, tables);
+        }
+        ast::Expr::UnaryOp { expr, .. }
+        | ast::Expr::Nested(expr)
+        | ast::Expr::Cast { expr, .. }
+        | ast::Expr::IsNull(expr)
+        | ast::Expr::IsNotNull(expr)
+        | ast::Expr::IsTrue(expr)
+        | ast::Expr::IsNotTrue(expr)
+        | ast::Expr::IsFalse(expr)
+        | ast::Expr::IsNotFalse(expr)
+        | ast::Expr::IsUnknown(expr)
+        | ast::Expr::IsNotUnknown(expr) => {
+            extract_tables_from_expr(expr, tables);
+        }
+        ast::Expr::InList { expr, list, .. } => {
+            extract_tables_from_expr(expr, tables);
+            for item in list {
+                extract_tables_from_expr(item, tables);
+            }
+        }
+        ast::Expr::InSubquery { expr, subquery, .. } => {
+            extract_tables_from_expr(expr, tables);
+            extract_tables_from_query(subquery, tables);
+        }
+        ast::Expr::Exists { subquery, .. } | ast::Expr::Subquery(subquery) => {
+            extract_tables_from_query(subquery, tables);
+        }
+        ast::Expr::Between {
+            expr, low, high, ..
+        } => {
+            extract_tables_from_expr(expr, tables);
+            extract_tables_from_expr(low, tables);
+            extract_tables_from_expr(high, tables);
+        }
+        ast::Expr::Function(func) => {
+            if let ast::FunctionArguments::List(arg_list) = &func.args {
+                for arg in &arg_list.args {
+                    if let ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) = arg {
+                        extract_tables_from_expr(expr, tables);
+                    }
+                }
+            }
+        }
+        ast::Expr::Case {
+            operand,
+            conditions,
+            results,
+            else_result,
+            ..
+        } => {
+            if let Some(operand) = operand {
+                extract_tables_from_expr(operand, tables);
+            }
+            for condition in conditions {
+                extract_tables_from_expr(condition, tables);
+            }
+            for result in results {
+                extract_tables_from_expr(result, tables);
+            }
+            if let Some(else_result) = else_result {
+                extract_tables_from_expr(else_result, tables);
+            }
+        }
+        ast::Expr::Tuple(exprs) => {
+            for expr in exprs {
+                extract_tables_from_expr(expr, tables);
+            }
         }
         _ => {}
     }
@@ -584,49 +930,309 @@ fn extract_table_factor(factor: &TableFactor, tables: &mut Vec<TableReference>) 
 
 fn extract_aliases(stmt: &Statement) -> Vec<AliasBinding> {
     let mut aliases = Vec::new();
+    extract_aliases_from_statement(stmt, &mut aliases);
+    aliases
+}
 
+fn extract_aliases_from_statement(stmt: &Statement, aliases: &mut Vec<AliasBinding>) {
     match stmt {
-        Statement::Query(query) => {
-            if let SetExpr::Select(select) = query.body.as_ref() {
-                for table_with_joins in &select.from {
-                    extract_alias_from_factor(&table_with_joins.relation, &mut aliases);
-                    for join in &table_with_joins.joins {
-                        extract_alias_from_factor(&join.relation, &mut aliases);
-                    }
-                }
+        Statement::Explain { statement, .. } | Statement::Prepare { statement, .. } => {
+            extract_aliases_from_statement(statement, aliases);
+        }
+        Statement::Query(query) => extract_aliases_from_query(query, aliases),
+        Statement::Insert(insert) => {
+            if let Some(source) = &insert.source {
+                extract_aliases_from_query(source, aliases);
             }
         }
-        Statement::Update { table, .. } => {
-            extract_alias_from_factor(&table.relation, &mut aliases);
-            for join in &table.joins {
-                extract_alias_from_factor(&join.relation, &mut aliases);
+        Statement::Update {
+            table,
+            from,
+            selection,
+            ..
+        } => {
+            extract_aliases_from_table_with_joins(table, aliases);
+            if let Some(source) = from {
+                extract_aliases_from_table_with_joins(source, aliases);
+            }
+            if let Some(selection) = selection {
+                extract_aliases_from_expr(selection, aliases);
             }
         }
         Statement::Delete(delete) => {
             let tables_vec = match &delete.from {
-                ast::FromTable::WithFromKeyword(t) | ast::FromTable::WithoutKeyword(t) => t,
+                ast::FromTable::WithFromKeyword(tables_vec)
+                | ast::FromTable::WithoutKeyword(tables_vec) => tables_vec,
             };
             for table in tables_vec {
-                extract_alias_from_factor(&table.relation, &mut aliases);
+                extract_aliases_from_table_with_joins(table, aliases);
             }
+            if let Some(using) = &delete.using {
+                for table in using {
+                    extract_aliases_from_table_with_joins(table, aliases);
+                }
+            }
+            if let Some(selection) = &delete.selection {
+                extract_aliases_from_expr(selection, aliases);
+            }
+        }
+        Statement::CreateView { query, .. } => extract_aliases_from_query(query, aliases),
+        Statement::Merge {
+            table, source, on, ..
+        } => {
+            extract_alias_from_factor(table, aliases);
+            extract_alias_from_factor(source, aliases);
+            extract_aliases_from_expr(on, aliases);
         }
         _ => {}
     }
+}
 
-    aliases
+fn extract_aliases_from_query(query: &ast::Query, aliases: &mut Vec<AliasBinding>) {
+    if let Some(with) = &query.with {
+        for cte in &with.cte_tables {
+            extract_aliases_from_query(&cte.query, aliases);
+        }
+    }
+
+    extract_aliases_from_set_expr(query.body.as_ref(), aliases);
+
+    if let Some(order_by) = &query.order_by {
+        for item in &order_by.exprs {
+            extract_aliases_from_expr(&item.expr, aliases);
+        }
+    }
+    if let Some(limit) = &query.limit {
+        extract_aliases_from_expr(limit, aliases);
+    }
+    for expr in &query.limit_by {
+        extract_aliases_from_expr(expr, aliases);
+    }
+    if let Some(offset) = &query.offset {
+        extract_aliases_from_expr(&offset.value, aliases);
+    }
+}
+
+fn extract_aliases_from_set_expr(set_expr: &SetExpr, aliases: &mut Vec<AliasBinding>) {
+    match set_expr {
+        SetExpr::Select(select) => {
+            for table_with_joins in &select.from {
+                extract_aliases_from_table_with_joins(table_with_joins, aliases);
+            }
+            for item in &select.projection {
+                if let ast::SelectItem::UnnamedExpr(expr)
+                | ast::SelectItem::ExprWithAlias { expr, .. } = item
+                {
+                    extract_aliases_from_expr(expr, aliases);
+                }
+            }
+            if let Some(selection) = &select.selection {
+                extract_aliases_from_expr(selection, aliases);
+            }
+            if let Some(prewhere) = &select.prewhere {
+                extract_aliases_from_expr(prewhere, aliases);
+            }
+            if let Some(having) = &select.having {
+                extract_aliases_from_expr(having, aliases);
+            }
+            if let Some(qualify) = &select.qualify {
+                extract_aliases_from_expr(qualify, aliases);
+            }
+        }
+        SetExpr::Query(query) => extract_aliases_from_query(query, aliases),
+        SetExpr::SetOperation { left, right, .. } => {
+            extract_aliases_from_set_expr(left, aliases);
+            extract_aliases_from_set_expr(right, aliases);
+        }
+        SetExpr::Values(values) => {
+            for row in &values.rows {
+                for expr in row {
+                    extract_aliases_from_expr(expr, aliases);
+                }
+            }
+        }
+        SetExpr::Insert(statement) | SetExpr::Update(statement) => {
+            extract_aliases_from_statement(statement, aliases);
+        }
+        SetExpr::Table(_) => {}
+    }
+}
+
+fn extract_aliases_from_table_with_joins(
+    table_with_joins: &ast::TableWithJoins,
+    aliases: &mut Vec<AliasBinding>,
+) {
+    extract_alias_from_factor(&table_with_joins.relation, aliases);
+    for join in &table_with_joins.joins {
+        extract_alias_from_factor(&join.relation, aliases);
+        extract_aliases_from_join(join, aliases);
+    }
+}
+
+fn extract_aliases_from_join(join: &ast::Join, aliases: &mut Vec<AliasBinding>) {
+    use ast::{JoinConstraint, JoinOperator};
+
+    fn extract_join_constraint_aliases(constraint: &JoinConstraint, aliases: &mut Vec<AliasBinding>) {
+        if let JoinConstraint::On(expr) = constraint {
+            extract_aliases_from_expr(expr, aliases);
+        }
+    }
+
+    match &join.join_operator {
+        JoinOperator::Inner(constraint)
+        | JoinOperator::LeftOuter(constraint)
+        | JoinOperator::RightOuter(constraint)
+        | JoinOperator::FullOuter(constraint)
+        | JoinOperator::LeftSemi(constraint)
+        | JoinOperator::RightSemi(constraint)
+        | JoinOperator::LeftAnti(constraint)
+        | JoinOperator::RightAnti(constraint) => extract_join_constraint_aliases(constraint, aliases),
+        JoinOperator::AsOf {
+            match_condition,
+            constraint,
+        } => {
+            extract_aliases_from_expr(match_condition, aliases);
+            extract_join_constraint_aliases(constraint, aliases);
+        }
+        JoinOperator::CrossJoin | JoinOperator::CrossApply | JoinOperator::OuterApply => {}
+    }
 }
 
 fn extract_alias_from_factor(factor: &TableFactor, aliases: &mut Vec<AliasBinding>) {
-    if let TableFactor::Table {
-        name,
-        alias: Some(alias),
-        ..
-    } = factor
-    {
-        aliases.push(AliasBinding {
-            alias: alias.name.value.clone(),
-            table: name.to_string(),
-        });
+    match factor {
+        TableFactor::Table {
+            name,
+            alias: Some(alias),
+            ..
+        } => {
+            aliases.push(AliasBinding {
+                alias: alias.name.value.clone(),
+                table: name.to_string(),
+            });
+        }
+        TableFactor::Derived { subquery, .. } => {
+            extract_aliases_from_query(subquery, aliases);
+        }
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
+            extract_aliases_from_table_with_joins(table_with_joins, aliases);
+        }
+        TableFactor::Pivot { table, .. } | TableFactor::Unpivot { table, .. } => {
+            extract_alias_from_factor(table, aliases);
+        }
+        _ => {}
+    }
+}
+
+fn extract_aliases_from_expr(expr: &ast::Expr, aliases: &mut Vec<AliasBinding>) {
+    match expr {
+        ast::Expr::BinaryOp { left, right, .. }
+        | ast::Expr::Like {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::ILike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::SimilarTo {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::RLike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::AtTimeZone {
+            timestamp: left,
+            time_zone: right,
+        }
+        | ast::Expr::Position {
+            expr: left,
+            r#in: right,
+        }
+        | ast::Expr::IsDistinctFrom(left, right)
+        | ast::Expr::IsNotDistinctFrom(left, right) => {
+            extract_aliases_from_expr(left, aliases);
+            extract_aliases_from_expr(right, aliases);
+        }
+        ast::Expr::UnaryOp { expr, .. }
+        | ast::Expr::Nested(expr)
+        | ast::Expr::Cast { expr, .. }
+        | ast::Expr::IsNull(expr)
+        | ast::Expr::IsNotNull(expr)
+        | ast::Expr::IsTrue(expr)
+        | ast::Expr::IsNotTrue(expr)
+        | ast::Expr::IsFalse(expr)
+        | ast::Expr::IsNotFalse(expr)
+        | ast::Expr::IsUnknown(expr)
+        | ast::Expr::IsNotUnknown(expr) => {
+            extract_aliases_from_expr(expr, aliases);
+        }
+        ast::Expr::InList { expr, list, .. } => {
+            extract_aliases_from_expr(expr, aliases);
+            for item in list {
+                extract_aliases_from_expr(item, aliases);
+            }
+        }
+        ast::Expr::InSubquery { expr, subquery, .. } => {
+            extract_aliases_from_expr(expr, aliases);
+            extract_aliases_from_query(subquery, aliases);
+        }
+        ast::Expr::Exists { subquery, .. } | ast::Expr::Subquery(subquery) => {
+            extract_aliases_from_query(subquery, aliases);
+        }
+        ast::Expr::Between {
+            expr, low, high, ..
+        } => {
+            extract_aliases_from_expr(expr, aliases);
+            extract_aliases_from_expr(low, aliases);
+            extract_aliases_from_expr(high, aliases);
+        }
+        ast::Expr::Function(func) => {
+            if let ast::FunctionArguments::List(arg_list) = &func.args {
+                for arg in &arg_list.args {
+                    if let ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) = arg {
+                        extract_aliases_from_expr(expr, aliases);
+                    }
+                }
+            }
+        }
+        ast::Expr::Case {
+            operand,
+            conditions,
+            results,
+            else_result,
+            ..
+        } => {
+            if let Some(operand) = operand {
+                extract_aliases_from_expr(operand, aliases);
+            }
+            for condition in conditions {
+                extract_aliases_from_expr(condition, aliases);
+            }
+            for result in results {
+                extract_aliases_from_expr(result, aliases);
+            }
+            if let Some(else_result) = else_result {
+                extract_aliases_from_expr(else_result, aliases);
+            }
+        }
+        ast::Expr::AnyOp { left, right, .. } | ast::Expr::AllOp { left, right, .. } => {
+            extract_aliases_from_expr(left, aliases);
+            extract_aliases_from_expr(right, aliases);
+        }
+        ast::Expr::Tuple(exprs) => {
+            for expr in exprs {
+                extract_aliases_from_expr(expr, aliases);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -634,61 +1240,59 @@ fn extract_output_aliases(stmt: &Statement) -> Vec<String> {
     let mut output_aliases = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    if let Statement::Query(query) = stmt {
-        if let SetExpr::Select(select) = query.body.as_ref() {
-            for item in &select.projection {
-                if let ast::SelectItem::ExprWithAlias { alias, .. } = item {
-                    let alias_name = alias.value.clone();
-                    let alias_key = alias_name.to_lowercase();
-                    if seen.insert(alias_key) {
-                        output_aliases.push(alias_name);
-                    }
-                }
-            }
-        }
+    if let Statement::Query(query) = unwrap_statement(stmt) {
+        extract_output_aliases_from_set_expr(query.body.as_ref(), &mut output_aliases, &mut seen);
     }
 
     output_aliases
 }
 
-fn extract_columns(stmt: &Statement) -> Vec<ColumnReference> {
-    let mut columns = Vec::new();
-
-    match stmt {
-        Statement::Query(query) => {
-            if let SetExpr::Select(select) = query.body.as_ref() {
-                for item in &select.projection {
-                    extract_columns_from_select_item(item, &mut columns);
-                }
-                for table_with_joins in &select.from {
-                    for join in &table_with_joins.joins {
-                        extract_columns_from_join(join, &mut columns);
+fn extract_output_aliases_from_set_expr(
+    set_expr: &SetExpr,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match set_expr {
+        SetExpr::Select(select) => {
+            for item in &select.projection {
+                if let ast::SelectItem::ExprWithAlias { alias, .. } = item {
+                    let alias_name = alias.value.clone();
+                    if seen.insert(alias_name.to_lowercase()) {
+                        output_aliases.push(alias_name);
                     }
-                }
-                if let Some(selection) = &select.selection {
-                    extract_columns_from_expr(selection, &mut columns);
-                }
-                if let ast::GroupByExpr::Expressions(exprs, _) = &select.group_by {
-                    for expr in exprs {
-                        extract_columns_from_expr(expr, &mut columns);
-                    }
-                }
-                if let Some(having) = &select.having {
-                    extract_columns_from_expr(having, &mut columns);
-                }
-            }
-            if let Some(order_by) = &query.order_by {
-                for item in &order_by.exprs {
-                    extract_columns_from_expr(&item.expr, &mut columns);
                 }
             }
         }
+        SetExpr::Query(query) => {
+            extract_output_aliases_from_set_expr(query.body.as_ref(), output_aliases, seen);
+        }
+        SetExpr::SetOperation { left, right, .. } => {
+            extract_output_aliases_from_set_expr(left, output_aliases, seen);
+            extract_output_aliases_from_set_expr(right, output_aliases, seen);
+        }
+        SetExpr::Values(_) | SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Table(_) => {}
+    }
+}
+
+fn extract_columns(stmt: &Statement) -> Vec<ColumnReference> {
+    let mut columns = Vec::new();
+    extract_columns_from_statement(stmt, &mut columns);
+    columns
+}
+
+fn extract_columns_from_statement(stmt: &Statement, columns: &mut Vec<ColumnReference>) {
+    match stmt {
+        Statement::Explain { statement, .. } | Statement::Prepare { statement, .. } => {
+            extract_columns_from_statement(statement, columns);
+        }
+        Statement::Query(query) => extract_columns_from_query(query, columns),
         Statement::Update {
             assignments,
+            from,
             selection,
+            returning,
             ..
         } => {
-            // Extract SET target columns (LHS of assignments)
             for assignment in assignments {
                 match &assignment.target {
                     ast::AssignmentTarget::ColumnName(name) => {
@@ -699,7 +1303,7 @@ fn extract_columns(stmt: &Statement) -> Vec<ColumnReference> {
                                     Some(
                                         name.0[..name.0.len() - 1]
                                             .iter()
-                                            .map(|i| i.value.clone())
+                                            .map(|ident| ident.value.clone())
                                             .collect::<Vec<_>>()
                                             .join("."),
                                     )
@@ -720,41 +1324,217 @@ fn extract_columns(stmt: &Statement) -> Vec<ColumnReference> {
                         }
                     }
                 }
+
+                extract_columns_from_expr(&assignment.value, columns);
             }
-            // Extract RHS expressions
-            for assignment in assignments {
-                extract_columns_from_expr(&assignment.value, &mut columns);
+
+            if let Some(source) = from {
+                extract_columns_from_table_with_joins(source, columns);
             }
             if let Some(selection) = selection {
-                extract_columns_from_expr(selection, &mut columns);
+                extract_columns_from_expr(selection, columns);
+            }
+            if let Some(items) = returning {
+                for item in items {
+                    extract_columns_from_select_item(item, columns);
+                }
             }
         }
         Statement::Delete(delete) => {
             if let Some(selection) = &delete.selection {
-                extract_columns_from_expr(selection, &mut columns);
+                extract_columns_from_expr(selection, columns);
+            }
+            if let Some(using) = &delete.using {
+                for table in using {
+                    extract_columns_from_table_with_joins(table, columns);
+                }
+            }
+            for item in &delete.order_by {
+                extract_columns_from_expr(&item.expr, columns);
+            }
+            if let Some(limit) = &delete.limit {
+                extract_columns_from_expr(limit, columns);
+            }
+            if let Some(items) = &delete.returning {
+                for item in items {
+                    extract_columns_from_select_item(item, columns);
+                }
             }
         }
         Statement::Insert(insert) => {
-            // Extract target column list: INSERT INTO t (col1, col2)
             for col_ident in &insert.columns {
                 columns.push(ColumnReference {
                     name: col_ident.value.clone(),
                     table: None,
                 });
             }
-            // Extract columns from source SELECT
             if let Some(source) = &insert.source {
-                if let SetExpr::Select(select) = source.body.as_ref() {
-                    for item in &select.projection {
-                        extract_columns_from_select_item(item, &mut columns);
-                    }
+                extract_columns_from_query(source, columns);
+            }
+        }
+        Statement::CreateView { query, .. } => extract_columns_from_query(query, columns),
+        Statement::Merge { on, .. } => extract_columns_from_expr(on, columns),
+        _ => {}
+    }
+}
+
+fn extract_columns_from_query(query: &ast::Query, columns: &mut Vec<ColumnReference>) {
+    if let Some(with) = &query.with {
+        for cte in &with.cte_tables {
+            extract_columns_from_query(&cte.query, columns);
+        }
+    }
+
+    extract_columns_from_set_expr(query.body.as_ref(), columns);
+
+    if let Some(order_by) = &query.order_by {
+        for item in &order_by.exprs {
+            extract_columns_from_expr(&item.expr, columns);
+        }
+    }
+    if let Some(limit) = &query.limit {
+        extract_columns_from_expr(limit, columns);
+    }
+    for expr in &query.limit_by {
+        extract_columns_from_expr(expr, columns);
+    }
+    if let Some(offset) = &query.offset {
+        extract_columns_from_expr(&offset.value, columns);
+    }
+    if let Some(fetch) = &query.fetch {
+        if let Some(quantity) = &fetch.quantity {
+            extract_columns_from_expr(quantity, columns);
+        }
+    }
+}
+
+fn extract_columns_from_set_expr(set_expr: &SetExpr, columns: &mut Vec<ColumnReference>) {
+    match set_expr {
+        SetExpr::Select(select) => {
+            for item in &select.projection {
+                extract_columns_from_select_item(item, columns);
+            }
+            for table_with_joins in &select.from {
+                extract_columns_from_table_with_joins(table_with_joins, columns);
+            }
+            for lateral_view in &select.lateral_views {
+                extract_columns_from_expr(&lateral_view.lateral_view, columns);
+            }
+            if let Some(prewhere) = &select.prewhere {
+                extract_columns_from_expr(prewhere, columns);
+            }
+            if let Some(selection) = &select.selection {
+                extract_columns_from_expr(selection, columns);
+            }
+            if let ast::GroupByExpr::Expressions(exprs, _) = &select.group_by {
+                for expr in exprs {
+                    extract_columns_from_expr(expr, columns);
+                }
+            }
+            for expr in &select.cluster_by {
+                extract_columns_from_expr(expr, columns);
+            }
+            for expr in &select.distribute_by {
+                extract_columns_from_expr(expr, columns);
+            }
+            for expr in &select.sort_by {
+                extract_columns_from_expr(expr, columns);
+            }
+            if let Some(having) = &select.having {
+                extract_columns_from_expr(having, columns);
+            }
+            if let Some(qualify) = &select.qualify {
+                extract_columns_from_expr(qualify, columns);
+            }
+            if let Some(connect_by) = &select.connect_by {
+                extract_columns_from_expr(&connect_by.condition, columns);
+                for expr in &connect_by.relationships {
+                    extract_columns_from_expr(expr, columns);
                 }
             }
         }
+        SetExpr::Query(query) => extract_columns_from_query(query, columns),
+        SetExpr::SetOperation { left, right, .. } => {
+            extract_columns_from_set_expr(left, columns);
+            extract_columns_from_set_expr(right, columns);
+        }
+        SetExpr::Values(values) => {
+            for row in &values.rows {
+                for expr in row {
+                    extract_columns_from_expr(expr, columns);
+                }
+            }
+        }
+        SetExpr::Insert(statement) | SetExpr::Update(statement) => {
+            extract_columns_from_statement(statement, columns);
+        }
+        SetExpr::Table(_) => {}
+    }
+}
+
+fn extract_columns_from_table_with_joins(
+    table_with_joins: &ast::TableWithJoins,
+    columns: &mut Vec<ColumnReference>,
+) {
+    extract_columns_from_table_factor(&table_with_joins.relation, columns);
+    for join in &table_with_joins.joins {
+        extract_columns_from_table_factor(&join.relation, columns);
+        extract_columns_from_join(join, columns);
+    }
+}
+
+fn extract_columns_from_table_factor(factor: &TableFactor, columns: &mut Vec<ColumnReference>) {
+    match factor {
+        TableFactor::Table { with_hints, .. } => {
+            for expr in with_hints {
+                extract_columns_from_expr(expr, columns);
+            }
+        }
+        TableFactor::Derived { subquery, .. } => {
+            extract_columns_from_query(subquery, columns);
+        }
+        TableFactor::TableFunction { expr, .. } => {
+            extract_columns_from_expr(expr, columns);
+        }
+        TableFactor::Function { args, .. } => {
+            for arg in args {
+                if let ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(expr)) = arg {
+                    extract_columns_from_expr(expr, columns);
+                }
+            }
+        }
+        TableFactor::UNNEST { array_exprs, .. } => {
+            for expr in array_exprs {
+                extract_columns_from_expr(expr, columns);
+            }
+        }
+        TableFactor::JsonTable { json_expr, .. } => {
+            extract_columns_from_expr(json_expr, columns);
+        }
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
+            extract_columns_from_table_with_joins(table_with_joins, columns);
+        }
+        TableFactor::Pivot {
+            table,
+            aggregate_functions,
+            default_on_null,
+            ..
+        } => {
+            extract_columns_from_table_factor(table, columns);
+            for expr_with_alias in aggregate_functions {
+                extract_columns_from_expr(&expr_with_alias.expr, columns);
+            }
+            if let Some(expr) = default_on_null {
+                extract_columns_from_expr(expr, columns);
+            }
+        }
+        TableFactor::Unpivot { table, .. } => {
+            extract_columns_from_table_factor(table, columns);
+        }
         _ => {}
     }
-
-    columns
 }
 
 fn extract_columns_from_join(join: &ast::Join, columns: &mut Vec<ColumnReference>) {
@@ -841,15 +1621,54 @@ fn extract_columns_from_expr(expr: &ast::Expr, columns: &mut Vec<ColumnReference
                 });
             }
         }
-        ast::Expr::BinaryOp { left, right, .. } => {
+        ast::Expr::BinaryOp { left, right, .. }
+        | ast::Expr::Like {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::ILike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::SimilarTo {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::RLike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::AtTimeZone {
+            timestamp: left,
+            time_zone: right,
+        }
+        | ast::Expr::Position {
+            expr: left,
+            r#in: right,
+        }
+        | ast::Expr::IsDistinctFrom(left, right)
+        | ast::Expr::IsNotDistinctFrom(left, right)
+        | ast::Expr::AnyOp { left, right, .. }
+        | ast::Expr::AllOp { left, right, .. } => {
             extract_columns_from_expr(left, columns);
             extract_columns_from_expr(right, columns);
         }
-        ast::Expr::UnaryOp { expr, .. } => {
+        ast::Expr::UnaryOp { expr, .. }
+        | ast::Expr::Nested(expr)
+        | ast::Expr::Cast { expr, .. }
+        | ast::Expr::IsNull(expr)
+        | ast::Expr::IsNotNull(expr)
+        | ast::Expr::IsTrue(expr)
+        | ast::Expr::IsNotTrue(expr)
+        | ast::Expr::IsFalse(expr)
+        | ast::Expr::IsNotFalse(expr)
+        | ast::Expr::IsUnknown(expr)
+        | ast::Expr::IsNotUnknown(expr) => {
             extract_columns_from_expr(expr, columns);
-        }
-        ast::Expr::Nested(inner) => {
-            extract_columns_from_expr(inner, columns);
         }
         ast::Expr::Function(func) => {
             if let ast::FunctionArguments::List(arg_list) = &func.args {
@@ -880,17 +1699,15 @@ fn extract_columns_from_expr(expr: &ast::Expr, columns: &mut Vec<ColumnReference
                 extract_columns_from_expr(else_expr, columns);
             }
         }
-        ast::Expr::Cast { expr, .. } => {
-            extract_columns_from_expr(expr, columns);
-        }
         ast::Expr::InList { expr, list, .. } => {
             extract_columns_from_expr(expr, columns);
             for item in list {
                 extract_columns_from_expr(item, columns);
             }
         }
-        ast::Expr::InSubquery { expr, .. } => {
+        ast::Expr::InSubquery { expr, subquery, .. } => {
             extract_columns_from_expr(expr, columns);
+            extract_columns_from_query(subquery, columns);
         }
         ast::Expr::Between {
             expr, low, high, ..
@@ -899,14 +1716,14 @@ fn extract_columns_from_expr(expr: &ast::Expr, columns: &mut Vec<ColumnReference
             extract_columns_from_expr(low, columns);
             extract_columns_from_expr(high, columns);
         }
-        ast::Expr::Like { expr, pattern, .. } | ast::Expr::ILike { expr, pattern, .. } => {
-            extract_columns_from_expr(expr, columns);
-            extract_columns_from_expr(pattern, columns);
+        ast::Expr::Exists { subquery, .. } | ast::Expr::Subquery(subquery) => {
+            extract_columns_from_query(subquery, columns);
         }
-        ast::Expr::IsNull(e) | ast::Expr::IsNotNull(e) => {
-            extract_columns_from_expr(e, columns);
+        ast::Expr::Tuple(exprs) => {
+            for expr in exprs {
+                extract_columns_from_expr(expr, columns);
+            }
         }
-        ast::Expr::Subquery(_) => {}
         _ => {}
     }
 }
@@ -950,7 +1767,7 @@ fn infer_cte_projection_columns(query: &ast::Query) -> Vec<String> {
 fn extract_ctes(stmt: &Statement) -> Vec<CteDefinition> {
     let mut ctes = Vec::new();
 
-    if let Statement::Query(query) = stmt {
+    if let Statement::Query(query) = unwrap_statement(stmt) {
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
                 let columns = if cte.alias.columns.is_empty() {
@@ -1018,6 +1835,22 @@ mod tests {
             cte.columns,
             vec!["review_id".to_string(), "title".to_string()]
         );
+    }
+
+    #[test]
+    fn test_parse_explain_analyze_extracts_inner_statement_metadata() {
+        let doc = parse_document(
+            "EXPLAIN ANALYZE SELECT DISTINCT ON (customer_client_id) * FROM client_sales_contexts",
+            SqlDialect::PostgreSQL,
+        );
+
+        assert!(doc.errors.is_empty(), "Parse errors: {:?}", doc.errors);
+        assert_eq!(doc.statements.len(), 1);
+        assert_eq!(doc.statements[0].statement_type, Some("SELECT".to_string()));
+        assert!(doc.statements[0]
+            .tables
+            .iter()
+            .any(|table| table.name == "client_sales_contexts"));
     }
 
     #[test]
