@@ -3,6 +3,11 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { EditorDiagnosticsStatus, SqlDialect } from "../../types";
 import { linterCoordinator } from "../../services/linter-coordinator";
+import {
+  mapPreparedOffset,
+  prepareSqlForLint,
+  type FastLintDiagnostic,
+} from "./dialect-lint-adapter";
 import { buildSqlQuickFixes } from "./quick-fixes";
 
 interface UnifiedLinterConfig {
@@ -12,6 +17,9 @@ interface UnifiedLinterConfig {
   delay?: number;
   onDiagnosticsStatusChange?: (status: EditorDiagnosticsStatus) => void;
 }
+
+const FAST_PASS_DELAY_MS = 90;
+const SEMANTIC_PASS_DELAY_MS = 550;
 
 function mapSeverity(severity: string): "error" | "warning" | "info" {
   switch (severity) {
@@ -26,75 +34,84 @@ function mapSeverity(severity: string): "error" | "warning" | "info" {
   }
 }
 
-export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
+function toCodeMirrorDiagnostic(
+  diagnostic: {
+    from: number;
+    to: number;
+    severity: string;
+    message: string;
+    source: string;
+  },
+  sql: string,
+): Diagnostic {
+  const from = Math.max(0, Math.min(sql.length, diagnostic.from));
+  const rawTo = Math.max(0, Math.min(sql.length, diagnostic.to));
+  const to = rawTo > from ? rawTo : Math.min(sql.length, from + 1);
+
+  const mappedDiagnostic: Diagnostic = {
+    from,
+    to,
+    severity: mapSeverity(diagnostic.severity),
+    message: diagnostic.message,
+    source: `sql-${diagnostic.source}`,
+  };
+
+  const actions = buildSqlQuickFixes(mappedDiagnostic);
+  return actions.length > 0
+    ? {
+        ...mappedDiagnostic,
+        actions,
+      }
+    : mappedDiagnostic;
+}
+
+function isFastPassOwnedDiagnostic(diagnostic: {
+  message: string;
+  source: string;
+}): boolean {
+  return (
+    diagnostic.message.startsWith("Possible typo: did you mean") ||
+    diagnostic.message.includes("Invalid use of '*'") ||
+    diagnostic.message.includes("without WHERE clause will affect all rows") ||
+    diagnostic.message === "Consider specifying columns instead of SELECT *"
+  );
+}
+
+function toFastPassDiagnostics(
+  diagnostics: FastLintDiagnostic[],
+  sql: string,
+): Diagnostic[] {
+  return diagnostics.map((diagnostic) => toCodeMirrorDiagnostic(diagnostic, sql));
+}
+
+export function createFastSqlLinter(config: UnifiedLinterConfig): Extension {
   let lastSql = "";
   let lastDiagnostics: Diagnostic[] = [];
-  let cancelPending: (() => void) | null = null;
 
   return linter(
-    (view: EditorView): Promise<Diagnostic[]> => {
-      // Fast path: skip unfocused editors before serializing the document
-      if (!view.hasFocus) return Promise.resolve(lastDiagnostics);
+    (view: EditorView): Diagnostic[] => {
+      if (!view.hasFocus) return lastDiagnostics;
 
       const sql = view.state.doc.toString();
-      if (!sql.trim()) return Promise.resolve([]);
-      if (sql === lastSql) return Promise.resolve(lastDiagnostics);
+      if (!sql.trim()) {
+        lastSql = "";
+        lastDiagnostics = [];
+        return [];
+      }
+      if (sql === lastSql) {
+        return lastDiagnostics;
+      }
 
-      config.onDiagnosticsStatusChange?.("validating");
+      const prepared = prepareSqlForLint(sql, config.dialect);
+      const diagnostics = toFastPassDiagnostics(prepared.fastDiagnostics, sql);
 
-      // Cancel any pending request from this editor and settle its promise
-      cancelPending?.();
-
-      return new Promise((resolve) => {
-        const coordinatorCancel = linterCoordinator.requestLint(
-          {
-            sql,
-            dialect: config.dialect,
-            connectionId: config.connectionId,
-            schema: config.schema,
-          },
-          (result) => {
-            const mappedDiagnostics = result.diagnostics.map((d) => {
-              const from = Math.max(0, Math.min(sql.length, d.from));
-              const rawTo = Math.max(0, Math.min(sql.length, d.to));
-              const to = rawTo > from ? rawTo : Math.min(sql.length, from + 1);
-
-              const diagnostic: Diagnostic = {
-                from,
-                to,
-                severity: mapSeverity(d.severity),
-                message: d.message,
-                source: `sql-${d.source}`,
-              };
-
-              const actions = buildSqlQuickFixes(diagnostic);
-              return actions.length > 0
-                ? {
-                    ...diagnostic,
-                    actions,
-                  }
-                : diagnostic;
-            });
-
-            lastSql = sql;
-            lastDiagnostics = mappedDiagnostics;
-            config.onDiagnosticsStatusChange?.(result.status);
-            resolve(mappedDiagnostics);
-          },
-        );
-        // Wrap cancel to also settle the promise (prevents dangling promises)
-        cancelPending = () => {
-          coordinatorCancel();
-          config.onDiagnosticsStatusChange?.("idle");
-          resolve(lastDiagnostics);
-        };
-      });
+      lastSql = sql;
+      lastDiagnostics = diagnostics;
+      return diagnostics;
     },
     {
-      delay: config.delay ?? 1200, // Longer debounce reduces typing stalls.
-      needsRefresh: () => false, // Don't auto-refresh on viewport changes
-      // Dismiss lint hover popup when cursor/selection moves (click, arrows, etc.).
-      // This keeps popup lifecycle predictable while typing and navigating.
+      delay: FAST_PASS_DELAY_MS,
+      needsRefresh: () => false,
       hideOn: (tr) => {
         if (tr.selection) return true;
         if (tr.docChanged) return true;
@@ -105,3 +122,85 @@ export function createUnifiedLinter(config: UnifiedLinterConfig): Extension {
     },
   );
 }
+
+export function createSemanticSqlLinter(config: UnifiedLinterConfig): Extension {
+  let lastSql = "";
+  let lastDiagnostics: Diagnostic[] = [];
+  let cancelPending: (() => void) | null = null;
+
+  return linter(
+    (view: EditorView): Promise<Diagnostic[]> => {
+      if (!view.hasFocus) return Promise.resolve(lastDiagnostics);
+
+      const sql = view.state.doc.toString();
+      if (!sql.trim()) {
+        lastSql = "";
+        lastDiagnostics = [];
+        return Promise.resolve([]);
+      }
+      if (sql === lastSql) return Promise.resolve(lastDiagnostics);
+
+      const prepared = prepareSqlForLint(sql, config.dialect);
+      if (!prepared.canRunSemantic) {
+        lastSql = sql;
+        lastDiagnostics = [];
+        config.onDiagnosticsStatusChange?.("idle");
+        return Promise.resolve([]);
+      }
+
+      config.onDiagnosticsStatusChange?.("validating");
+
+      cancelPending?.();
+
+      return new Promise((resolve) => {
+        const coordinatorCancel = linterCoordinator.requestLint(
+          {
+            sql: prepared.canonicalSql,
+            dialect: config.dialect,
+            connectionId: config.connectionId,
+            schema: config.schema,
+            includeHeuristics: false,
+          },
+          (result) => {
+            const mappedDiagnostics = result.diagnostics
+              .filter((diagnostic) => !isFastPassOwnedDiagnostic(diagnostic))
+              .map((diagnostic) =>
+                toCodeMirrorDiagnostic(
+                  {
+                    ...diagnostic,
+                    from: mapPreparedOffset(prepared.offsetMap, diagnostic.from),
+                    to: mapPreparedOffset(prepared.offsetMap, diagnostic.to),
+                  },
+                  sql,
+                ),
+              );
+
+            lastSql = sql;
+            lastDiagnostics = mappedDiagnostics;
+            config.onDiagnosticsStatusChange?.(result.status);
+            resolve(mappedDiagnostics);
+          },
+        );
+
+        cancelPending = () => {
+          coordinatorCancel();
+          config.onDiagnosticsStatusChange?.("idle");
+          resolve([]);
+        };
+      });
+    },
+    {
+      delay: config.delay ?? SEMANTIC_PASS_DELAY_MS,
+      needsRefresh: () => false,
+      hideOn: (tr) => {
+        if (tr.selection) return true;
+        if (tr.docChanged) return true;
+        if (tr.isUserEvent("select.pointer")) return true;
+        if (tr.isUserEvent("select")) return true;
+        return null;
+      },
+    },
+  );
+}
+
+export const createUnifiedLinter = createSemanticSqlLinter;
