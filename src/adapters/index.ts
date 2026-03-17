@@ -1006,7 +1006,12 @@ export async function generateSqlPreview(
     }
 
     if (statements.length > 0) {
-      sections.push(statements.join(";\n") + ";");
+      // Ensure each statement ends with exactly one semicolon.
+      // Some commands (e.g. modifyColumn) return multiple statements joined with ";\n".
+      const normalized = statements
+        .map((s) => s.replace(/;?\s*$/, ";"))
+        .join("\n");
+      sections.push(normalized);
     }
   }
 

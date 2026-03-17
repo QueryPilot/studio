@@ -846,9 +846,15 @@ export const TableStructure = memo(function TableStructure({
             stageCommand(updatedCmd);
           }
         } else {
-          const modifyCmd = createColumnModifyCommand(target, row.column_name, {
-            dataType,
-          });
+          const changes: Record<string, unknown> = { dataType };
+          // Pass current default so PostgreSQL can drop-and-restore it during type change.
+          // Always set previousDefault to clear any stale value from prior merges.
+          const originalData = row._originalData;
+          changes.previousDefault =
+            originalData?.default != null && originalData.default !== ""
+              ? originalData.default
+              : null;
+          const modifyCmd = createColumnModifyCommand(target, row.column_name, changes);
           stageCommand(modifyCmd);
         }
       }
@@ -1178,6 +1184,13 @@ export const TableStructure = memo(function TableStructure({
           newDefinition.comment = extractedValue;
         } else if (column.field === "db_type") {
           newDefinition.dataType = extractedValue;
+          // Pass current default so PostgreSQL can drop-and-restore it during type change.
+          // Always set previousDefault (even as null) to clear any stale value from prior merges.
+          const originalData = row._originalData;
+          newDefinition.previousDefault =
+            originalData?.default != null && originalData.default !== ""
+              ? originalData.default
+              : null;
         }
 
         const modifyCommands = pendingCommands.filter((cmd) => {

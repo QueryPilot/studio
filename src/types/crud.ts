@@ -125,6 +125,8 @@ export interface ColumnDefinitionInput {
   readonly isPrimaryKey?: boolean;
   readonly isUnique?: boolean;
   readonly checkExpression?: string;
+  /** Raw SQL default expression from the current column, used to restore after type change */
+  readonly previousDefault?: string;
 }
 
 /**

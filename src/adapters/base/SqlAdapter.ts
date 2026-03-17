@@ -436,7 +436,37 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const colName = this.quoteIdentifier(columnName);
     const statements: string[] = [];
 
-    if (changes.dataType) {
+    if (changes.dataType && this.dbType === "PostgreSQL") {
+      // PostgreSQL: drop default before type change to avoid cast errors on the default value,
+      // then change the type with USING for explicit casts, then restore the default.
+      const hadDefault = changes.previousDefault != null && changes.previousDefault !== "";
+      if (hadDefault) {
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} DROP DEFAULT`,
+        );
+      }
+      // Strip type parameters for the USING cast (e.g. varchar(255) → varchar, numeric(10,2) → numeric)
+      // PostgreSQL's :: cast operator doesn't accept parameterized types
+      const castType = changes.dataType.replace(/\(.*\)$/, "");
+      statements.push(
+        `ALTER TABLE ${table} ALTER COLUMN ${colName} TYPE ${changes.dataType} USING ${colName}::${castType}`,
+      );
+      // Restore: prefer user-specified new default, fall back to previous default cast to new type
+      if (changes.defaultValue !== undefined && changes.defaultValue !== null) {
+        // Default values from the structure editor are raw SQL expressions — use directly
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} SET DEFAULT ${changes.defaultValue}`,
+        );
+      } else if (hadDefault) {
+        // Restore the original default expression as-is.
+        // The value from pg is already a typed SQL expression (e.g. 'pending'::my_enum),
+        // and after the TYPE change it should already be compatible with the new type.
+        // If incompatible, PostgreSQL will report a clear error.
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} SET DEFAULT ${changes.previousDefault}`,
+        );
+      }
+    } else if (changes.dataType) {
       statements.push(
         `ALTER TABLE ${table} ALTER COLUMN ${colName} TYPE ${changes.dataType}`,
       );
@@ -454,17 +484,16 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       }
     }
 
-    if (changes.defaultValue !== undefined) {
+    // Handle default value changes (skip if already handled above for PostgreSQL type change)
+    if (changes.defaultValue !== undefined && !(changes.dataType && this.dbType === "PostgreSQL")) {
       if (changes.defaultValue === null) {
         statements.push(
           `ALTER TABLE ${table} ALTER COLUMN ${colName} DROP DEFAULT`,
         );
       } else {
+        // Default values from the structure editor are raw SQL expressions — use directly
         statements.push(
-          `ALTER TABLE ${table} ALTER COLUMN ${colName} SET DEFAULT ${this.formatValue(
-            changes.defaultValue,
-            { name: columnName },
-          )}`,
+          `ALTER TABLE ${table} ALTER COLUMN ${colName} SET DEFAULT ${changes.defaultValue}`,
         );
       }
     }
@@ -606,8 +635,10 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       sql += ` WHEN (${definition.condition})`;
     }
 
-    // EXECUTE FUNCTION (PostgreSQL style)
-    sql += ` EXECUTE FUNCTION ${definition.functionName}()`;
+    // EXECUTE FUNCTION (PostgreSQL style) — quote each part of potentially schema-qualified name
+    const fnParts = definition.functionName.split('.');
+    const quotedFnName = fnParts.map(p => this.quoteIdentifier(p)).join('.');
+    sql += ` EXECUTE FUNCTION ${quotedFnName}()`;
 
     return sql;
   }
@@ -672,11 +703,8 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     }
 
     if (column.defaultValue !== undefined && column.defaultValue !== null) {
-      parts.push(
-        `DEFAULT ${this.formatValue(column.defaultValue, {
-          name: column.name,
-        })}`,
-      );
+      // Default values are raw SQL expressions (e.g. now(), 'value'::type) — use directly
+      parts.push(`DEFAULT ${column.defaultValue}`);
     }
 
     if (column.isPrimaryKey) {

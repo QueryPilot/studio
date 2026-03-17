@@ -9,7 +9,7 @@ exports[`commandToSql - MySQL > should throw error for materialized view in MySQ
 
 exports[`commandToSql - MySQL > should throw error for sequence in MySQL 1`] = `[Error: MySQL does not support sequences. Use AUTO_INCREMENT instead.]`;
 
-exports[`commandToSql - PostgreSQL > Column Operations > should generate ADD COLUMN statement 1`] = `"ALTER TABLE "public"."users" ADD COLUMN "phone" VARCHAR(20) DEFAULT null"`;
+exports[`commandToSql - PostgreSQL > Column Operations > should generate ADD COLUMN statement 1`] = `"ALTER TABLE "public"."users" ADD COLUMN "phone" VARCHAR(20)"`;
 
 exports[`commandToSql - PostgreSQL > Column Operations > should generate DROP COLUMN statement 1`] = `"ALTER TABLE "public"."users" DROP COLUMN "phone" CASCADE"`;
 
@@ -47,7 +47,7 @@ exports[`commandToSql - PostgreSQL > Table Operations > should generate DROP TAB
 
 exports[`commandToSql - PostgreSQL > Table Operations > should generate TRUNCATE TABLE statement 1`] = `"TRUNCATE TABLE "public"."users" RESTART IDENTITY CASCADE"`;
 
-exports[`commandToSql - PostgreSQL > Trigger Operations > should generate CREATE TRIGGER statement 1`] = `"CREATE TRIGGER "update_timestamp" BEFORE UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"`;
+exports[`commandToSql - PostgreSQL > Trigger Operations > should generate CREATE TRIGGER statement 1`] = `"CREATE TRIGGER "update_timestamp" BEFORE UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"()"`;
 
 exports[`commandToSql - PostgreSQL > Trigger Operations > should generate DROP TRIGGER statement 1`] = `"DROP TRIGGER IF EXISTS "update_timestamp" ON "public"."users""`;
 

@@ -172,11 +172,8 @@ export class MySQLAdapter extends SqlAdapter {
         if (changes.defaultValue === null) {
           parts.push("DEFAULT NULL");
         } else {
-          parts.push(
-            `DEFAULT ${this.formatValue(changes.defaultValue, {
-              name: columnName,
-            })}`,
-          );
+          // Default values from the structure editor are raw SQL expressions — use directly
+          parts.push(`DEFAULT ${changes.defaultValue}`);
         }
       }
 
@@ -328,9 +325,10 @@ export class MySQLAdapter extends SqlAdapter {
     const table = this.formatTableRef(target);
     const triggerName = this.quoteIdentifier(definition.name);
     const timing = definition.timing;
-    const events = definition.events.join(", ");
+    // MySQL supports only single-event triggers — use the first event
+    const event = definition.events[0] ?? "INSERT";
 
-    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${events} ON ${table}`;
+    let sql = `CREATE TRIGGER ${triggerName} ${timing} ${event} ON ${table}`;
     sql += ` FOR EACH ROW`;
     sql += `\nBEGIN\n  ${definition.functionName};\nEND`;
 

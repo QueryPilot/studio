@@ -298,7 +298,8 @@ export class MSSQLAdapter extends SqlAdapter {
     }
 
     if (column.defaultValue !== undefined && column.defaultValue !== null) {
-      parts.push(`DEFAULT ${this.formatValue(column.defaultValue, { name: column.name })}`);
+      // Default values are raw SQL expressions — use directly
+      parts.push(`DEFAULT ${column.defaultValue}`);
     }
 
     return `ALTER TABLE ${table} ADD ${parts.join(' ')}`;
@@ -340,7 +341,8 @@ export class MSSQLAdapter extends SqlAdapter {
         );
       } else {
         statements.push(
-          `ALTER TABLE ${table} ADD DEFAULT ${this.formatValue(changes.defaultValue, { name: columnName })} FOR ${colName}`
+          // Default values from the structure editor are raw SQL expressions — use directly
+          `ALTER TABLE ${table} ADD DEFAULT ${changes.defaultValue} FOR ${colName}`
         );
       }
     }
@@ -356,7 +358,7 @@ export class MSSQLAdapter extends SqlAdapter {
       } else {
         // Add or update comment - try update first, then add if it doesn't exist
         statements.push(
-          `IF EXISTS (SELECT 1 FROM sys.extended_properties WHERE major_id = OBJECT_ID('${schema}.${target.table}') AND minor_id = (SELECT column_id FROM sys.columns WHERE object_id = OBJECT_ID('${schema}.${target.table}') AND name = '${this.escapeString(columnName)}') AND name = 'MS_Description') ` +
+          `IF EXISTS (SELECT 1 FROM sys.extended_properties WHERE major_id = OBJECT_ID('${this.escapeString(schema)}.${this.escapeString(target.table)}') AND minor_id = (SELECT column_id FROM sys.columns WHERE object_id = OBJECT_ID('${this.escapeString(schema)}.${this.escapeString(target.table)}') AND name = '${this.escapeString(columnName)}') AND name = 'MS_Description') ` +
           `EXEC sp_updateextendedproperty @name = N'MS_Description', @value = ${this.quoteString(changes.comment)}, @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}', @level1type = N'TABLE', @level1name = N'${this.escapeString(target.table)}', @level2type = N'COLUMN', @level2name = N'${this.escapeString(columnName)}' ` +
           `ELSE EXEC sp_addextendedproperty @name = N'MS_Description', @value = ${this.quoteString(changes.comment)}, @level0type = N'SCHEMA', @level0name = N'${this.escapeString(schema)}', @level1type = N'TABLE', @level1name = N'${this.escapeString(target.table)}', @level2type = N'COLUMN', @level2name = N'${this.escapeString(columnName)}'`
         );
@@ -514,7 +516,7 @@ export class MSSQLAdapter extends SqlAdapter {
   dropTrigger(target: TableRef, triggerName: string, ifExists?: boolean): string {
     const schema = target.schema || 'dbo';
     const ifExistsClause = ifExists
-      ? `IF EXISTS (SELECT * FROM sys.triggers WHERE name = '${this.escapeString(triggerName)}') `
+      ? `IF EXISTS (SELECT 1 FROM sys.triggers t JOIN sys.schemas s ON t.schema_id = s.schema_id WHERE t.name = '${this.escapeString(triggerName)}' AND s.name = '${this.escapeString(schema)}') `
       : '';
     return `${ifExistsClause}DROP TRIGGER ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(triggerName)}`;
   }
