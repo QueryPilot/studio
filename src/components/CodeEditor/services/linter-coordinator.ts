@@ -11,6 +11,7 @@ interface LintRequest {
   dialect: SqlDialect;
   connectionId?: string;
   schema?: string;
+  includeHeuristics?: boolean;
 }
 
 interface LintDiagnostic {
@@ -27,6 +28,29 @@ interface LintResult {
 }
 
 type LintCallback = (result: LintResult) => void;
+
+export function resolveSchemaForLint(
+  dialect: SqlDialect,
+  schema?: string,
+): string | null {
+  const trimmedSchema = schema?.trim();
+  if (trimmedSchema) {
+    return trimmedSchema;
+  }
+
+  switch (dialect) {
+    case "sqlite":
+      return "main";
+    case "mssql":
+      return "dbo";
+    case "postgresql":
+    case "plsql":
+      return "public";
+    case "mysql":
+    default:
+      return null;
+  }
+}
 
 /**
  * Singleton coordinator that deduplicates and batches lint IPC calls.
@@ -49,7 +73,8 @@ class LinterCoordinator {
   private CACHE_TTL = 5000;
 
   requestLint(request: LintRequest, callback: LintCallback): () => void {
-    const cacheKey = this.getCacheKey(request);
+    const normalizedRequest = this.normalizeRequest(request);
+    const cacheKey = this.getCacheKey(normalizedRequest);
 
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
@@ -64,7 +89,7 @@ class LinterCoordinator {
       existing.callbacks.push(callback);
     } else {
       this.pendingRequests.set(cacheKey, {
-        request,
+        request: normalizedRequest,
         callbacks: [callback],
       });
     }
@@ -84,24 +109,15 @@ class LinterCoordinator {
     };
   }
 
-  private getSyncSchema(request: LintRequest): string | null {
-    const trimmedSchema = request.schema?.trim();
-    if (trimmedSchema) {
-      return trimmedSchema;
-    }
-
-    switch (request.dialect) {
-      case "sqlite":
-        return "main";
-      case "mssql":
-        return "dbo";
-      case "postgresql":
-      case "plsql":
-        return "public";
-      case "mysql":
-      default:
-        return null;
-    }
+  private normalizeRequest(request: LintRequest): LintRequest {
+    const schema =
+      request.schema || request.connectionId
+        ? (resolveSchemaForLint(request.dialect, request.schema) ?? undefined)
+        : undefined;
+    return {
+      ...request,
+      schema,
+    };
   }
 
   private async flush() {
@@ -118,7 +134,7 @@ class LinterCoordinator {
             let status: EditorDiagnosticsStatus = "ready";
 
             if (request.connectionId) {
-              const schemaName = this.getSyncSchema(request);
+              const schemaName = request.schema ?? null;
               if (schemaName) {
                 await syncSchemaToRust(request.connectionId, schemaName);
                 status = getRustSchemaSyncStatus(request.connectionId, schemaName);
@@ -176,7 +192,7 @@ class LinterCoordinator {
   }
 
   private getCacheKey(request: LintRequest): string {
-    return `${request.dialect}:${request.connectionId ?? ""}:${request.schema ?? ""}:${request.sql}`;
+    return `${request.dialect}:${request.connectionId ?? ""}:${request.schema ?? ""}:${request.includeHeuristics === false ? "semantic" : "full"}:${request.sql}`;
   }
 
   clearCache() {
