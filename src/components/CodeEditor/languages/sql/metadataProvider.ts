@@ -80,6 +80,53 @@ export class SqlMetadataProvider implements MetadataProvider {
     }).join(" AND ");
   }
 
+  private normalizeTypeFamily(dataType: string | undefined): string {
+    if (!dataType) return "unknown";
+
+    const normalized = dataType.toLowerCase();
+    const base = normalized.split("(")[0]?.trim() || normalized.trim();
+
+    if (
+      /(smallint|integer|bigint|serial|bigserial|numeric|decimal|number|float|double|real|money)/.test(
+        base
+      )
+    ) {
+      return "number";
+    }
+    if (/(uuid|uniqueidentifier)/.test(base)) return "uuid";
+    if (/(char|varchar|nvarchar|nchar|text|clob|string)/.test(base)) return "text";
+    if (/(timestamp|datetime|date|time)/.test(base)) return "datetime";
+    if (/(bool)/.test(base)) return "boolean";
+    if (/(json|jsonb)/.test(base)) return "json";
+    if (/(blob|binary|varbinary|bytea)/.test(base)) return "binary";
+
+    return base;
+  }
+
+  private areJoinTypesCompatible(
+    leftType: string | undefined,
+    rightType: string | undefined
+  ): boolean {
+    const left = this.normalizeTypeFamily(leftType);
+    const right = this.normalizeTypeFamily(rightType);
+
+    if (left === "unknown" || right === "unknown") {
+      return true;
+    }
+
+    return left === right;
+  }
+
+  private isKeyLikeColumn(column: {
+    name: string;
+    is_pk?: boolean;
+    is_fk?: boolean;
+  }): boolean {
+    if (column.is_pk || column.is_fk) return true;
+    const lower = column.name.toLowerCase();
+    return lower === "id" || lower.endsWith("_id");
+  }
+
   async listEntities(schema?: string): Promise<EntityMeta[]> {
     const targetSchema = schema || this.defaultSchema;
 
@@ -302,6 +349,9 @@ export class SqlMetadataProvider implements MetadataProvider {
     );
 
     // Build a map of column names for quick lookup
+    const targetColumnsByName = new Map(
+      targetColumns.map((c) => [c.name.toLowerCase(), c])
+    );
     const targetColumnNames = new Set(targetColumns.map(c => c.name.toLowerCase()));
     const targetPkColumns = targetColumns.filter(c => c.is_pk).map(c => c.name);
 
@@ -316,6 +366,9 @@ export class SqlMetadataProvider implements MetadataProvider {
         scopeTable.schema || targetSchema,
         scopeTable.name
       );
+      const scopeColumnsByName = new Map(
+        scopeColumns.map((c) => [c.name.toLowerCase(), c])
+      );
 
       const scopePkColumns = scopeColumns.filter(c => c.is_pk).map(c => c.name);
 
@@ -325,7 +378,13 @@ export class SqlMetadataProvider implements MetadataProvider {
       const expectedFkName = `${targetTable.name.toLowerCase()}_${targetIdColumn.toLowerCase()}`;
       
       for (const col of scopeColumns) {
-        if (col.name.toLowerCase() === expectedFkName && targetColumnNames.has(targetIdColumn.toLowerCase())) {
+        const targetIdMeta = targetColumnsByName.get(targetIdColumn.toLowerCase());
+        if (
+          col.name.toLowerCase() === expectedFkName &&
+          targetColumnNames.has(targetIdColumn.toLowerCase()) &&
+          targetIdMeta &&
+          this.areJoinTypesCompatible(col.db_type, targetIdMeta.db_type)
+        ) {
           const condition = `${this.formatColumnRef(scopeTable, col.name)} = ${this.formatColumnRef(targetTable, targetIdColumn)}`;
           if (!seenConditions.has(condition.toLowerCase())) {
             seenConditions.add(condition.toLowerCase());
@@ -342,9 +401,14 @@ export class SqlMetadataProvider implements MetadataProvider {
       // Strategy 2: Check reverse - target has fk pattern to scope
       const scopeIdColumn = scopePkColumns[0] || "id";
       const expectedReverseFkName = `${scopeTable.name.toLowerCase()}_${scopeIdColumn.toLowerCase()}`;
+      const scopeIdMeta = scopeColumnsByName.get(scopeIdColumn.toLowerCase());
       
       for (const col of targetColumns) {
-        if (col.name.toLowerCase() === expectedReverseFkName) {
+        if (
+          col.name.toLowerCase() === expectedReverseFkName &&
+          scopeIdMeta &&
+          this.areJoinTypesCompatible(col.db_type, scopeIdMeta.db_type)
+        ) {
           const condition = `${this.formatColumnRef(targetTable, col.name)} = ${this.formatColumnRef(scopeTable, scopeIdColumn)}`;
           if (!seenConditions.has(condition.toLowerCase())) {
             seenConditions.add(condition.toLowerCase());
@@ -360,10 +424,13 @@ export class SqlMetadataProvider implements MetadataProvider {
 
       // Strategy 3: Match same column names (both tables have same column)
       for (const scopeCol of scopeColumns) {
-        if (targetColumnNames.has(scopeCol.name.toLowerCase())) {
+        const targetCol = targetColumnsByName.get(scopeCol.name.toLowerCase());
+        if (targetCol) {
           // Prefer PK/FK columns, skip very common names like "id", "created_at"
           const commonNonJoinColumns = new Set(["id", "created_at", "updated_at", "deleted_at", "name", "description", "status"]);
           if (commonNonJoinColumns.has(scopeCol.name.toLowerCase())) continue;
+          if (!this.isKeyLikeColumn(scopeCol) && !this.isKeyLikeColumn(targetCol)) continue;
+          if (!this.areJoinTypesCompatible(scopeCol.db_type, targetCol.db_type)) continue;
 
           const condition = `${this.formatColumnRef(scopeTable, scopeCol.name)} = ${this.formatColumnRef(targetTable, scopeCol.name)}`;
           if (!seenConditions.has(condition.toLowerCase())) {

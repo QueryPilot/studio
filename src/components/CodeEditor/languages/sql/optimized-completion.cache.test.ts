@@ -21,6 +21,7 @@ vi.mock("./shared", async () => {
 import {
   clearCompletionCache,
   createOptimizedCompletionSource,
+  generateAlias,
 } from "./optimized-completion";
 import type { MetadataProvider } from "../../types";
 
@@ -127,5 +128,10 @@ describe("clearCompletionCache", () => {
       false,
     );
     expect(listFields).toHaveBeenCalledTimes(2);
+  });
+
+  it("generates aliases that avoid reserved query qualifiers", () => {
+    expect(generateAlias("users", new Set(["u", "users"]))).toBe("us");
+    expect(generateAlias("orders", new Set(["o", "or", "ord"]))).toBe("o1");
   });
 });
