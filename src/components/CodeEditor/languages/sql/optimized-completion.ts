@@ -921,6 +921,10 @@ async function fetchCompletions(
       const isJoinTableContext = /\b(?:LEFT\s+|RIGHT\s+|INNER\s+|FULL\s+(?:OUTER\s+)?|CROSS\s+)?JOIN\s+[a-zA-Z0-9_"`[\].]*$/i.test(
         sqlBeforeCursor,
       );
+      const tablesInScope = extractTableRefs(context.state, connectionId)
+        .filter((t) => !t.isCTE)
+        .map((t) => ({ name: t.name, alias: t.alias, schema: t.schema }));
+      const reservedAliases = collectReservedQualifiers(tablesInScope);
 
       // Try metadata cache first for instant response
       if (!isJoinTableContext) {
@@ -934,7 +938,7 @@ async function fetchCompletions(
       const entities = await provider.listEntities();
       const baseTableCompletions: Completion[] = [];
       for (const entity of entities) {
-        const alias = generateAlias(entity.name);
+        const alias = generateAlias(entity.name, reservedAliases);
         const usageBoost = getUsageBoost("tables", entity.name);
         const completion: Completion = {
           label: entity.name,
@@ -953,9 +957,6 @@ async function fetchCompletions(
           targetTable: { name: string; alias?: string; schema?: string },
           schema?: string,
         ) => provider.getJoinConditions?.(tablesInScope, targetTable, schema) ?? [];
-        const tablesInScope = extractTableRefs(context.state, connectionId)
-          .filter((t) => !t.isCTE)
-          .map((t) => ({ name: t.name, alias: t.alias, schema: t.schema }));
 
         if (tablesInScope.length > 0) {
           const joinCandidates = entities
@@ -967,7 +968,7 @@ async function fetchCompletions(
 
           const joinSuggestionResults = await Promise.all(
             joinCandidates.map(async (entity) => {
-              const alias = generateAlias(entity.name) || undefined;
+              const alias = generateAlias(entity.name, reservedAliases) || undefined;
               const targetTable = {
                 name: entity.name,
                 alias,
@@ -1168,7 +1169,20 @@ function quoteIdentifier(name: string, dialect: SqlDialect): string {
 /**
  * Generate smart alias for table
  */
-function generateAlias(tableName: string): string {
+function collectReservedQualifiers(
+  tables: Array<{ name: string; alias?: string }>
+): Set<string> {
+  const reserved = new Set<string>();
+  for (const table of tables) {
+    const name = table.name.trim().toLowerCase();
+    if (name) reserved.add(name);
+    const alias = table.alias?.trim().toLowerCase();
+    if (alias) reserved.add(alias);
+  }
+  return reserved;
+}
+
+function generateAliasCandidates(tableName: string): string[] {
   const baseName = tableName.split(".").pop()?.toLowerCase() || tableName.toLowerCase();
   const candidates: string[] = [];
 
@@ -1184,12 +1198,40 @@ function generateAlias(tableName: string): string {
   if (baseName.length >= 2) candidates.push(baseName.slice(0, 2));
   if (baseName.length >= 3) candidates.push(baseName.slice(0, 3));
 
+  return [...new Set(candidates)];
+}
+
+export function generateAlias(
+  tableName: string,
+  reservedQualifiers: Set<string> = new Set()
+): string {
+  const candidates = generateAliasCandidates(tableName);
+  const reserved = new Set(
+    Array.from(reservedQualifiers).map((value) => value.toLowerCase())
+  );
+
   for (const candidate of candidates) {
     const alias = candidate.trim().toLowerCase();
     if (!alias) continue;
     if (isSqlKeyword(alias)) continue;
     if (!/^[a-z_][a-z0-9_]*$/.test(alias)) continue;
+    if (reserved.has(alias)) continue;
     return alias;
+  }
+
+  for (const baseCandidate of candidates) {
+    const base = baseCandidate.trim().toLowerCase();
+    if (!base) continue;
+    if (isSqlKeyword(base)) continue;
+    if (!/^[a-z_][a-z0-9_]*$/.test(base)) continue;
+
+    for (let suffix = 1; suffix < 100; suffix += 1) {
+      const alias = `${base}${suffix}`;
+      if (!/^[a-z_][a-z0-9_]*$/.test(alias)) continue;
+      if (isSqlKeyword(alias)) continue;
+      if (reserved.has(alias)) continue;
+      return alias;
+    }
   }
 
   return "";
