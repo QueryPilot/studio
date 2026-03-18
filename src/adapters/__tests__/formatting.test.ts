@@ -219,9 +219,9 @@ describe('formatting utilities', () => {
     });
 
     describe('Date handling', () => {
-      it('should format dates as ISO strings', () => {
-        const date = new Date('2024-01-15T10:30:00.000Z');
-        expect(formatValue(date, DbType.PostgreSQL)).toBe("'2024-01-15T10:30:00.000Z'");
+      it('should format dates using local-time components', () => {
+        const date = new Date(2024, 0, 15, 10, 30, 0);
+        expect(formatValue(date, DbType.PostgreSQL)).toBe("'2024-01-15 10:30:00'");
       });
 
       it('should return NULL for invalid dates', () => {

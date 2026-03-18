@@ -633,69 +633,52 @@ export const ResultViewer = memo(function ResultViewer({
     );
   }
 
-  // Handle mutation results (UPDATE, DELETE, INSERT, TRUNCATE)
-  // Special case: RETURNING clause queries have both affectedRows AND data to show
-  if (result.affectedRows !== undefined && result.rows.length === 0) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-muted/10 h-full",
-          className,
-        )}
-      >
-        <div className="flex flex-col items-center space-y-3">
-          <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-            <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
-          </div>
-          <div className="text-center space-y-1">
-            <p className="text-sm font-medium text-foreground">
-              Query executed successfully
-            </p>
-            <p className="text-2xl font-bold text-foreground">
-              {result.affectedRows.toLocaleString()}
-            </p>
-            <p className="text-xs text-muted-foreground">rows affected</p>
-          </div>
-          {result.executionTime !== undefined && (
-            <div className="pt-2 border-t border-border/50 w-full flex justify-center">
-              <p className="text-xs text-muted-foreground font-mono">
-                {result.executionTime}ms
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  // Handle non-data results: mutations, DDL, transaction commands, SET, etc.
+  // These have no columns/rows to display — show a success message instead of
+  // an empty grid. Checked early to avoid falling through to the table/JSON views.
+  if (result.columns.length === 0 && result.rows.length === 0 && !result.error) {
+    const displayMessage =
+      result.message ??
+      (result.affectedRows !== undefined
+        ? `${result.affectedRows.toLocaleString()} row(s) affected`
+        : null);
 
-  // Handle DDL and other queries with success messages but no rows (CREATE, ALTER, DROP)
-  if (result.message && result.rows.length === 0) {
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center bg-muted/10 h-full",
-          className,
-        )}
-      >
-        <div className="flex flex-col items-center space-y-3">
-          <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
-            <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
-          </div>
-          <div className="text-center space-y-1">
-            <p className="text-sm font-medium text-foreground">
-              {result.message}
-            </p>
-          </div>
-          {result.executionTime !== undefined && (
-            <div className="pt-2 border-t border-border/50 w-full flex justify-center">
-              <p className="text-xs text-muted-foreground font-mono">
-                {result.executionTime}ms
-              </p>
-            </div>
+    if (displayMessage || result.affectedRows !== undefined) {
+      return (
+        <div
+          className={cn(
+            "flex items-center justify-center bg-muted/10 h-full",
+            className,
           )}
+        >
+          <div className="flex flex-col items-center space-y-3">
+            <div className="h-12 w-12 rounded-full bg-green-500/10 flex items-center justify-center">
+              <IconCircleCheck className="h-6 w-6 text-green-600 dark:text-green-500" />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                {displayMessage ?? "Query executed successfully"}
+              </p>
+              {result.affectedRows !== undefined && !result.message && (
+                <>
+                  <p className="text-2xl font-bold text-foreground">
+                    {result.affectedRows.toLocaleString()}
+                  </p>
+                  <p className="text-xs text-muted-foreground">rows affected</p>
+                </>
+              )}
+            </div>
+            {result.executionTime !== undefined && (
+              <div className="pt-2 border-t border-border/50 w-full flex justify-center">
+                <p className="text-xs text-muted-foreground font-mono">
+                  {result.executionTime}ms
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
   // For RETURNING clause queries: show banner with affected rows count above the data

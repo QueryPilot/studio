@@ -118,13 +118,14 @@ describe("sqlInsertExport", () => {
     });
 
     it("should handle Date objects", () => {
-      const date = new Date("2024-01-01T00:00:00.000Z");
+      // Use local-time constructor to avoid timezone-dependent output
+      const date = new Date(2024, 0, 1, 12, 0, 0);
       const dateRows = [[1, date]];
       const dateCols = ["id", "created_at"];
 
       const sql = generateInsertStatements(dateRows, dateCols);
 
-      expect(sql).toContain("'2024-01-01T00:00:00.000Z'");
+      expect(sql).toContain("'2024-01-01 12:00:00'");
     });
 
     it("should handle undefined values as NULL", () => {

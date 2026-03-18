@@ -145,9 +145,13 @@ export class PostgreSQLAdapter extends SqlAdapter {
 
     // Check if it's a date-only type
     if (DATE_TYPE_NAMES.some((t) => dbType.includes(t)) && !dbType.includes('timestamp')) {
-      // Format as date only: YYYY-MM-DD
-      const dateStr = value.toISOString().split('T')[0];
-      return `'${dateStr}'::date`;
+      // Use local date components — Date objects for date-only columns are typically
+      // created from local midnight (new Date(y, m, d)), so getFullYear/Month/Date
+      // return the intended date without UTC day-boundary shift.
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const d = String(value.getDate()).padStart(2, '0');
+      return `'${y}-${m}-${d}'::date`;
     }
 
     // Check if it's a time-only type

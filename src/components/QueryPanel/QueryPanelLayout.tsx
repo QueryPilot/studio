@@ -67,9 +67,14 @@ interface QueryPanelLayoutProps {
 }
 
 function getStatementKeyword(statement: string): string {
-  const cleaned = statement.trim().replace(/\s+/g, " ");
-  if (!cleaned) return "Statement";
-  const [first] = cleaned.split(" ");
+  // Strip line comments and block comments before extracting the keyword
+  const withoutComments = statement
+    .replace(/--[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!withoutComments) return "Statement";
+  const [first] = withoutComments.split(" ");
   return first ? first.toUpperCase() : "Statement";
 }
 
@@ -266,7 +271,7 @@ export function QueryPanelLayout({
                   <ResizablePanel id="qp-results" defaultSize="50" minSize="20">
                     <div className="flex flex-col h-full">
                       {showResultHeader && (
-                        <div className="shrink-0 border-b border-border bg-muted/20 px-2 py-1">
+                        <div className="shrink-0 px-2 pt-1">
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               {batchResults.length > 0 && (
@@ -290,7 +295,8 @@ export function QueryPanelLayout({
                                           "h-1.5 w-1.5 rounded-full",
                                           entry.status === "success" &&
                                             "bg-emerald-500",
-                                          entry.status === "error" && "bg-red-500",
+                                          entry.status === "error" &&
+                                            "bg-red-500",
                                           entry.status === "skipped" &&
                                             "bg-amber-500",
                                         )}

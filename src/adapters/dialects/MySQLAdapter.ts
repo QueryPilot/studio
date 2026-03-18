@@ -82,13 +82,20 @@ export class MySQLAdapter extends SqlAdapter {
     }
 
     // Date formatting without timezone (MySQL DATETIME format)
+    // Use local-time methods — Date objects are typically created from local
+    // components, so getFullYear/Hours/etc. return the user's intended values
+    // without UTC day-boundary or hour shifts.
     if (value instanceof Date) {
       if (isNaN(value.getTime())) {
         throw new Error("Invalid Date value");
       }
-      // Format: 'YYYY-MM-DD HH:MM:SS'
-      const formatted = value.toISOString().slice(0, 19).replace("T", " ");
-      return `'${formatted}'`;
+      const y = value.getFullYear();
+      const mo = String(value.getMonth() + 1).padStart(2, "0");
+      const d = String(value.getDate()).padStart(2, "0");
+      const h = String(value.getHours()).padStart(2, "0");
+      const mi = String(value.getMinutes()).padStart(2, "0");
+      const s = String(value.getSeconds()).padStart(2, "0");
+      return `'${y}-${mo}-${d} ${h}:${mi}:${s}'`;
     }
 
     // Buffer/Uint8Array as hex literal

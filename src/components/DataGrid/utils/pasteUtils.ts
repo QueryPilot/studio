@@ -343,21 +343,19 @@ export function coerceToColumnType(
     return str;
   }
 
-  // Date types - try to parse and format
+  // Date types - extract date portion via regex to avoid timezone shifts from new Date()
   if (dbType === "date") {
-    const date = new Date(str);
-    if (!Number.isNaN(date.getTime())) {
-      return date.toISOString().split("T")[0] ?? str;
+    const dateMatch = str.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch?.[1]) {
+      return dateMatch[1];
     }
     return str;
   }
 
-  // Timestamp types
+  // Timestamp types - pass through as-is; the database handles parsing.
+  // Avoid new Date(str).toISOString() which misparses timezone offsets on WebKit,
+  // converting e.g. "2024-06-15 10:30:00+05:30" to wrong UTC time.
   if (dbType.includes("timestamp")) {
-    const date = new Date(str);
-    if (!Number.isNaN(date.getTime())) {
-      return date.toISOString();
-    }
     return str;
   }
 

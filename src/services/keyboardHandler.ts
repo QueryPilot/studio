@@ -29,6 +29,10 @@ const isNativeTextInputElement = (element: EventTarget | null): boolean => {
   );
 };
 
+const isCodeMirrorElement = (element: EventTarget | null): boolean => (
+  element instanceof HTMLElement && Boolean(element.closest(".cm-editor"))
+);
+
 export interface KeyboardHandlerOptions {
   chordTimeoutMs?: number;
   preventDefault?: boolean;
@@ -106,6 +110,21 @@ export class KeyboardHandler {
     const isNativeTextInput =
       isNativeTextInputElement(target) ||
       isNativeTextInputElement(activeElement);
+    const codeMirrorFocused =
+      isCodeMirrorElement(target) ||
+      isCodeMirrorElement(activeElement);
+
+    // Always defer Mod-D to CodeMirror multi-cursor when editor is focused.
+    // This prevents global bindings from hijacking a core editor shortcut.
+    if (
+      codeMirrorFocused &&
+      event.code === "KeyD" &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.shiftKey &&
+      !event.altKey
+    ) {
+      return;
+    }
 
     const dispatch = keyboardEventToDispatch(event, this.platform);
     if (!dispatch) {

@@ -211,9 +211,13 @@ export function parseHstoreFromBytes(bytes: Uint8Array): Record<string, string |
   return result;
 }
 
+// Escape backslashes and double quotes for hstore key/value components
+const escapeHstoreStr = (s: string): string =>
+  s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
 export function formatHstore(hstore: Record<string, string | null>): string {
   return Object.entries(hstore)
-    .map(([k, v]) => `"${k}"=>${v === null ? 'NULL' : `"${v}"`}`)
+    .map(([k, v]) => `"${escapeHstoreStr(k)}"=>${v === null ? 'NULL' : `"${escapeHstoreStr(v)}"`}`)
     .join(', ');
 }
 

@@ -39,15 +39,16 @@ import { cn } from "@/lib/cn";
 import { type DateTimeCustomCell } from "./types";
 import { parseDateTime } from "./utils";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
-import dayjs from "dayjs";
-
-// Normalize datetime strings for comparison (handles timezone differences)
+// Normalize datetime strings for comparison by stripping format differences
+// (space vs T separator) so we compare the actual datetime, not formatting.
+// Avoids dayjs()/new Date() which misparse timezone offsets on WebKit,
+// causing local-time interpretation and phantom edits.
 const normalizeDateTimeForComparison = (
   value: string | null,
-): number | null => {
+): string | null => {
   if (!value) return null;
-  const parsed = dayjs(value);
-  return parsed.isValid() ? parsed.valueOf() : null;
+  // Normalize T/space separator and trim trailing whitespace
+  return value.trim().replace(/[T ]/g, "T");
 };
 
 // Time Picker Component (following shadcn pattern)
@@ -220,16 +221,38 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
 
   const handleSetNow = useCallback(() => {
     const now = new Date();
+    // Use UTC time when the selected timezone is UTC-like (+00:00 or Z),
+    // otherwise use local time to match the selected offset.
+    const isUTC = selectedTimezone === "Z" || selectedTimezone === "+00:00";
     if (kind !== "time-cell") {
-      setSelectedDate(now);
+      if (isUTC) {
+        // Create a local Date that represents the UTC date components
+        // so that getFullYear/getMonth/getDate return UTC values in buildDateTimeString
+        setSelectedDate(
+          new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+        );
+      } else {
+        setSelectedDate(now);
+      }
     }
-    setHour(String(now.getHours()).padStart(2, "0"));
-    setMinute(String(now.getMinutes()).padStart(2, "0"));
-    setSecond(String(now.getSeconds()).padStart(2, "0"));
-    setMillisecond(String(now.getMilliseconds()).padStart(3, "0"));
+    setHour(
+      String(isUTC ? now.getUTCHours() : now.getHours()).padStart(2, "0"),
+    );
+    setMinute(
+      String(isUTC ? now.getUTCMinutes() : now.getMinutes()).padStart(2, "0"),
+    );
+    setSecond(
+      String(isUTC ? now.getUTCSeconds() : now.getSeconds()).padStart(2, "0"),
+    );
+    setMillisecond(
+      String(isUTC ? now.getUTCMilliseconds() : now.getMilliseconds()).padStart(
+        3,
+        "0",
+      ),
+    );
     setTimeCollapsed(true);
     setManualDirty(false);
-  }, [kind]);
+  }, [kind, selectedTimezone]);
 
   const handleSetToday = useCallback(() => {
     const today = new Date();

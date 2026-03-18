@@ -446,9 +446,12 @@ export const QueryPanel = memo(function QueryPanel({
         const wasMutation = isMutationQuery(sql);
         const isTransaction =
           sqlUpper === "BEGIN" ||
+          sqlUpper.startsWith("BEGIN TRANSACTION") ||
           sqlUpper === "COMMIT" ||
+          sqlUpper.startsWith("COMMIT TRANSACTION") ||
           sqlUpper === "ROLLBACK" ||
           sqlUpper.startsWith("ROLLBACK TO ") ||
+          sqlUpper.startsWith("ROLLBACK TRANSACTION") ||
           sqlUpper.startsWith("SAVEPOINT ") ||
           sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
           sqlUpper === "START TRANSACTION";
@@ -490,6 +493,12 @@ export const QueryPanel = memo(function QueryPanel({
           } else if (sqlUpper.startsWith("COMMIT")) {
             message = "Transaction committed successfully";
             setQueryState(tabId, { inTransaction: false });
+          } else if (
+            sqlUpper.startsWith("ROLLBACK TO ") ||
+            sqlUpper.startsWith("ROLLBACK TRANSACTION TO ")
+          ) {
+            message = "Rolled back to savepoint";
+            // Transaction is still active after ROLLBACK TO — do NOT clear inTransaction
           } else if (sqlUpper.startsWith("ROLLBACK")) {
             message = "Transaction rolled back successfully";
             setQueryState(tabId, { inTransaction: false });
@@ -639,6 +648,19 @@ export const QueryPanel = memo(function QueryPanel({
 
         if (isCancellation) {
           setExecutionStatus("cancelled");
+
+          // MSSQL KILL terminates the entire session, destroying any open
+          // transaction. Clear the flag so the UI stays consistent.
+          if (
+            inTransaction &&
+            (dbType === "sqlserver" || dbType === "mssql")
+          ) {
+            setQueryState(tabId, { inTransaction: false });
+            toast.warning(
+              "Transaction lost — the session was terminated by cancellation",
+            );
+          }
+
           const cancelledResult: QueryResult = {
             columns: [],
             rows: [],
@@ -757,6 +779,8 @@ export const QueryPanel = memo(function QueryPanel({
       setRefreshActionQuery,
       schema,
       database,
+      dbType,
+      inTransaction,
     ],
   );
 
@@ -894,15 +918,30 @@ export const QueryPanel = memo(function QueryPanel({
       }
 
       resetBatchExecutionState();
-      await executeSingleStatement(sqlToExecute, {
+      setShowResults(true);
+      const singleResult = await executeSingleStatement(sqlToExecute, {
         runContext: "single",
       });
+      // Populate a single batch entry so the statement tab is visible
+      setBatchResults([
+        {
+          statementIndex: 1,
+          statement: singleResult.sql,
+          status: singleResult.success ? "success" : "error",
+          result: singleResult.result,
+          presentation: singleResult.presentation,
+        },
+      ]);
+      setActiveBatchResultIndex(0);
     },
     [
       executeBatchScript,
       executeSingleStatement,
       resetBatchExecutionState,
       resolveExecutionTargetSql,
+      setActiveBatchResultIndex,
+      setBatchResults,
+      setShowResults,
     ],
   );
 

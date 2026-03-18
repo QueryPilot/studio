@@ -251,38 +251,13 @@ export function getQueryAtCursorFromState(state: EditorState): string {
     return cleanQuery(state.sliceDoc(node.from, node.to));
   }
 
-  // Fallback: find statement boundaries using sibling traversal
-  // This handles incomplete syntax better
-  const cursor = tree.cursor();
-  cursor.moveTo(cursorPos);
-
-  while (cursor.parent()) {
-    if (cursor.type.name === "Script") {
-      if (cursor.firstChild()) {
-        let statementStart = 0;
-        let statementEnd = state.doc.length;
-
-        do {
-          const typeName = cursor.type.name;
-          const isStatement =
-            STATEMENT_TYPES.has(typeName) || typeName.includes("Statement");
-
-          if (isStatement) {
-            if (cursor.to <= cursorPos) {
-              statementStart = cursor.to;
-            } else if (cursor.from <= cursorPos && cursor.to >= cursorPos) {
-              return cleanQuery(state.sliceDoc(cursor.from, cursor.to));
-            } else {
-              statementEnd = cursor.from;
-              break;
-            }
-          }
-        } while (cursor.nextSibling());
-
-        return cleanQuery(state.sliceDoc(statementStart, statementEnd));
-      }
-      break;
-    }
+  // Fallback: use getAllStatements (AST + semicolon-based splitting) to find
+  // the statement containing or nearest to the cursor. This handles blank
+  // lines between statements, cursor at the very start of a statement, and
+  // incomplete syntax trees where the direct tree walk lands on Script.
+  const stmt = getStatementAtPosition(state, cursorPos);
+  if (stmt) {
+    return stmt.text;
   }
 
   // Ultimate fallback: return entire document

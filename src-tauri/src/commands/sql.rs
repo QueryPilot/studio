@@ -290,11 +290,67 @@ fn find_main_statement_keyword(sql: &str) -> Option<String> {
     first_keyword_pos.map(|(_, kw)| kw.to_string())
 }
 
+/// Strip SQL comments (line comments `--` and block comments `/* */`)
+/// while preserving content inside single-quoted strings.
+fn strip_sql_comments(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let bytes = sql.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Single-quoted string — copy verbatim
+        if bytes[i] == b'\'' {
+            result.push('\'');
+            i += 1;
+            while i < len {
+                if bytes[i] == b'\'' && i + 1 < len && bytes[i + 1] == b'\'' {
+                    result.push_str("''");
+                    i += 2;
+                } else if bytes[i] == b'\'' {
+                    result.push('\'');
+                    i += 1;
+                    break;
+                } else {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+            }
+            continue;
+        }
+
+        // Line comment — skip to end of line
+        if bytes[i] == b'-' && i + 1 < len && bytes[i + 1] == b'-' {
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        // Block comment — skip to closing */
+        if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 < len {
+                i += 2; // skip */
+            }
+            continue;
+        }
+
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+    result
+}
+
 /// Check if SQL contains multiple statements (simple heuristic)
 fn is_multi_statement_query(sql: &str) -> bool {
-    // Count semicolons that are likely statement terminators
-    // This is a simple check - ignore semicolons in strings/comments for now
-    let trimmed = sql.trim();
+    // Strip comments first so commented-out semicolons/keywords don't cause
+    // false positives (e.g., `-- ROLLBACK;\nSELECT 1` is a single statement).
+    let without_comments = strip_sql_comments(sql);
+    let trimmed = without_comments.trim();
 
     // Check for transaction control keywords followed by semicolon
     let sql_upper = trimmed.to_uppercase();

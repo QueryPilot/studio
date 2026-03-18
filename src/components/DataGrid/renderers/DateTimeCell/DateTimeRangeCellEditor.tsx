@@ -161,7 +161,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   const toDate = (text: string): Date | undefined => {
     if (!text) return undefined;
     const hasOffset = /([+-]\d{2}:?\d{2}|Z)$/.test(text);
-    const d = hasOffset ? dayjs(text) : dayjs.tz(text, tz);
+    // Use dayjs.utc() for offset-aware strings to avoid WebKit's new Date()
+    // misinterpreting timezone offsets (e.g. parsing +00:00 as local time).
+    const d = hasOffset ? dayjs.utc(text) : dayjs.tz(text, tz);
     return d.isValid() ? d.toDate() : undefined;
   };
 
@@ -185,8 +187,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
   const upperDateValue = toDate(upperText);
   const displayLowerDate = lowerDateValue ?? new Date();
   const displayUpperDate = upperDateValue ?? new Date();
-  const lowerTimeValue = dayjs(displayLowerDate).format("HH:mm:ss");
-  const upperTimeValue = dayjs(displayUpperDate).format("HH:mm:ss");
+  // Use dayjs.utc() to extract time in UTC — matches the UTC Date objects from toDate()
+  const lowerTimeValue = dayjs.utc(displayLowerDate).format("HH:mm:ss");
+  const upperTimeValue = dayjs.utc(displayUpperDate).format("HH:mm:ss");
 
   useCommitOnUnmount(finishedRef, commitCurrentValues);
 
@@ -302,8 +305,8 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                       defaultMonth={displayLowerDate}
                       onSelect={(d) => {
                         if (!d) return;
-                        const from = dayjs(lowerDateValue ?? d);
-                        const next = dayjs(d)
+                        const from = dayjs.utc(lowerDateValue ?? d);
+                        const next = dayjs.utc(d)
                           .hour(from.hour())
                           .minute(from.minute())
                           .second(from.second())
@@ -325,7 +328,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                         value={lowerTimeValue}
                         onChange={(e) => {
                           const base =
-                            dayjs(displayLowerDate).format("YYYY-MM-DD");
+                            dayjs.utc(displayLowerDate).format("YYYY-MM-DD");
                           const parsed = dayjs.tz(
                             `${base}T${e.target.value}`,
                             tz,
@@ -351,8 +354,8 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                       defaultMonth={displayUpperDate}
                       onSelect={(d) => {
                         if (!d) return;
-                        const to = dayjs(upperDateValue ?? d);
-                        const next = dayjs(d)
+                        const to = dayjs.utc(upperDateValue ?? d);
+                        const next = dayjs.utc(d)
                           .hour(to.hour())
                           .minute(to.minute())
                           .second(to.second())
@@ -374,7 +377,7 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                         value={upperTimeValue}
                         onChange={(e) => {
                           const base =
-                            dayjs(displayUpperDate).format("YYYY-MM-DD");
+                            dayjs.utc(displayUpperDate).format("YYYY-MM-DD");
                           const parsed = dayjs.tz(
                             `${base}T${e.target.value}`,
                             tz,
