@@ -25,6 +25,7 @@ const loadTabStateAsyncMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefin
 const updateTabMetadataMock = vi.hoisted(() => vi.fn());
 const focusPanelMock = vi.hoisted(() => vi.fn());
 const getConnectionMock = vi.hoisted(() => vi.fn(() => ({ profile: { id: "profile-1" } })));
+const isMutationQueryMock = vi.hoisted(() => vi.fn((_sql: string) => false));
 
 vi.mock("@/services/tableStreamingService", () => ({
   tableStreamingService: {
@@ -95,15 +96,21 @@ vi.mock("../ResultViewer", () => ({
   ResultViewer: ({
     executionStatus,
     viewMode,
+    result,
     onRefreshResults,
   }: {
     executionStatus?: string;
     viewMode?: string;
+    result?: { message?: string; affectedRows?: number };
     onRefreshResults?: () => void;
   }) => (
     <div>
       <div data-testid="result-status">{executionStatus}</div>
       <div data-testid="result-view-mode">{viewMode}</div>
+      <div data-testid="result-message">{result?.message ?? ""}</div>
+      <div data-testid="result-affected-rows">
+        {result?.affectedRows === undefined ? "" : String(result.affectedRows)}
+      </div>
       {onRefreshResults ? <button type="button">Refresh results</button> : null}
     </div>
   ),
@@ -227,7 +234,7 @@ vi.mock("@/services/aiContextService", () => ({
 
 vi.mock("@/lib/cacheManager", () => ({
   handleMutationCache: vi.fn(),
-  isMutationQuery: () => false,
+  isMutationQuery: (sql: string) => isMutationQueryMock(sql),
   isSelectQuery: () => true,
 }));
 
@@ -248,6 +255,8 @@ import { QueryPanel } from "../QueryPanel";
 describe("QueryPanel execution state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isMutationQueryMock.mockReset();
+    isMutationQueryMock.mockReturnValue(false);
   });
 
   it("surfaces a durable cancelled status after cancelling an in-flight query", async () => {
@@ -436,6 +445,39 @@ describe("QueryPanel execution state", () => {
     expect(screen.queryByRole("tab", { name: "Table" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "JSON" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Plan" })).not.toBeInTheDocument();
+  });
+
+  it("shows a DDL success message instead of 0 rows affected", async () => {
+    isMutationQueryMock.mockImplementation((sql: string) =>
+      sql.trim().toUpperCase().startsWith("CREATE "),
+    );
+    streamQueryMock.mockResolvedValue({
+      columns: [],
+      rows: [],
+      totalRows: 0,
+      executionTimeMs: 0,
+    });
+
+    render(
+      <QueryPanel
+        panelId="panel-1"
+        tabId="tab-1"
+        connectionId="conn-1"
+        database="app"
+        initialSql="CREATE TEMP TABLE _qp_test_customer_ids (id INT)"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("result-status")).toHaveTextContent("success");
+    });
+
+    expect(screen.getByTestId("result-message")).toHaveTextContent(
+      "Table created successfully",
+    );
+    expect(screen.getByTestId("result-affected-rows").textContent).toBe("");
   });
 
   it("isolates per-statement view mode in mixed batch results and remembers each statement mode", async () => {

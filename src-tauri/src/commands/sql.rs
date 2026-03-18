@@ -1181,28 +1181,12 @@ async fn execute_postgres_stream(
     if is_multi_statement_query(sql) {
         tracing::info!("  🔀 Detected multi-statement query, using simple_query protocol");
 
-        // Reset any pending failed transaction state before executing
-        // This handles cases where a previous operation failed and left the connection dirty
-        if let Err(e) = pool_conn.batch_execute("ROLLBACK").await {
-            tracing::debug!(
-                "  ℹ️ ROLLBACK before batch (expected if no active transaction): {}",
-                e
-            );
-        }
-
         // Use simple_query for multi-statement support (no prepared statements)
         let simple_start = std::time::Instant::now();
         let batch_result = pool_conn.batch_execute(sql).await;
 
         if let Err(e) = &batch_result {
             tracing::error!("❌ batch_execute failed: {:?}", e);
-            // ROLLBACK to clean up the failed transaction and reset connection state
-            if let Err(rollback_err) = pool_conn.batch_execute("ROLLBACK").await {
-                tracing::debug!(
-                    "  ℹ️ ROLLBACK after failure (may already be rolled back): {}",
-                    rollback_err
-                );
-            }
             return Err(extract_db_error_message(e));
         }
         let exec_elapsed = simple_start.elapsed().as_millis();
@@ -1233,14 +1217,6 @@ async fn execute_postgres_stream(
     // use execute to get affected rows count. Queries with RETURNING need streaming.
     if !is_select && !has_returning {
         tracing::info!("  🔀 Non-SELECT query, using execute() for affected rows count");
-
-        // Reset any pending failed transaction state before executing
-        if let Err(e) = pool_conn.batch_execute("ROLLBACK").await {
-            tracing::debug!(
-                "  ℹ️ ROLLBACK before execute (expected if no active transaction): {}",
-                e
-            );
-        }
 
         let exec_start = std::time::Instant::now();
         let rows_affected = pool_conn.execute(sql, &[]).await.map_err(|e| {
