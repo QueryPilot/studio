@@ -252,9 +252,13 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                 </Tooltip>
               )}
               <div className="h-5 w-5 relative shrink-0">
-                {/* Close button — fades in on hover */}
+                {/* Close button — fades in on hover, always interactive */}
                 <button
-                  className="absolute inset-0 flex items-center justify-center hover:bg-destructive/10 rounded transition-all duration-100 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto"
+                  className="absolute inset-0 z-10 flex items-center justify-center hover:bg-destructive/10 rounded transition-all duration-100 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onClose();
@@ -263,7 +267,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   <IconX className="h-3.5 w-3.5" />
                 </button>
                 {/* Type icon — fades out on hover */}
-                <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-100 group-hover:opacity-0 group-focus-within:opacity-0">
+                <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-100 pointer-events-none group-hover:opacity-0 group-focus-within:opacity-0">
                   <Icon className={getIconClass()} />
                 </div>
               </div>

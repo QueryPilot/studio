@@ -253,9 +253,17 @@ export const defaultCommands: Command[] = [
       const panel = store.panelContents.get(panelId);
       if (!panel) return;
 
+      const activeTabId = panel.activeTabId || panel.tabIds[0];
       const totalPanels = store.panelContents.size;
 
-      if (totalPanels > 1) {
+      // Last tab in the only panel → close the window
+      if (totalPanels <= 1 && (!activeTabId || panel.tabIds.length <= 1)) {
+        void windowManager.closeCurrentWindow();
+        return;
+      }
+
+      // Last tab in a multi-panel layout → close the panel
+      if (totalPanels > 1 && panel.tabIds.length <= 1) {
         const tabStateStore = useTabStateStore.getState();
         for (const tabId of panel.tabIds) {
           tabStateStore.clearQueryState(tabId);
@@ -264,15 +272,11 @@ export const defaultCommands: Command[] = [
         return;
       }
 
-      const activeTabId = panel.activeTabId || panel.tabIds[0];
-
-      // Only 1 panel: if no tabs or closing the last tab, close the window
-      if (!activeTabId || panel.tabIds.length <= 1) {
-        void windowManager.closeCurrentWindow();
-        return;
+      // Otherwise just close the active tab
+      if (activeTabId) {
+        useTabStateStore.getState().clearQueryState(activeTabId);
+        store.removeTab(panelId, activeTabId);
       }
-
-      store.removeTab(panelId, activeTabId);
     },
   },
   {

@@ -151,12 +151,21 @@ export function formatValue(value: unknown, dbType: DbType | string): string {
     return String(value);
   }
 
-  // Date handling
+  // Date handling — format using local-time methods to preserve the user's
+  // intended date/time. Date objects are typically created from local components
+  // (new Date(y, m, d)), so .toISOString() would shift to UTC and may change
+  // the date at timezone boundaries.
   if (value instanceof Date) {
     if (isNaN(value.getTime())) {
       return "NULL";
     }
-    return quoteString(value.toISOString(), type);
+    const y = value.getFullYear();
+    const mo = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    const h = String(value.getHours()).padStart(2, "0");
+    const mi = String(value.getMinutes()).padStart(2, "0");
+    const s = String(value.getSeconds()).padStart(2, "0");
+    return quoteString(`${y}-${mo}-${d} ${h}:${mi}:${s}`, type);
   }
 
   // Buffer/Uint8Array handling

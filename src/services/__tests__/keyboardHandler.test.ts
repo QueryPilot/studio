@@ -173,4 +173,38 @@ describe("KeyboardHandler", () => {
     expect(deleteRows).not.toHaveBeenCalled();
     editorRoot.remove();
   });
+
+  it("lets CodeMirror own Mod-D and does not dispatch global commands from it", async () => {
+    const executeAll = vi.fn();
+    const editorRoot = document.createElement("div");
+    editorRoot.className = "cm-editor";
+    editorRoot.tabIndex = -1;
+    document.body.appendChild(editorRoot);
+    editorRoot.focus();
+
+    commandService.register({
+      id: "editor.action.executeAll",
+      label: "Execute All",
+      handler: executeAll,
+    });
+    keybindingService.register({
+      command: "editor.action.executeAll",
+      key: "ctrl+d",
+      when: "editorTextFocus && queryEditor",
+    });
+    contextService.setValue("queryEditor", true);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "d",
+      code: "KeyD",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+
+    await Promise.resolve();
+
+    expect(executeAll).not.toHaveBeenCalled();
+    editorRoot.remove();
+  });
 });

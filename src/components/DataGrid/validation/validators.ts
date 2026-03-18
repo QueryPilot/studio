@@ -159,20 +159,26 @@ function validateBoolean(v: unknown): ValidationResult {
   return valid ? VALID : { valid: false, error: "Must be true/false" };
 }
 
+// Regex-based validation avoids new Date() which misparses timezone offsets on WebKit
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const TIMESTAMP_REGEX =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+
 function validateDate(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
-  const d = new Date(String(v));
-  return isNaN(d.getTime())
-    ? { valid: false, error: "Invalid date format" }
-    : VALID;
+  return DATE_REGEX.test(String(v))
+    ? VALID
+    : { valid: false, error: "Invalid date format (expected: YYYY-MM-DD)" };
 }
 
 function validateTimestamp(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
-  const d = new Date(String(v));
-  return isNaN(d.getTime())
-    ? { valid: false, error: "Invalid timestamp format" }
-    : VALID;
+  return TIMESTAMP_REGEX.test(String(v))
+    ? VALID
+    : {
+        valid: false,
+        error: "Invalid timestamp format (expected: YYYY-MM-DD HH:mm:ss)",
+      };
 }
 
 function validateTime(v: unknown): ValidationResult {
