@@ -112,7 +112,7 @@ export const QueryToolbar = memo(function QueryToolbar({
             className="!h-6 !w-6 !p-0"
             title={showResults ? "Hide results (⌘J)" : "Show results (⌘J)"}
           >
-            <IconLayoutRows className="h-3.5 w-3.5" />
+            <IconLayoutRows className="h-4! w-4!" />
           </Button>
 
           <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use deadpool_postgres::{
-    Config, ManagerConfig, Pool, RecyclingMethod, Runtime, SslMode as PgSslMode,
+    Config, ManagerConfig, Pool, PoolConfig, RecyclingMethod, Runtime, SslMode as PgSslMode,
 };
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
@@ -118,6 +118,18 @@ impl PostgresAdapter {
     }
 }
 
+fn is_tab_scoped_connection_id(conn_id: &str) -> bool {
+    conn_id.contains(':')
+}
+
+fn pool_max_size_for_connection_id(conn_id: &str) -> Option<usize> {
+    if is_tab_scoped_connection_id(conn_id) {
+        Some(1)
+    } else {
+        None
+    }
+}
+
 impl Default for PostgresAdapter {
     fn default() -> Self {
         Self::new()
@@ -149,6 +161,9 @@ impl BaseCapability for PostgresAdapter {
         cfg.manager = Some(ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
         });
+        if let Some(max_size) = pool_max_size_for_connection_id(&profile.id) {
+            cfg.pool = Some(PoolConfig::new(max_size));
+        }
 
         // Handle options
         for key in profile.options.keys() {
@@ -269,5 +284,20 @@ impl SqlQueryable for PostgresAdapter {
             .await
             .map_err(|e| AppError::DatabaseError(format!("Execute failed: {}", e)))?;
         Ok(affected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pool_max_size_for_connection_id;
+
+    #[test]
+    fn tab_scoped_connections_are_pinned_to_single_postgres_session() {
+        assert_eq!(pool_max_size_for_connection_id("conn-1:tab-1"), Some(1));
+    }
+
+    #[test]
+    fn base_connections_keep_default_postgres_pool_size() {
+        assert_eq!(pool_max_size_for_connection_id("conn-1"), None);
     }
 }

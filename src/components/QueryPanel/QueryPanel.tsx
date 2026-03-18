@@ -78,6 +78,32 @@ interface ExecuteSingleStatementResult {
   errorMessage?: string;
 }
 
+function getDdlSuccessMessage(sqlUpper: string): string {
+  const objectLabel = (() => {
+    if (sqlUpper.includes("MATERIALIZED VIEW")) return "Materialized view";
+    if (sqlUpper.includes(" TABLE ")) return "Table";
+    if (sqlUpper.includes(" VIEW ")) return "View";
+    if (sqlUpper.includes(" INDEX ")) return "Index";
+    if (sqlUpper.includes(" SCHEMA ")) return "Schema";
+    if (sqlUpper.includes(" TYPE ")) return "Type";
+    if (sqlUpper.includes(" FUNCTION ")) return "Function";
+    if (sqlUpper.includes(" PROCEDURE ")) return "Procedure";
+    if (sqlUpper.includes(" TRIGGER ")) return "Trigger";
+    if (sqlUpper.includes(" SEQUENCE ")) return "Sequence";
+    return "Object";
+  })();
+
+  const action = sqlUpper.startsWith("CREATE ")
+    ? "created"
+    : sqlUpper.startsWith("ALTER ")
+      ? "altered"
+      : sqlUpper.startsWith("DROP ")
+        ? "dropped"
+        : "updated";
+
+  return `${objectLabel} ${action} successfully`;
+}
+
 export const QueryPanel = memo(function QueryPanel({
   panelId,
   tabId,
@@ -440,13 +466,13 @@ export const QueryPanel = memo(function QueryPanel({
         let affectedRows: number | undefined;
         let message: string | undefined;
 
-        if (wasMutation && hasReturning && accumulatedRows.length > 0) {
+        if (isDDL && accumulatedRows.length === 0) {
+          message = getDdlSuccessMessage(sqlUpper);
+        } else if (wasMutation && hasReturning && accumulatedRows.length > 0) {
           affectedRows = final.totalRows ?? accumulatedRows.length;
           message = `${affectedRows} row(s) affected`;
         } else if (wasMutation && !hasReturning) {
           affectedRows = final.totalRows ?? 0;
-        } else if (isDDL && accumulatedRows.length === 0) {
-          message = "Query executed successfully";
         } else if (isTransaction) {
           if (
             sqlUpper.startsWith("BEGIN") ||

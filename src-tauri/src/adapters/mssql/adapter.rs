@@ -524,6 +524,14 @@ impl MssqlAdapter {
     }
 }
 
+fn mssql_pool_max_size_for_connection_id(conn_id: &str) -> u32 {
+    if conn_id.contains(':') {
+        1
+    } else {
+        50
+    }
+}
+
 impl Default for MssqlAdapter {
     fn default() -> Self {
         Self::new()
@@ -544,8 +552,9 @@ impl BaseCapability for MssqlAdapter {
         let mgr = ConnectionManager::new(config);
 
         // Build pool
+        let max_size = mssql_pool_max_size_for_connection_id(&profile.id);
         let pool = Pool::builder()
-            .max_size(50)
+            .max_size(max_size)
             .connection_timeout(std::time::Duration::from_secs(10))
             .build(mgr)
             .await
@@ -775,5 +784,15 @@ mod tests {
         let caps = re.captures(sql).unwrap();
         assert_eq!(caps.get(1).map(|m| m.as_str().trim()), Some("TOP 100"));
         assert_eq!(caps.get(2).map(|m| m.as_str()), Some("dbo.activity_logs"));
+    }
+
+    #[test]
+    fn tab_scoped_mssql_connections_use_single_session_pool() {
+        assert_eq!(mssql_pool_max_size_for_connection_id("conn-1:tab-2"), 1);
+    }
+
+    #[test]
+    fn base_mssql_connections_keep_default_pool_size() {
+        assert_eq!(mssql_pool_max_size_for_connection_id("conn-1"), 50);
     }
 }

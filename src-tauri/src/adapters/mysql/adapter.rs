@@ -180,11 +180,20 @@ impl MySqlAdapter {
             }
         }
 
-        // Connection pool options with proper settings to prevent stale connections
+        let is_tab_scoped = is_tab_scoped_connection_id(&profile.id);
+        let pool_constraints = if is_tab_scoped {
+            PoolConstraints::new(1, 1).expect("valid single-connection pool constraints")
+        } else {
+            PoolConstraints::new(1, 20).expect("valid default pool constraints")
+        };
+
+        // Connection pool options.
+        // Tab-scoped query sessions use a single non-resetting connection so
+        // explicit BEGIN/COMMIT/ROLLBACK can persist session state.
+        // Shared/base connections keep reset enabled for cleanliness.
         let pool_opts = PoolOpts::default()
-            .with_constraints(PoolConstraints::new(1, 20).unwrap())
-            // Reset connections when returning to pool to ensure clean state
-            .with_reset_connection(true);
+            .with_constraints(pool_constraints)
+            .with_reset_connection(!is_tab_scoped);
 
         builder = builder
             .pool_opts(pool_opts)
@@ -195,6 +204,10 @@ impl MySqlAdapter {
 
         Ok(builder.into())
     }
+}
+
+fn is_tab_scoped_connection_id(conn_id: &str) -> bool {
+    conn_id.contains(':')
 }
 
 impl Default for MySqlAdapter {
@@ -350,5 +363,57 @@ impl SqlQueryable for MySqlAdapter {
             .map_err(|e| AppError::DatabaseError(format!("Failed to drop result: {}", e)))?;
 
         Ok(affected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    use crate::types::{ConnectionProfile, DbType};
+
+    fn test_profile(id: &str) -> ConnectionProfile {
+        ConnectionProfile {
+            id: id.to_string(),
+            name: "test".to_string(),
+            db_type: DbType::MySQL,
+            host: "localhost".to_string(),
+            port: 3306,
+            database: "db".to_string(),
+            username: "user".to_string(),
+            password: Some("pw".to_string()),
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            options: HashMap::new(),
+            group: None,
+            safe_mode: None,
+        }
+    }
+
+    #[test]
+    fn tab_scoped_pool_uses_single_session_without_reset() {
+        let profile = test_profile("conn-1:tab-1");
+        let opts = MySqlAdapter::build_opts(&profile).expect("opts");
+
+        let pool_opts = opts.pool_opts();
+        let constraints = pool_opts.constraints();
+        assert_eq!(constraints.min(), 1);
+        assert_eq!(constraints.max(), 1);
+        assert!(!pool_opts.reset_connection());
+    }
+
+    #[test]
+    fn non_tab_pool_keeps_default_parallelism_and_reset() {
+        let profile = test_profile("conn-1");
+        let opts = MySqlAdapter::build_opts(&profile).expect("opts");
+
+        let pool_opts = opts.pool_opts();
+        let constraints = pool_opts.constraints();
+        assert_eq!(constraints.min(), 1);
+        assert_eq!(constraints.max(), 20);
+        assert!(pool_opts.reset_connection());
     }
 }
