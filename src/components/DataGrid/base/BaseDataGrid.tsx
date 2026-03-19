@@ -99,6 +99,7 @@ import {
   type FilterOptions,
 } from "../utils/clientSideFilter";
 import { buildIsolatedGridPreferenceSnapshot } from "../utils/gridPreferenceIsolation";
+import { type GridCellValue, type CrudCommand } from "@/types";
 
 const EMPTY_STAGED_CHANGES = {
   rowChanges: new Map<number, Set<string>>(),
@@ -2250,37 +2251,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         return;
       }
 
-      // DEBUG: Log batch edit targets
-      if (edits.length > 0) {
-        const pkCols = factory.primaryKeyColumns;
-        const colMap = factory.columnNameToFieldMap;
-        const getPK = (rowIdx: number) => {
-          const row = rowsRef.current[rowIdx];
-          if (!row) return "undefined";
-          return pkCols
-            .map((pk) => {
-              const field = colMap.get(pk);
-              const val = field ? row[field] : undefined;
-              return val && typeof val === "object" && "value" in val
-                ? val.value
-                : val;
-            })
-            .join(",");
-        };
-        console.warn("[BATCH-EDIT DEBUG]", {
-          editCount: edits.length,
-          targets: edits.slice(0, 5).map((e) => ({
-            col: e.cell[0],
-            row: e.cell[1],
-            pk: getPK(e.cell[1]),
-            val: e.value,
-          })),
-          totalRows: rowsRef.current.length,
-        });
-      }
-
       // Collect all commands for batch staging (single undo)
-      const commands: import("@/types/crud").CrudCommand[] = [];
+      const commands: CrudCommand[] = [];
 
       for (const edit of edits) {
         const [colIndex, rowIndex] = edit.cell;
@@ -2301,10 +2273,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
             allowOverlay: true,
           },
           previousValue:
-            (row[column.field] as
-              | import("@/types/cellValue").CellValue
-              | null
-              | undefined) ?? null,
+            (row[column.field] as GridCellValue | null | undefined) ?? null,
         };
 
         const command = factory.createEditCommand(event);
@@ -2722,43 +2691,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         ) {
           return;
         }
-        // DEBUG: Log selection and row data at the time of fill-down
-        const sel = gridSelectionRef.current;
-        if (sel?.current) {
-          const cell = sel.current.cell;
-          const range = sel.current.range;
-          const rows = rowsRef.current;
-          const pkCols = commandFactoryRef.current?.primaryKeyColumns ?? [];
-          const colMap = commandFactoryRef.current?.columnNameToFieldMap;
-          const getPK = (rowIdx: number) => {
-            const row = rows[rowIdx];
-            if (!row || !colMap) return "N/A";
-            return pkCols
-              .map((pk) => {
-                const field = colMap.get(pk);
-                const val = field ? row[field] : undefined;
-                return val && typeof val === "object" && "value" in val
-                  ? val.value
-                  : val;
-              })
-              .join(",");
-          };
-          console.warn("[FILL-DOWN DEBUG]", {
-            cell,
-            range: range
-              ? { x: range.x, y: range.y, w: range.width, h: range.height }
-              : null,
-            totalRows: rows.length,
-            cellRowPK: cell ? getPK(cell[1]) : "N/A",
-            rangeStartPK: range ? getPK(range.y) : "N/A",
-            rangeStartPlus1PK: range ? getPK(range.y + 1) : "N/A",
-            rangeEndPK: range ? getPK(range.y + range.height - 1) : "N/A",
-            first5PKs: Array.from(
-              { length: Math.min(5, rows.length) },
-              (_, i) => `[${i}]=${getPK(i)}`,
-            ),
-          });
-        }
+
         fillDown(gridSelectionRef.current);
       },
       fillRight: () => {
@@ -3083,9 +3016,8 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       const isWithinInspectorToggleGuardWindow =
         Date.now() < inspectorToggleSelectionGuardUntilRef.current;
       if (hasActiveQuickFilter && isWithinInspectorToggleGuardWindow) {
-        const previousSelectedRows = collectSelectedRowIndexes(
-          previousSelection,
-        ).size;
+        const previousSelectedRows =
+          collectSelectedRowIndexes(previousSelection).size;
         const nextSelectedRows = collectSelectedRowIndexes(newSelection).size;
         if (previousSelectedRows > 0 && nextSelectedRows === 0) {
           return;
@@ -3095,28 +3027,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         }
       }
 
-      // DEBUG: Log selection changes to trace index mismatches
-      if (newSelection.current?.cell) {
-        const [col, row] = newSelection.current.cell;
-        const rowData = rowsRef.current[row];
-        const pkCols = commandFactoryRef.current?.primaryKeyColumns ?? [];
-        const colMap = commandFactoryRef.current?.columnNameToFieldMap;
-        const pk = pkCols
-          .map((pk) => {
-            const field = colMap?.get(pk);
-            const val = field && rowData ? rowData[field] : undefined;
-            return val && typeof val === "object" && "value" in val
-              ? val.value
-              : val;
-          })
-          .join(",");
-        console.warn("[SELECTION DEBUG]", {
-          col,
-          row,
-          pk,
-          totalRows: rowsRef.current.length,
-        });
-      }
       setGridSelection(newSelection);
       gridSelectionRef.current = newSelection;
       // Clear stale single-cell fallback when explicit row selection exists.

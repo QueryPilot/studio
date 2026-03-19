@@ -261,7 +261,9 @@ export const ConnectionSection = forwardRef<
   const cascadeOptionId = useId();
 
   // Function filter mode: "user" (default) shows only user-created, "all" shows everything
-  const [functionFilterMode, setFunctionFilterMode] = useState<"user" | "all">("user");
+  const [functionFilterMode, setFunctionFilterMode] = useState<"user" | "all">(
+    "user",
+  );
 
   // Get schema data for SQL databases
   const {
@@ -355,7 +357,7 @@ export const ConnectionSection = forwardRef<
 
   // Filter preferences
   const savedVisibleDbs = useRedisDbFilterStore(
-    (s) => s.filters[connectionId] ?? null
+    (s) => s.filters[connectionId] ?? null,
   );
   const setVisibleDbs = useRedisDbFilterStore((s) => s.setVisibleDbs);
 
@@ -372,7 +374,7 @@ export const ConnectionSection = forwardRef<
     (dbs: Set<number>) => {
       setVisibleDbs(connectionId, Array.from(dbs));
     },
-    [connectionId, setVisibleDbs]
+    [connectionId, setVisibleDbs],
   );
 
   const filteredRedisDatabases = useMemo(() => {
@@ -411,7 +413,10 @@ export const ConnectionSection = forwardRef<
   });
   // Read stagedCommands imperatively only when the scoped version changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const stagedCommands = useMemo(() => useCrudStore.getState().stagedCommands, [connectionCommandsVersion]);
+  const stagedCommands = useMemo(
+    () => useCrudStore.getState().stagedCommands,
+    [connectionCommandsVersion],
+  );
   const stageBatchWithSingleHistoryEntry = useCrudStore(
     (s) => s.stageBatchWithSingleHistoryEntry,
   );
@@ -989,8 +994,6 @@ export const ConnectionSection = forwardRef<
   const handleSchemaChange = (newSchema: string) => {
     updateConnectionState(connectionId, database, newSchema);
   };
-
-
 
   // Handle open ERD
   const handleOpenErd = () => {
@@ -1934,7 +1937,10 @@ export const ConnectionSection = forwardRef<
 
           {/* Status indicator */}
           <span
-            className={cn("h-2 w-2 rounded-full shrink-0 transition-colors duration-300", statusColor)}
+            className={cn(
+              "h-2 w-2 rounded-full shrink-0 transition-colors duration-300",
+              statusColor,
+            )}
             title={status}
           />
         </ContextMenuTrigger>
@@ -2002,7 +2008,7 @@ export const ConnectionSection = forwardRef<
 
       {/* Content - always visible */}
       {status !== "error" && (
-        <div className="pr-2">
+        <div className="">
           {/* Loading skeleton */}
           {showLoadingSkeleton && (
             <div className="pl-2 pr-1 py-2 space-y-2">

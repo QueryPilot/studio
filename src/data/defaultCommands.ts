@@ -423,47 +423,14 @@ export const defaultCommands: Command[] = [
             .reduce((sum, cmds) => sum + cmds.length, 0);
           const description = `${totalChanges} pending data ${totalChanges === 1 ? 'edit' : 'edits'}`;
 
-          logger.info("[RefreshAll] Showing confirmation toast");
+          logger.info("[RefreshAll] Showing confirmation dialog");
 
-          // Show a promise-based toast that waits for user confirmation
-          const confirmed = await new Promise<boolean>((resolve) => {
-            let resolved = false;
-
-            const handleConfirm = () => {
-              resolved = true;
-              toast.dismiss(toastId);
-              resolve(true);
-            };
-
-            const handleCancel = () => {
-              resolved = true;
-              toast.dismiss(toastId);
-              resolve(false);
-            };
-
-            const toastId = toast(
-              React.createElement(ConfirmationToast, {
-                title: "Unsaved changes will be lost",
-                description: `You have ${description}. This action cannot be undone.`,
-                confirmLabel: "Refresh Anyway",
-                cancelLabel: "Cancel",
-                onConfirm: handleConfirm,
-                onCancel: handleCancel,
-              }),
-              {
-                duration: 15000, // 15 seconds to decide
-                onDismiss: () => {
-                  if (!resolved) {
-                    resolve(false);
-                  }
-                },
-                onAutoClose: () => {
-                  if (!resolved) {
-                    resolve(false);
-                  }
-                },
-              }
-            );
+          const confirmed = await useDialogStore.getState().confirm({
+            title: "Unsaved changes will be lost",
+            description: `You have ${description}. This action cannot be undone.`,
+            confirmLabel: "Refresh Anyway",
+            cancelLabel: "Cancel",
+            variant: "destructive",
           });
 
           logger.info("[RefreshAll] User confirmed:", confirmed);
