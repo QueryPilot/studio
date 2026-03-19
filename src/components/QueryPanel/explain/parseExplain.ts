@@ -3,6 +3,7 @@ import { parsePostgresExplain } from "./parsers/postgres";
 import { parseSQLiteExplainQueryPlan } from "./parsers/sqlite";
 import { parseMySqlExplain } from "./parsers/mysql";
 import { parseSqlServerExplain } from "./parsers/sqlserver";
+import { parseSqlServerTextShowplan } from "./parsers/sqlserverText";
 
 export interface ParseExplainInput {
   columns: string[];
@@ -48,6 +49,14 @@ export function parseExplain(input: ParseExplainInput): ParsedExplain {
     normalizedColumns.includes("physicalop");
   if (looksLikeSqlServerShowplan) {
     return parseSqlServerExplain(input);
+  }
+
+  const looksLikeSqlServerText =
+    normalizedColumns.length === 1 &&
+    normalizedColumns[0] === "stmttext" &&
+    !looksLikeSqlServerShowplan;
+  if (looksLikeSqlServerText) {
+    return parseSqlServerTextShowplan(input);
   }
 
   return parsePostgresExplain(input.rows);
