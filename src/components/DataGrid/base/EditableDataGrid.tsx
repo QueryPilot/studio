@@ -1,5 +1,12 @@
-import { logger } from "@/lib/logger";
-import { forwardRef, useCallback, useRef, useImperativeHandle, useMemo, useEffect, useTransition } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useRef,
+  useImperativeHandle,
+  useMemo,
+  useEffect,
+  useTransition,
+} from "react";
 import type {
   DataEditorProps,
   DataEditorRef,
@@ -21,12 +28,19 @@ import type {
   GridRowModel,
 } from "../types";
 import { usePasteHandler } from "../hooks/usePasteHandler";
-import { detectHeaderRow, type ColumnTypeHint, type PasteValidationError } from "../utils/pasteUtils";
+import {
+  detectHeaderRow,
+  type ColumnTypeHint,
+  type PasteValidationError,
+} from "../utils/pasteUtils";
 import type { UseGridHistoryResult } from "../hooks/useGridHistory";
-import type { CellValue } from "@/types";
+import type { GridCellValue } from "@/types";
 import { useDataGridRenderers } from "../renderers";
 import { inferValueType } from "../utils/valueHelpers";
-import { navigateToCell, type NavigationBounds } from "../utils/keyboardNavigation";
+import {
+  navigateToCell,
+  type NavigationBounds,
+} from "../utils/keyboardNavigation";
 import { dataGridRegistry } from "@/services/dataGridRegistry";
 import { contextService } from "@/services/contextService";
 
@@ -61,7 +75,7 @@ const isTextInputElement = (element: EventTarget | null): boolean => {
 
 const createDefaultDraftRow = (columns: GridColumnV2[]): GridRowModel => {
   return columns.reduce<GridRowModel>((acc, column) => {
-    const cell: CellValue = {
+    const cell: GridCellValue = {
       value: null,
       db_type: column.meta?.db_type ?? column.type ?? "text",
       value_type: "Null",
@@ -105,18 +119,17 @@ const applyValuesToRow = (
   return nextRow;
 };
 
-export interface EditableDataGridProps
-  extends Omit<
-    DataGridBaseProps,
-    | "rowCount"
-    | "onCellEdited"
-    | "onFinishedEditing"
-    | "onCellActivated"
-    | "onCellClicked"
-    | "onDelete"
-    | "onRowAppended"
-    | "onPaste"
-  > {
+export interface EditableDataGridProps extends Omit<
+  DataGridBaseProps,
+  | "rowCount"
+  | "onCellEdited"
+  | "onFinishedEditing"
+  | "onCellActivated"
+  | "onCellClicked"
+  | "onDelete"
+  | "onRowAppended"
+  | "onPaste"
+> {
   /** Unique key for this table instance (used for navigation state) */
   tableKey: string;
   rows: GridRowModel[];
@@ -146,7 +159,7 @@ export interface EditableDataGridProps
   onSelectionChange?: (selection: GridSelection) => void;
   onActiveCellChange?: (cell: Item | null) => void;
   /** Optional cell activation handler (e.g., for drill-down navigation); return true to mark handled */
-  onCellActivated?: (event: GridActivationEvent) => boolean | void;
+  onCellActivated?: (event: GridActivationEvent) => boolean | undefined;
   getRowThemeOverride?: DataEditorProps["getRowThemeOverride"];
   highlightRegions?: DataEditorProps["highlightRegions"];
   onHeaderClicked?: DataEditorProps["onHeaderClicked"];
@@ -230,12 +243,13 @@ export const EditableDataGrid = forwardRef<
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   // Build column type hints for smart paste
-  const columnHints = useMemo<ColumnTypeHint[]>(() =>
-    columns.map((col) => ({
-      dbType: col.meta?.db_type ?? col.type ?? "text",
-      nullable: col.meta?.nullable ?? true,
-    })),
-    [columns]
+  const columnHints = useMemo<ColumnTypeHint[]>(
+    () =>
+      columns.map((col) => ({
+        dbType: col.meta?.db_type ?? col.type ?? "text",
+        nullable: col.meta?.nullable ?? true,
+      })),
+    [columns],
   );
 
   const getCoordinates = useCallback(
@@ -288,7 +302,9 @@ export const EditableDataGrid = forwardRef<
       if (!column || !row) return;
 
       const currentCell = getCellContent(cell);
-      const cellWithData = currentCell as GridCell & { data?: Record<string, unknown> };
+      const cellWithData = currentCell as GridCell & {
+        data?: Record<string, unknown>;
+      };
       if (!cellWithData.data) return;
 
       // Create cell with null value
@@ -297,7 +313,7 @@ export const EditableDataGrid = forwardRef<
         data: Object.assign({}, cellWithData.data, { value: null }),
       } as GridCell;
 
-      const previous = row[columnField] as CellValue | null | undefined;
+      const previous = row[columnField] as GridCellValue | null | undefined;
       const event: GridEditCommitEvent = {
         cell,
         columnIndex,
@@ -319,7 +335,7 @@ export const EditableDataGrid = forwardRef<
   useEffect(() => {
     const handleCmdDelete = (e: KeyboardEvent) => {
       // Only handle cmd+delete or cmd+backspace
-      if (!e.metaKey || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+      if (!e.metaKey || (e.key !== "Delete" && e.key !== "Backspace")) return;
 
       // Never intercept keys while command palette is open
       if (contextService.getValue("inQuickOpen")) return;
@@ -381,8 +397,10 @@ export const EditableDataGrid = forwardRef<
       processResult(result);
     };
 
-    document.addEventListener('keydown', handleCmdDelete);
-    return () => { document.removeEventListener('keydown', handleCmdDelete); };
+    document.addEventListener("keydown", handleCmdDelete);
+    return () => {
+      document.removeEventListener("keydown", handleCmdDelete);
+    };
   }, [gridSelection, onRowDelete, rows, processResult]);
 
   const handleCellActivated = useCallback(
@@ -399,11 +417,6 @@ export const EditableDataGrid = forwardRef<
           return;
         }
       }
-      logger.info("🟠 Cell activated for editing:", {
-        cell,
-        coords,
-        column: coords.column.field,
-      });
 
       editingCellRef.current = cell;
       onCellEditStart?.(coords);
@@ -414,27 +427,24 @@ export const EditableDataGrid = forwardRef<
 
   const handleCellEdited = useCallback(
     (cell: Item, newValue: GridCell) => {
-      logger.info('[EditableDataGrid] handleCellEdited called:', { cell, newValue });
       if (!onCellEditCommit) {
-        logger.info('[EditableDataGrid] No onCellEditCommit handler, skipping');
         editingCellRef.current = null;
         return;
       }
       const coords = getCoordinates(cell);
       if (!coords) {
-        logger.info('[EditableDataGrid] Could not get coordinates, skipping');
         editingCellRef.current = null;
         return;
       }
       const previous = coords.row
-        ? (coords.row[coords.column.field] as CellValue | null | undefined)
+        ? (coords.row[coords.column.field] as GridCellValue | null | undefined)
         : undefined;
       const event: GridEditCommitEvent = {
         ...coords,
         newValue,
         previousValue: previous ?? null,
       };
-      logger.info('[EditableDataGrid] Calling onCellEditCommit with event:', event);
+
       const action = onCellEditCommit(event);
       processResult(action);
       editingCellRef.current = null;
@@ -447,17 +457,9 @@ export const EditableDataGrid = forwardRef<
       const cell = editingCellRef.current;
       editingCellRef.current = null;
 
-      logger.info("🟡 handleFinishedEditing called:", {
-        newValue,
-        cell,
-        movement,
-        hasNewValue: newValue !== undefined,
-      });
-
       if (newValue !== undefined) {
         // If newValue is provided, treat it as a cell edit
         if (cell) {
-          logger.info("🟢 Calling handleCellEdited with:", { cell, newValue });
           handleCellEdited(cell, newValue);
 
           // Handle movement (e.g., Tab to next cell with editor open)
@@ -481,11 +483,6 @@ export const EditableDataGrid = forwardRef<
                 nextRow < bounds.maxRow
               ) {
                 const nextCell: Item = [nextCol, nextRow];
-                logger.info("🔵 Moving to next cell and opening editor:", {
-                  from: cell,
-                  to: nextCell,
-                });
-
                 // Use unified navigation utility instead of nested RAFs
                 navigateToCell(gridRef, nextCell, onGridSelectionChange, {
                   openEditor: true,
@@ -536,14 +533,23 @@ export const EditableDataGrid = forwardRef<
         const rowsToDelete = rowIndexes
           .map((index) => rows[index])
           .filter((row): row is GridRowModel => Boolean(row));
-        const result = onRowDelete({ selection, rowIndexes, rows: rowsToDelete });
+        const result = onRowDelete({
+          selection,
+          rowIndexes,
+          rows: rowsToDelete,
+        });
         processResult(result);
         return false;
       }
 
       // If a rectangular range is selected, batch clear all cells
       if (selection.current?.range) {
-        const { x: startCol, y: startRow, width, height } = selection.current.range;
+        const {
+          x: startCol,
+          y: startRow,
+          width,
+          height,
+        } = selection.current.range;
         const endCol = Math.min(startCol + width, columns.length);
         const endRow = Math.min(startRow + height, rows.length);
 
@@ -592,19 +598,15 @@ export const EditableDataGrid = forwardRef<
     columnHints,
     onValidationErrors: onPasteValidationErrors,
     onPaste: (event) => {
-      logger.info('[EditableDataGrid] Paste event received:', event);
-
       // Let custom handler override
       const result = onPaste?.(event);
       const bool = processResult(result);
       if (typeof bool === "boolean") {
-        logger.info('[EditableDataGrid] Returning custom result:', bool);
         return bool;
       }
 
       // Apply paste by calling handleCellEdited for each cell
       // Wrap in useTransition for non-blocking UI during large paste operations
-      logger.info('[EditableDataGrid] Applying paste to cells...');
       const [colStart, rowStart] = event.target;
 
       // Detect and skip header row if present
@@ -612,10 +614,8 @@ export const EditableDataGrid = forwardRef<
       const columnNames = columns.map((c) => c.id);
       const firstRow = pasteValues[0];
       if (firstRow && detectHeaderRow(firstRow, columnNames, colStart)) {
-        logger.info('[EditableDataGrid] Header row detected, skipping first row');
         pasteValues = pasteValues.slice(1);
         if (pasteValues.length === 0) {
-          logger.info('[EditableDataGrid] Only header row in clipboard, nothing to paste');
           return false;
         }
       }
@@ -644,7 +644,9 @@ export const EditableDataGrid = forwardRef<
 
             // Create new cell with pasted value (preserve the cell kind/type)
             // Only update if cell has data property (skip loading cells, etc.)
-            const cellWithData = currentCell as GridCell & { data?: Record<string, unknown> };
+            const cellWithData = currentCell as GridCell & {
+              data?: Record<string, unknown>;
+            };
             if (!cellWithData.data) continue;
 
             // Create new cell with updated value using Object.assign to avoid spread type issues
@@ -654,7 +656,6 @@ export const EditableDataGrid = forwardRef<
               data: Object.assign({}, existingData, { value }),
             } as GridCell;
 
-            logger.info('[EditableDataGrid] Pasting to cell:', { cell, value, currentCell, newCell });
             handleCellEdited(cell, newCell);
           }
         }
@@ -670,7 +671,7 @@ export const EditableDataGrid = forwardRef<
       const [colStart, rowStart] = event.target;
 
       // Detect and skip header row if present (must match onPaste logic)
-      let pasteValues = event.values as (string | number | boolean | null)[][];
+      let pasteValues = event.values;
       const columnNames = columns.map((c) => c.id);
       const firstRow = pasteValues[0];
       if (firstRow && detectHeaderRow(firstRow, columnNames, colStart)) {
@@ -688,7 +689,9 @@ export const EditableDataGrid = forwardRef<
         const sourceRowValues =
           pasteValues[pasteValues.length - missing + i] ?? [];
         // Pass column offset so values are applied to the correct columns
-        newRows.push(applyValuesToRow(baseRow, columns, sourceRowValues, colStart));
+        newRows.push(
+          applyValuesToRow(baseRow, columns, sourceRowValues, colStart),
+        );
       }
       const insertEvent: GridRowInsertEvent = {
         index: rows.length,
@@ -700,20 +703,16 @@ export const EditableDataGrid = forwardRef<
   });
 
   // Expose methods via ref
-  useImperativeHandle(
-    ref,
-    () => {
-      const gridRefCurrent = gridRef.current;
-      if (!gridRefCurrent) {
-        return { appendRow } as EditableDataGridRef;
-      }
-      return {
-        ...gridRefCurrent,
-        appendRow,
-      };
-    },
-    [appendRow],
-  );
+  useImperativeHandle(ref, () => {
+    const gridRefCurrent = gridRef.current;
+    if (!gridRefCurrent) {
+      return { appendRow } as EditableDataGridRef;
+    }
+    return {
+      ...gridRefCurrent,
+      appendRow,
+    };
+  }, [appendRow]);
 
   const handleSelectionChange = useCallback(
     (selection: GridSelection) => {
@@ -724,7 +723,9 @@ export const EditableDataGrid = forwardRef<
   );
 
   // Handle cell click - ensure Glide's canvas has focus for keyboard navigation
-  const handleCellClickInternal = useCallback<NonNullable<DataEditorProps["onCellClicked"]>>(
+  const handleCellClickInternal = useCallback<
+    NonNullable<DataEditorProps["onCellClicked"]>
+  >(
     (cell) => {
       const coords = getCoordinates(cell);
       if (coords) {
@@ -745,10 +746,7 @@ export const EditableDataGrid = forwardRef<
     // Wrapper div for layout and focus containment check (used by cmd+delete handler)
     // NO tabIndex - Glide manages focus on its internal canvas element
     // NO onKeyDown - Glide handles keyboard navigation natively
-    <div
-      ref={wrapperRef}
-      className="h-full w-full outline-none"
-    >
+    <div ref={wrapperRef} className="h-full w-full outline-none">
       <DataGridBase
         {...rest}
         containerClassName={containerClassName}

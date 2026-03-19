@@ -51,7 +51,18 @@ export function parseDocumentFilter(input: string): DocumentFilterParseResult {
 
   // Check for query mode prefix
   if (trimmed.startsWith('?')) {
-    const queryPart = trimmed.slice(1).trim();
+    let queryPart = trimmed.slice(1).trim();
+
+    if (!queryPart) {
+      return { success: true, filter: undefined };
+    }
+
+    // Strip line comments (// description from AI-generated filters)
+    queryPart = queryPart
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("//"))
+      .join("\n")
+      .trim();
 
     if (!queryPart) {
       return { success: true, filter: undefined };

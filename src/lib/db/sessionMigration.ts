@@ -31,10 +31,6 @@ export async function runSessionMigration(): Promise<void> {
   const appState = await db.appState.get("singleton");
   if (appState && appState.migrationVersion >= MIGRATION_VERSION) return;
 
-  console.log(
-    "[migration] Starting session data migration v" + MIGRATION_VERSION
-  );
-
   // Run both migration steps — track success independently
   let layoutOk = true;
   let tabStatesOk = true;
@@ -61,7 +57,6 @@ export async function runSessionMigration(): Promise<void> {
       windowStates: appState?.windowStates ?? [],
       migrationVersion: MIGRATION_VERSION,
     });
-    console.log("[migration] Session data migration complete");
   } else {
     console.warn(
       "[migration] Migration partially failed — will retry on next startup"
@@ -110,12 +105,8 @@ async function migrateLayoutsFromLocalStorage(
       await db.workspaceLayouts.put(record);
       keysToRemove.push(key);
       migratedCount++;
-      console.log(
-        `[migration] Migrated layout for workspace: ${workspaceId}`
-      );
     } catch {
       // Skip corrupted entries — don't crash the migration
-      console.warn(`[migration] Skipping corrupted layout entry: ${key}`);
     }
   }
 
@@ -124,11 +115,6 @@ async function migrateLayoutsFromLocalStorage(
     localStorage.removeItem(key);
   }
 
-  if (migratedCount > 0) {
-    console.log(
-      `[migration] Migrated ${migratedCount} layout(s) from localStorage`
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -165,9 +151,6 @@ async function migrateTabStatesFromOldDb(
 
     if (validRecords.length > 0) {
       await db.tabStates.bulkPut(validRecords);
-      console.log(
-        `[migration] Migrated ${validRecords.length} tab state(s) from old IndexedDB`
-      );
     }
   } finally {
     oldDb.close();

@@ -412,7 +412,7 @@ export const ConnectionSection = forwardRef<
     return hash;
   });
   // Read stagedCommands imperatively only when the scoped version changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   const stagedCommands = useMemo(
     () => useCrudStore.getState().stagedCommands,
     [connectionCommandsVersion],

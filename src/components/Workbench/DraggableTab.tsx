@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import {
   IconX,
@@ -34,6 +34,7 @@ interface DraggableTabProps {
   displayName: string;
   isActive: boolean;
   isFocused: boolean;
+  /** Whether this tab is loading data */
   isLoading?: boolean;
   isLast: boolean;
   tabType?: string;
@@ -208,6 +209,51 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
 
   const hasTabsToRight = tabIndex < totalTabs - 1;
 
+  // Local rAF-driven progress animation (same approach as title bar commit progress)
+  const [loadProgress, setLoadProgress] = useState(0);
+  const loadProgressRaf = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (isLoading) {
+      let progress = 0;
+      let lastTime = performance.now();
+      const animate = (now: number) => {
+        const dt = now - lastTime;
+        lastTime = now;
+        const scale = dt / 50;
+        if (progress < 80) {
+          progress += 4 * scale;
+        } else if (progress < 90) {
+          progress += 0.5 * scale;
+        } else if (progress < 98) {
+          progress += 0.1 * scale;
+        }
+        if (progress > 98) progress = 98;
+        setLoadProgress(progress);
+        loadProgressRaf.current = requestAnimationFrame(animate);
+      };
+      loadProgressRaf.current = requestAnimationFrame(animate);
+    } else {
+      if (loadProgressRaf.current != null) {
+        cancelAnimationFrame(loadProgressRaf.current);
+        loadProgressRaf.current = null;
+      }
+      // Brief flash to 100% then hide, matching nprogress behavior
+      if (loadProgress > 0) {
+        setLoadProgress(100);
+        const timer = setTimeout(() => setLoadProgress(0), 200);
+        return () => clearTimeout(timer);
+      }
+    }
+    return () => {
+      if (loadProgressRaf.current != null) {
+        cancelAnimationFrame(loadProgressRaf.current);
+        loadProgressRaf.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
+
   return (
     <>
       <ContextMenu>
@@ -282,10 +328,13 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                 )}
               </span>
               {/* Loading progress bar — nprogress-style at tab bottom */}
-              {isLoading && (
+              {loadProgress > 0 && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 z-20">
                   <div className="absolute inset-0 bg-primary/20" />
-                  <div className="absolute inset-y-0 left-0 bg-primary animate-tab-progress" />
+                  <div
+                    className="absolute inset-y-0 left-0 bg-primary transition-all duration-150 ease-out"
+                    style={{ width: `${loadProgress}%` }}
+                  />
                 </div>
               )}
             </div>

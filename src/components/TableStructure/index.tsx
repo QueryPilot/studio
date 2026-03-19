@@ -24,7 +24,11 @@ import { useSupportedColumnTypes } from "@/hooks/useSupportedColumnTypes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconSearch } from "@tabler/icons-react";
 import { DataGridBase } from "@/components/DataGrid/base/DataGridBase";
-import { useColumnSizing, EMPTY_INITIAL_WIDTHS, NOOP_ON_CHANGE } from "@/components/DataGrid/hooks/useColumnSizing";
+import {
+  useColumnSizing,
+  EMPTY_INITIAL_WIDTHS,
+  NOOP_ON_CHANGE,
+} from "@/components/DataGrid/hooks/useColumnSizing";
 import { NullableCellRenderer } from "./NullableCellRenderer";
 import { DataTypeCellRenderer } from "./DataTypeCellRenderer";
 import { ActionsCellRenderer } from "./ActionsCellRenderer";
@@ -194,11 +198,11 @@ export const TableStructure = memo(function TableStructure({
     kind === "MaterializedView"
       ? "materialized_view"
       : kind === "View" || isView
-      ? "view"
-      : "table";
+        ? "view"
+        : "table";
 
   const isReadOnly = entityType !== "table";
-  
+
   // Get database type for column configuration
   const connection = useConnectionStore((state) =>
     state.connections.find((c) => c.profile.id === connectionId),
@@ -212,7 +216,7 @@ export const TableStructure = memo(function TableStructure({
 
   // Get structure columns based on database type
   const structureColumns = useMemo(() => getStructureColumns(dbType), [dbType]);
-  
+
   const structureOptions = useMemo(
     () => ({ includeConstraints: true, includeForeignKeys: true }),
     [],
@@ -245,9 +249,11 @@ export const TableStructure = memo(function TableStructure({
   // Hydration and persisted search state
   const hydrated = useGridPreferencesHydrated();
   const persistedSearch = useGridPreferencesStore(
-    (state) => state.preferences[structureGridId]?.structureSearch ?? ""
+    (state) => state.preferences[structureGridId]?.structureSearch ?? "",
   );
-  const setStructureSearch = useGridPreferencesStore((state) => state.setStructureSearch);
+  const setStructureSearch = useGridPreferencesStore(
+    (state) => state.setStructureSearch,
+  );
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<StructureGridRow | null>(
@@ -272,10 +278,13 @@ export const TableStructure = memo(function TableStructure({
   }, [hydrated, persistedSearch, searchQuery]);
 
   // Persist search query changes (debounced via useDeferredValue won't work for this, use direct)
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchQueryLocal(value);
-    setStructureSearch(structureGridId, value || undefined);
-  }, [structureGridId, setStructureSearch]);
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchQueryLocal(value);
+      setStructureSearch(structureGridId, value || undefined);
+    },
+    [structureGridId, setStructureSearch],
+  );
 
   const columns = useMemo(() => structure?.columns ?? [], [structure?.columns]);
   const foreignKeys = useMemo(
@@ -293,7 +302,8 @@ export const TableStructure = memo(function TableStructure({
     [connectionId, database, schema, table],
   );
 
-  const pendingCommands = useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_CMDS;
+  const pendingCommands =
+    useCrudStore((s) => s.stagedCommands.get(tableKey)) ?? EMPTY_CMDS;
 
   const modifiedFieldsByColumn = useMemo(
     () => buildStructureModifiedFieldsMap(pendingCommands, foreignKeys),
@@ -854,7 +864,11 @@ export const TableStructure = memo(function TableStructure({
             originalData?.default != null && originalData.default !== ""
               ? originalData.default
               : null;
-          const modifyCmd = createColumnModifyCommand(target, row.column_name, changes);
+          const modifyCmd = createColumnModifyCommand(
+            target,
+            row.column_name,
+            changes,
+          );
           stageCommand(modifyCmd);
         }
       }
@@ -1177,7 +1191,10 @@ export const TableStructure = memo(function TableStructure({
             newDefinition.name = originalData.name;
             newDefinition.dataType = originalData.db_type;
             newDefinition.nullable = originalData.nullable;
-            if (originalData.default !== undefined && originalData.default !== null) {
+            if (
+              originalData.default !== undefined &&
+              originalData.default !== null
+            ) {
               newDefinition.defaultValue = originalData.default;
             }
           }
@@ -1288,20 +1305,20 @@ export const TableStructure = memo(function TableStructure({
             textDark: "#dc2626", // red text
           }
         : isPending
-        ? {
-            bgCell: "rgba(34, 197, 94, 0.06)", // green-500 for new columns
-            bgCellMedium: "rgba(34, 197, 94, 0.08)",
-            accentColor: "rgba(34, 197, 94, 0.4)",
-            accentLight: "rgba(34, 197, 94, 0.15)",
-          }
-        : isModified
-        ? {
-            bgCell: "rgba(212, 165, 43, 0.04)", // brand golden for modified columns
-            bgCellMedium: "rgba(212, 165, 43, 0.06)",
-            accentColor: "#D4A52B",
-            accentLight: "rgba(212, 165, 43, 0.12)",
-          }
-        : undefined;
+          ? {
+              bgCell: "rgba(34, 197, 94, 0.06)", // green-500 for new columns
+              bgCellMedium: "rgba(34, 197, 94, 0.08)",
+              accentColor: "rgba(34, 197, 94, 0.4)",
+              accentLight: "rgba(34, 197, 94, 0.15)",
+            }
+          : isModified
+            ? {
+                bgCell: "rgba(212, 165, 43, 0.04)", // brand golden for modified columns
+                bgCellMedium: "rgba(212, 165, 43, 0.06)",
+                accentColor: "#D4A52B",
+                accentLight: "rgba(212, 165, 43, 0.12)",
+              }
+            : undefined;
 
       const originalColumnName = row._originalData?.name ?? row.column_name;
       const modifiedFields = originalColumnName
@@ -1310,9 +1327,7 @@ export const TableStructure = memo(function TableStructure({
       const isCellModified =
         !isPendingDelete &&
         !isPending &&
-        Boolean(
-          modifiedFields?.has(column.field as StructureModifiedField),
-        );
+        Boolean(modifiedFields?.has(column.field as StructureModifiedField));
 
       const cellThemeOverride = isCellModified
         ? {
@@ -1362,8 +1377,8 @@ export const TableStructure = memo(function TableStructure({
             kind: "column-name-cell",
             name: row.column_name || "",
             isPrimaryKey:
-              row.column_meta?.is_pk ?? row._original?.is_pk ?? false,
-            isForeignKey: row.column_meta?.is_fk ?? Boolean(row.foreign_key),
+              row.column_meta.is_pk ?? Boolean(row._original?.is_pk),
+            isForeignKey: row.column_meta.is_fk ?? Boolean(row.foreign_key),
           },
           copyData: row.column_name || "",
           readonly: false,
@@ -1525,7 +1540,11 @@ export const TableStructure = memo(function TableStructure({
       }
 
       // MySQL/MariaDB specific columns - readonly text with truncation
-      if (column.field === "character_set" || column.field === "collation" || column.field === "extra") {
+      if (
+        column.field === "character_set" ||
+        column.field === "collation" ||
+        column.field === "extra"
+      ) {
         const displayValue = typeof fieldValue === "string" ? fieldValue : "";
         return {
           kind: GridCellKind.Text,
@@ -1609,19 +1628,28 @@ export const TableStructure = memo(function TableStructure({
           // If it's a pending column (newly added), delete immediately without confirmation
           handleDeleteColumn(row);
         } else {
-          logger.info("[TableStructure] Showing delete dialog for existing column:", {
-            row,
-            isPending: row._isPending,
-            tempId: row._tempId,
-            hasOriginal: !!row._original,
-          });
+          logger.info(
+            "[TableStructure] Showing delete dialog for existing column:",
+            {
+              row,
+              isPending: row._isPending,
+              tempId: row._tempId,
+              hasOriginal: !!row._original,
+            },
+          );
           // Show delete confirmation
           setDeleteTarget(row);
           setDeleteDialogOpen(true);
         }
       }
     },
-    [sizedColumns, gridRows, pendingCommands, unstageCommand, handleDeleteColumn],
+    [
+      sizedColumns,
+      gridRows,
+      pendingCommands,
+      unstageCommand,
+      handleDeleteColumn,
+    ],
   );
 
   // Handler: Cell activated (double-click to enter edit mode)
@@ -1631,16 +1659,8 @@ export const TableStructure = memo(function TableStructure({
       const column = sizedColumns[colIndex];
       const row = gridRows[rowIndex];
 
-      if (!column || !row) return;
-
       // Don't activate for readonly cells
-      if (row._isPendingDelete) return;
-
-      logger.info("[TableStructure] Cell activated for editing:", {
-        cell,
-        column: column.field,
-        row: row.column_name,
-      });
+      if (!column || !row || row._isPendingDelete) return;
     },
     [sizedColumns, gridRows],
   );

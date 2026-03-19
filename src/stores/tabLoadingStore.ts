@@ -4,7 +4,6 @@ interface TabLoadingState {
   /** Set of tab IDs that are currently loading */
   loadingTabs: Set<string>;
   setLoading: (tabId: string, loading: boolean) => void;
-  isLoading: (tabId: string) => boolean;
 }
 
 export const useTabLoadingStore = create<TabLoadingState>((set, get) => ({
@@ -22,5 +21,4 @@ export const useTabLoadingStore = create<TabLoadingState>((set, get) => ({
       set({ loadingTabs: next });
     }
   },
-  isLoading: (tabId) => get().loadingTabs.has(tabId),
 }));

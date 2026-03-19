@@ -612,15 +612,22 @@ export function filterConfigToWhereClause(
 
   // Raw WHERE clause takes precedence (AI-generated filters)
   if (filter.rawWhereClause) {
+    // Strip SQL line comments (-- description) that may be present from AI output
+    const clause = filter.rawWhereClause
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n")
+      .trim();
+    if (!clause) return undefined;
     if (columnPrefix && columnNames?.length) {
       return qualifyRawWhereClause(
-        filter.rawWhereClause,
+        clause,
         columnPrefix,
         columnNames,
         toDbType(dbType),
       );
     }
-    return filter.rawWhereClause;
+    return clause;
   }
 
   // Convert structured filter to SQL

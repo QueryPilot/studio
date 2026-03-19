@@ -14,7 +14,6 @@ import {
   IconSearch,
   IconCode,
   IconX,
-  IconLoader2,
   IconCopy,
   IconSparkles,
   IconCheck,
@@ -91,7 +90,7 @@ const modeConfig: Record<
     icon: IconSparkles,
     label: "AI Filter",
     description: "Natural language filter",
-    placeholder: "#show orders over $100 from last week",
+    placeholder: "/show orders over $100 from last week",
   },
 };
 
@@ -412,7 +411,7 @@ export const QuickFilter = memo(
     const lastSubmittedValue = useRef<string>("");
     const suggestionsRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [suggestionLeft, setSuggestionLeft] = useState(0);
+    const [suggestionPos, setSuggestionPos] = useState({ left: 0, top: 34 });
     const parentSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const internalValueRef = useRef(value);
 
@@ -774,7 +773,7 @@ export const QuickFilter = memo(
       autoSubmitTimer.current = setTimeout(() => {
         lastSubmittedValue.current = value;
         onSubmit();
-      }, 3000);
+      }, 8000);
 
       return () => {
         if (autoSubmitTimer.current) {
@@ -786,7 +785,7 @@ export const QuickFilter = memo(
 
     // Reset lastSubmittedValue when value is cleared
     useEffect(() => {
-      if (!value || value === "?" || value === "#") {
+      if (!value || value === "?" || value === "/") {
         lastSubmittedValue.current = "";
       }
     }, [value]);
@@ -835,7 +834,7 @@ export const QuickFilter = memo(
             to: view.state.doc.length,
             insert:
               newValue.startsWith("?") ||
-              newValue.startsWith("#") ||
+              newValue.startsWith("/") ||
               newValue.startsWith("!")
                 ? newValue.slice(1)
                 : newValue,
@@ -901,16 +900,10 @@ export const QuickFilter = memo(
             },
           },
           {
-            // Block Shift+Enter from inserting newlines (this is a single-line filter)
+            // Shift+Enter inserts a newline
             key: "Shift-Enter",
-            run: () => {
-              if (parentSyncTimer.current) {
-                clearTimeout(parentSyncTimer.current);
-                parentSyncTimer.current = null;
-                onValueChange(internalValueRef.current);
-              }
-              lastSubmittedValue.current = internalValueRef.current;
-              onSubmit();
+            run: (view) => {
+              view.dispatch(view.state.replaceSelection("\n"));
               return true;
             },
           },
@@ -1168,11 +1161,11 @@ export const QuickFilter = memo(
           });
           return;
         }
-        if (firstChar === "#" && mode !== "ai") {
+        if (firstChar === "/" && mode !== "ai") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("ai");
-          flushParentSync("#" + contentWithoutPrefix);
+          flushParentSync("/" + contentWithoutPrefix);
           // Update editor to remove prefix from display
           const view = editorViewRef.current;
           if (view) {
@@ -1277,11 +1270,10 @@ export const QuickFilter = memo(
             s.value.startsWith("?") && s.mode === "where" ? 1 : 0;
           setCursorPosition(pos + prefixLen);
 
-          // Calculate cursor X offset relative to container for suggestion positioning
+          // Calculate cursor position for suggestion dropdown (fixed positioning)
           const coords = update.view.coordsAtPos(pos);
-          const containerRect = containerRef.current?.getBoundingClientRect();
-          if (coords && containerRect) {
-            setSuggestionLeft(Math.max(0, coords.left - containerRect.left));
+          if (coords) {
+            setSuggestionPos({ left: coords.left, top: coords.bottom + 4 });
           }
         }
       },
@@ -1292,14 +1284,17 @@ export const QuickFilter = memo(
       <div className="flex flex-col gap-1">
         <div className="flex items-center">
           {/* Input with mode selector inside */}
-          <div className="flex-1 relative">
+          <div className="flex-1 relative" style={{ minHeight: 30 }}>
             <DropdownMenu>
               <div
                 ref={containerRef}
                 className={cn(
-                  "relative w-full rounded-md border border-input bg-input/20 dark:bg-input/30 pl-8 pr-7 text-xs",
+                  "w-full rounded-md border border-input pl-8 pr-7 text-xs",
                   "transition-[max-height] duration-150 ease-out overflow-hidden",
-                  isFocused ? "max-h-[120px]" : "max-h-[30px]",
+                  "absolute left-0 right-0 top-0",
+                  isFocused
+                    ? "max-h-[120px] z-30 bg-background shadow-md"
+                    : "max-h-[30px] bg-input/20 dark:bg-input/30",
                   "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
                   error &&
                     "border-destructive focus-within:ring-destructive/50",
@@ -1327,7 +1322,7 @@ export const QuickFilter = memo(
                 <CodeMirror
                   value={
                     value.startsWith("?") ||
-                    value.startsWith("#") ||
+                    value.startsWith("/") ||
                     value.startsWith("!")
                       ? value.slice(1)
                       : value
@@ -1360,11 +1355,9 @@ export const QuickFilter = memo(
                   }}
                   onUpdate={handleEditorUpdate}
                 />
-                {/* Copy & Clear / Loading indicator */}
-                <div className="absolute right-1 top-[2px] flex items-center">
-                  {isLoading ? (
-                    <IconLoader2 className="size-3.5 animate-spin text-muted-foreground" />
-                  ) : value ? (
+                {/* Clear button */}
+                {value && (
+                  <div className="absolute right-1 top-[2px] flex items-center">
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -1372,8 +1365,8 @@ export const QuickFilter = memo(
                     >
                       <IconX />
                     </Button>
-                  ) : null}
-                </div>
+                  </div>
+                )}
               </div>
               {(!searchModeOnly || clientSideFiltering) && (
                 <QuickFilterModeMenu
@@ -1388,12 +1381,16 @@ export const QuickFilter = memo(
                 />
               )}
             </DropdownMenu>
-            {/* Suggestions dropdown - positioned at cursor */}
+            {/* Suggestions dropdown - fixed positioned at cursor */}
             {showSuggestions && (
               <div
                 ref={suggestionsRef}
-                className="absolute top-full mt-1 z-50 w-64 rounded-md border border-border bg-popover p-1 shadow-md"
-                style={{ contain: "layout style", left: `${suggestionLeft}px` }}
+                className="fixed z-50 w-64 rounded-md border border-border bg-popover p-1 shadow-md"
+                style={{
+                  contain: "layout style",
+                  left: suggestionPos.left,
+                  top: suggestionPos.top,
+                }}
                 onMouseDown={(e) => {
                   // Prevent blur on input when clicking suggestions
                   e.preventDefault();
