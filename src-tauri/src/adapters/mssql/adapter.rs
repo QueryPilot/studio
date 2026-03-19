@@ -502,6 +502,17 @@ impl MssqlAdapter {
         Ok(sql)
     }
 
+    /// Check if SQL is a SHOWPLAN/STATISTICS PROFILE wrapped batch.
+    /// These batches start with SET SHOWPLAN_*/STATISTICS PROFILE ON and
+    /// must skip session reset and type rewriting.
+    pub fn is_showplan_batch(sql: &str) -> bool {
+        let trimmed = sql.trim_start().to_uppercase();
+        trimmed.starts_with("SET SHOWPLAN_ALL ON")
+            || trimmed.starts_with("SET SHOWPLAN_XML ON")
+            || trimmed.starts_with("SET SHOWPLAN_TEXT ON")
+            || trimmed.starts_with("SET STATISTICS PROFILE ON")
+    }
+
     /// Extract simple column name from expression (handles col, [col], table.col, etc.)
     fn extract_simple_column_name(expr: &str) -> Option<String> {
         let trimmed = expr.trim();
@@ -654,48 +665,102 @@ impl SqlQueryable for MssqlAdapter {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
-        Self::reset_session_state(&mut conn).await;
+        let is_showplan = Self::is_showplan_batch(sql);
 
-        let sql = Self::rewrite_for_unsupported_types(&mut conn, sql).await?;
+        if !is_showplan {
+            Self::reset_session_state(&mut conn).await;
+        }
+
+        let sql = if is_showplan {
+            sql.to_string()
+        } else {
+            Self::rewrite_for_unsupported_types(&mut conn, sql).await?
+        };
 
         let query_result =
             AssertUnwindSafe(async move {
-                let mut result = conn
-                    .simple_query(sql.as_str())
-                    .await
-                    .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+                if is_showplan {
+                    // SHOWPLAN batch: use into_results() to get all result sets,
+                    // then find the first non-empty one (the plan data).
+                    let result = conn
+                        .simple_query(sql.as_str())
+                        .await
+                        .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
-                // Get column metadata - columns() is async
-                let columns_opt = result.columns().await.map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to get columns: {}", e))
-                })?;
+                    let result_sets: Vec<Vec<tiberius::Row>> =
+                        result.into_results().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Failed to collect results: {}", e))
+                        })?;
 
-                let columns: Vec<CapabilityColumnMeta> = columns_opt
-                    .map(|cols| {
-                        cols.iter()
-                            .map(|col| CapabilityColumnMeta {
-                                name: col.name().to_string(),
-                                data_type: MssqlTypeConverter::column_type_to_string(
-                                    &col.column_type(),
-                                ),
-                            })
-                            .collect()
+                    // Find first non-empty result set (plan rows)
+                    let rows = result_sets
+                        .into_iter()
+                        .find(|rs| !rs.is_empty())
+                        .unwrap_or_default();
+
+                    // Extract columns from row metadata (sync, via row.columns())
+                    let columns: Vec<CapabilityColumnMeta> = rows
+                        .first()
+                        .map(|row| {
+                            row.columns()
+                                .iter()
+                                .map(|col| CapabilityColumnMeta {
+                                    name: col.name().to_string(),
+                                    data_type: MssqlTypeConverter::column_type_to_string(
+                                        &col.column_type(),
+                                    ),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    let json_rows: Vec<Vec<serde_json::Value>> =
+                        rows.iter().map(SimpleConverter::row_to_json).collect();
+
+                    Ok(CapabilityQueryResult {
+                        columns,
+                        rows: json_rows,
                     })
-                    .unwrap_or_default();
+                } else {
+                    // Standard path: use columns() + into_first_result()
+                    let mut result = conn
+                        .simple_query(sql.as_str())
+                        .await
+                        .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
 
-                // Collect rows
-                let rows: Vec<tiberius::Row> = result.into_first_result().await.map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to collect rows: {}", e))
-                })?;
+                    // Get column metadata - columns() is async
+                    let columns_opt = result.columns().await.map_err(|e| {
+                        AppError::DatabaseError(format!("Failed to get columns: {}", e))
+                    })?;
 
-                // Convert to JSON
-                let json_rows: Vec<Vec<serde_json::Value>> =
-                    rows.iter().map(SimpleConverter::row_to_json).collect();
+                    let columns: Vec<CapabilityColumnMeta> = columns_opt
+                        .map(|cols| {
+                            cols.iter()
+                                .map(|col| CapabilityColumnMeta {
+                                    name: col.name().to_string(),
+                                    data_type: MssqlTypeConverter::column_type_to_string(
+                                        &col.column_type(),
+                                    ),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
 
-                Ok(CapabilityQueryResult {
-                    columns,
-                    rows: json_rows,
-                })
+                    // Collect rows
+                    let rows: Vec<tiberius::Row> =
+                        result.into_first_result().await.map_err(|e| {
+                            AppError::DatabaseError(format!("Failed to collect rows: {}", e))
+                        })?;
+
+                    // Convert to JSON
+                    let json_rows: Vec<Vec<serde_json::Value>> =
+                        rows.iter().map(SimpleConverter::row_to_json).collect();
+
+                    Ok(CapabilityQueryResult {
+                        columns,
+                        rows: json_rows,
+                    })
+                }
             })
             .catch_unwind()
             .await;
