@@ -52,7 +52,8 @@ export function SidebarSection({
   onSelectAll,
   onCopyAllNames,
 }: SidebarSectionProps) {
-  const hasContextMenu = onExpandAll || onCollapseAll || onSelectAll || onCopyAllNames;
+  const hasContextMenu =
+    onExpandAll || onCollapseAll || onSelectAll || onCopyAllNames;
 
   const headerContent = (
     <div className="flex items-center bg-muted/50 rounded-l text-xs text-foreground/80 dark:text-foreground/70">
@@ -66,14 +67,14 @@ export function SidebarSection({
           <IconChevronRight className="h-4 w-4" />
         )}
         <span className="font-medium text-xs">{title}</span>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {count}
-        </span>
+        <span className="text-xs text-muted-foreground ml-auto">{count}</span>
       </button>
       {headerExtra && (
         <div
           className="shrink-0"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
         >
           {headerExtra}
         </div>
@@ -106,7 +107,7 @@ export function SidebarSection({
   );
 
   return (
-    <div>
+    <div className="px-1.5">
       <div className={cn(stickyClass, "group/section")}>
         {hasContextMenu ? (
           <ContextMenu>
@@ -124,9 +125,8 @@ export function SidebarSection({
                   Collapse All {title}
                 </ContextMenuItem>
               )}
-              {(onExpandAll || onCollapseAll) && (onSelectAll || onCopyAllNames) && (
-                <ContextMenuSeparator />
-              )}
+              {(onExpandAll || onCollapseAll) &&
+                (onSelectAll || onCopyAllNames) && <ContextMenuSeparator />}
               {onSelectAll && (
                 <ContextMenuItem onClick={onSelectAll}>
                   <IconSelect className="h-4 w-4 mr-2" />
@@ -222,7 +222,8 @@ export function SidebarItem({
           (sidebarScrollContainer.clientHeight - itemRect.height) / 2;
         const maxTop = Math.max(
           0,
-          sidebarScrollContainer.scrollHeight - sidebarScrollContainer.clientHeight,
+          sidebarScrollContainer.scrollHeight -
+            sidebarScrollContainer.clientHeight,
         );
         const top = Math.min(Math.max(centeredTop, 0), maxTop);
 
@@ -258,7 +259,7 @@ export function SidebarItem({
               ? "bg-primary/10 border-l-primary"
               : isDestructivePending
                 ? "bg-destructive/10 border-l-destructive"
-              : "border-l-transparent",
+                : "border-l-transparent",
         className,
       )}
       style={{ paddingLeft }}
@@ -352,7 +353,15 @@ export function SidebarItem({
 
 export interface SidebarItemDragData {
   type: "sidebar-item";
-  objectType: "table" | "view" | "function" | "procedure" | "mongo-collection" | "redis-key" | "erd" | "history";
+  objectType:
+    | "table"
+    | "view"
+    | "function"
+    | "procedure"
+    | "mongo-collection"
+    | "redis-key"
+    | "erd"
+    | "history";
   name: string;
   table?: TableMeta;
   func?: FunctionMeta;

@@ -975,7 +975,7 @@ export function parseWhereClause(
   let expr = whereExpr.trim();
 
   // Safety: always strip mode prefixes if present
-  if (expr.startsWith("?") || expr.startsWith("#") || expr.startsWith("!")) {
+  if (expr.startsWith("?") || expr.startsWith("/") || expr.startsWith("!")) {
     expr = expr.slice(1).trim();
   }
 
@@ -1058,7 +1058,7 @@ export function sanitizeInput(input: string, mode: FilterMode): string {
       }
       break;
     case "ai":
-      if (sanitized.startsWith("#")) {
+      if (sanitized.startsWith("/")) {
         sanitized = sanitized.slice(1).trim();
       }
       break;
@@ -1072,7 +1072,7 @@ export function sanitizeInput(input: string, mode: FilterMode): string {
   // Safety: strip any remaining mode prefixes
   if (
     sanitized.startsWith("?") ||
-    sanitized.startsWith("#") ||
+    sanitized.startsWith("/") ||
     sanitized.startsWith("!")
   ) {
     sanitized = sanitized.slice(1).trim();
@@ -1094,9 +1094,9 @@ function createEmptyFilter(): FilterConfig {
 
 export function detectFilterMode(input: string): FilterMode {
   const trimmed = input.trim();
-  // Support escape sequences: \? \# \! to search literal characters
+  // Support escape sequences: \? \/ \! to search literal characters
   if (trimmed.startsWith("\\")) return "search";
-  if (trimmed.startsWith("#")) return "ai";
+  if (trimmed.startsWith("/")) return "ai";
   if (trimmed.startsWith("?")) return "where";
   return "search";
 }

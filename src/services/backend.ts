@@ -54,7 +54,7 @@ export interface ConnectionHealth {
 // Query Result Types (from Rust backend)
 // These types match the Rust serialization format exactly.
 // For grid display types, see @/types/cellValue.ts (GridCellValue)
-// For schema introspection types, see @/types/schema.ts (ColumnMeta)
+// For schema introspection types, see @/types/schema.ts (QueryColumnMeta)
 // =============================================================================
 
 export interface QueryHandle {
@@ -147,20 +147,6 @@ export type RawCellValueType =
   | "Ltree"
   | "Cube"
   | { CustomType: string };
-
-// =============================================================================
-// Legacy type aliases for backward compatibility
-// These will be removed in a future version
-// =============================================================================
-
-/** @deprecated Use RawCellValue instead */
-export type CellValue = RawCellValue;
-
-/** @deprecated Use RawCellValueType instead */
-export type CellValueType = RawCellValueType;
-
-/** @deprecated Use QueryColumnMeta instead */
-export type ColumnMeta = QueryColumnMeta;
 
 export type DbSpecificValue = {
   PostgreSQL: PostgresValue;
@@ -325,8 +311,8 @@ export interface Partition {
 }
 
 export interface TableDataResult {
-  columns: ColumnMeta[];
-  rows: CellValue[][];
+  columns: QueryColumnMeta[];
+  rows: RawCellValue[][];
   has_more: boolean;
   total_count?: number;
   execution_time_ms?: number;
@@ -334,8 +320,8 @@ export interface TableDataResult {
 
 // Streaming types
 export type StreamEvent =
-  | { type: "Started"; columns: ColumnMeta[]; estimated_rows?: number }
-  | { type: "Data"; rows: CellValue[][]; row_offset: number }
+  | { type: "Started"; columns: QueryColumnMeta[]; estimated_rows?: number }
+  | { type: "Data"; rows: RawCellValue[][]; row_offset: number }
   | { type: "Progress"; rows_fetched: number; percentage?: number }
   | { type: "Completed"; total_rows: number; execution_time_ms: number }
   | { type: "Error"; message: string; code?: string };
@@ -344,7 +330,7 @@ export type StreamEvent =
 // NOTE: Batch data sent via separate data channel as ArrayBuffer (not in metadata messages)
 export type StreamMessage =
   | { type: "limitApplied"; original_sql: string; applied_limit: number }
-  | { type: "started"; columns: ColumnMeta[]; estimated_rows?: number }
+  | { type: "started"; columns: QueryColumnMeta[]; estimated_rows?: number }
   | {
       type: "success";
       total_rows: number;
@@ -382,7 +368,10 @@ export class BackendAPI {
     return invoke("disconnect", { connId });
   }
 
-  static async switchDatabase(connId: string, newDatabase: string): Promise<void> {
+  static async switchDatabase(
+    connId: string,
+    newDatabase: string,
+  ): Promise<void> {
     return invoke("switch_database", { connId, newDatabase });
   }
 
@@ -479,7 +468,7 @@ export class BackendAPI {
    * const adapter = await getAdapterForConnection(connectionId);
    * const sql = adapter.getColumnsQuery(schema, table);
    * const result = await BackendAPI.query(connectionId, sql);
-   * // result.columns: ColumnMeta[], result.rows: CellValue[][]
+   * // result.columns: QueryColumnMeta[], result.rows: QueryColumnMeta[][]
    * ```
    */
   static async query(
@@ -487,13 +476,17 @@ export class BackendAPI {
     sql: string,
     timeoutSecs?: number,
   ): Promise<RawQueryResult> {
-    logger.info(`[BackendAPI] query called for ${connectionId}, sql length: ${sql.length}`);
+    logger.info(
+      `[BackendAPI] query called for ${connectionId}, sql length: ${sql.length}`,
+    );
     const result = await invoke<RawQueryResult>("query", {
       connId: connectionId,
       sql,
       timeoutSecs,
     });
-    logger.info(`[BackendAPI] query returned ${result.rows.length} rows for ${connectionId}`);
+    logger.info(
+      `[BackendAPI] query returned ${result.rows.length} rows for ${connectionId}`,
+    );
     return result;
   }
 }
@@ -503,8 +496,8 @@ export class BackendAPI {
  * Used for introspection queries executed via BackendAPI.query()
  */
 export interface RawQueryResult {
-  columns: ColumnMeta[];
-  rows: CellValue[][];
+  columns: QueryColumnMeta[];
+  rows: QueryColumnMeta[][];
 }
 
 // Alias for convenience (matches naming convention in other parts of codebase)

@@ -102,16 +102,6 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       };
     }, [tabId]);
 
-    // Show tab loading indicator while content initializes
-    useEffect(() => {
-      if (!contentReady) {
-        useTabLoadingStore.getState().setLoading(tabId, true);
-      } else {
-        useTabLoadingStore.getState().setLoading(tabId, false);
-      }
-      return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
-    }, [tabId, contentReady]);
-
     // Get dbType from connection profile
     const connectionId = metadata?.connectionId || activeConnectionId || "";
     const connection = getConnection(connectionId);
@@ -139,6 +129,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       }
       return metadata?.viewType || "data";
     });
+    // Show tab loading indicator while content initializes or view changes
+    useEffect(() => {
+      useTabLoadingStore.getState().setLoading(tabId, true);
+      return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
+    }, [tabId, contentReady, activeView]);
+
+    // Callback for child components to signal they finished loading
+    const markTabLoaded = useCallback(() => {
+      useTabLoadingStore.getState().setLoading(tabId, false);
+    }, [tabId]);
+
     const definitionRef = useRef<string>("");
     const [viewActions, setViewActions] = useState<React.ReactNode>(null);
     const [copied, setCopied] = useState(false);

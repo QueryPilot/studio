@@ -298,25 +298,52 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
           return { error: "No AI agent selected." };
         }
 
-        // Build schema context JSON for the AI
-        const contextJson = JSON.stringify({
-          table: table,
+        // Fetch related table schemas via FK relationships for richer context
+        const relatedTables: Record<string, { columns: Array<{ name: string; type: string }> }> = {};
+        const fkColumns = filterColumns.filter((c) => c.isForeignKey && c.foreignTable);
+        if (fkColumns.length > 0 && connectionId) {
+          const uniqueTables = [...new Set(fkColumns.map((c) => c.foreignTable!))];
+          const results = await Promise.allSettled(
+            uniqueTables.map(async (fkTable) => {
+              const structure = await databaseService.getTableStructure(
+                connectionId, database ?? "", schema ?? "public", fkTable,
+                { includeIndexes: false, includeConstraints: false, includeTriggers: false, includeStatistics: false, includeForeignKeys: true },
+              );
+              return { table: fkTable, columns: structure.columns.map((c) => ({ name: c.name, type: c.db_type })) };
+            }),
+          );
+          for (const result of results) {
+            if (result.status === "fulfilled") {
+              relatedTables[result.value.table] = { columns: result.value.columns };
+            }
+          }
+        }
+
+        // Find PK column for subquery examples
+        const pkColumn = filterColumns.find((c) => c.isPrimaryKey)?.name ?? filterColumns[0]?.name ?? "id";
+
+        // Build the full schema context
+        const schemaContext = {
+          table,
           schema: schema ?? "public",
-          database: database ?? "",
           dialect,
           columns: filterColumns.map((c) => ({
             name: c.name,
             type: c.dataType,
             nullable: c.nullable,
-            isPrimaryKey: c.isPrimaryKey,
-            isForeignKey: c.isForeignKey,
-            foreignTable: c.foreignTable,
-            foreignColumn: c.foreignColumn,
-            enumValues: c.enumValues,
+            pk: c.isPrimaryKey,
+            fk: c.isForeignKey ? `→ ${c.foreignTable}.${c.foreignColumn}` : undefined,
+            enumValues: c.enumValues?.length ? c.enumValues : undefined,
           })),
-        });
+          relatedTables: Object.keys(relatedTables).length > 0 ? relatedTables : undefined,
+        };
+        const contextJson = JSON.stringify(schemaContext);
 
         // Build the full prompt based on output type
+        const relatedTablesPrompt = Object.entries(relatedTables)
+          .map(([t, info]) => `  ${t}: ${info.columns.map((c) => `${c.name} (${c.type})`).join(", ")}`)
+          .join("\n");
+
         const fullPrompt =
           options?.outputType === "search_pattern"
             ? `You are a database filter assistant. Generate a search pattern for filtering data.
@@ -331,10 +358,19 @@ IMPORTANT: Only output the search pattern text, no explanation. The pattern will
 
 User request: ${prompt}
 
-Table: ${table}
-Columns: ${filterColumns.map((c) => `${c.name} (${c.dataType})`).join(", ")}
-
-IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation. Must be valid ${dialect} SQL.`;
+Current table: ${table} (PK: ${pkColumn})
+Columns: ${filterColumns.map((c) => `${c.name} (${c.dataType})${c.isForeignKey ? ` FK→${c.foreignTable}.${c.foreignColumn}` : ""}${c.isPrimaryKey ? " PK" : ""}`).join(", ")}
+${relatedTablesPrompt ? `\nRelated tables (via foreign keys):\n${relatedTablesPrompt}\n` : ""}
+RULES:
+1. Respond with ONLY valid JSON in this exact format: {"description": "short explanation of what this filter does", "query": "the WHERE clause"}
+2. The "query" field must be a valid WHERE clause (without the WHERE keyword) that will be injected as: SELECT * FROM "${table}" WHERE <query>
+3. For requests involving ORDER BY, LIMIT, TOP N, ranking, or aggregation, use a subquery:
+   - "${pkColumn} IN (SELECT ${pkColumn} FROM ${table} ORDER BY column DESC LIMIT 10)"
+   - For cross-table queries, use subqueries with JOINs referencing the EXACT column names listed above.
+4. NEVER output a full SELECT statement. NEVER include ORDER BY or LIMIT at the top level.
+5. ONLY use column names that exist in the schema above. Do NOT guess or invent column names.
+6. Must be valid ${dialect} SQL syntax.
+7. No markdown, no code fences, no explanation outside the JSON.`;
 
         // Use silent prompt - this does NOT add to chat history
         // Use haiku model for quick filter (fast responses)
@@ -346,20 +382,47 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
           DEFAULT_QUICK_FILTER_MODEL,
         );
 
-        // Clean up the response
-        let cleanedClause = response
-          .replace(/^```(?:sql)?\n?/i, "")
+        // Strip markdown fences
+        const cleaned = response
+          .replace(/^```(?:json|sql)?\n?/i, "")
           .replace(/\n?```$/i, "")
           .trim();
 
+        // Try to parse as JSON { description, query }
+        let description = "";
+        let clause = "";
+        try {
+          const parsed = JSON.parse(cleaned);
+          if (parsed && typeof parsed.query === "string") {
+            clause = parsed.query.trim();
+            description = typeof parsed.description === "string" ? parsed.description.trim() : "";
+          } else {
+            // JSON but wrong shape — treat as raw clause
+            clause = cleaned;
+          }
+        } catch {
+          // Not JSON — treat as raw clause (backward compat)
+          clause = cleaned;
+        }
+
         // Remove "WHERE" keyword if the AI included it
-        if (cleanedClause.toUpperCase().startsWith("WHERE ")) {
-          cleanedClause = cleanedClause.substring(6).trim();
+        if (clause.toUpperCase().startsWith("WHERE ")) {
+          clause = clause.substring(6).trim();
+        }
+
+        // Reject full SELECT statements — extract WHERE clause if possible
+        if (clause.toUpperCase().startsWith("SELECT ")) {
+          const whereMatch = clause.match(/\bWHERE\s+([\s\S]+?)(?:\s+ORDER\s+BY\b|\s+LIMIT\b|\s+GROUP\s+BY\b|$)/i);
+          if (whereMatch?.[1]) {
+            clause = whereMatch[1].trim();
+          } else {
+            return { error: "AI returned a full query instead of a WHERE clause. Try rephrasing your filter." };
+          }
         }
 
         return {
-          clause: cleanedClause,
-          explanation: "Generated by AI",
+          clause: description ? `-- ${description}\n${clause}` : clause,
+          explanation: description || "Generated by AI",
         };
       } catch (error) {
         console.error("AI filter generation error:", error);
@@ -371,7 +434,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
         };
       }
     },
-    [table, schema, database, dialect, filterColumns]
+    [table, schema, database, dialect, filterColumns, connectionId]
   );
 
   // Quick filter hook - manages filter state, parsing, and submission

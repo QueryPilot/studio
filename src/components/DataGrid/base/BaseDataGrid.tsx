@@ -2648,25 +2648,6 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         }
         const selection = gridSelectionRef.current;
         if (selection?.current?.cell) {
-          const [col, row] = selection.current.cell;
-          const rowData = rowsRef.current[row];
-          const pkCols = commandFactoryRef.current?.primaryKeyColumns ?? [];
-          const colMap = commandFactoryRef.current?.columnNameToFieldMap;
-          const pk = pkCols
-            .map((pk) => {
-              const field = colMap?.get(pk);
-              const val = field && rowData ? rowData[field] : undefined;
-              return val && typeof val === "object" && "value" in val
-                ? val.value
-                : val;
-            })
-            .join(",");
-          console.warn("[COPY DEBUG]", {
-            col,
-            row,
-            pk,
-            totalRows: rowsRef.current.length,
-          });
           await copySelection(selection, "text");
         }
       },
