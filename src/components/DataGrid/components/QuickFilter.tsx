@@ -8,7 +8,6 @@ import {
   useMemo,
   memo,
 } from "react";
-import { useDebounce } from "@/hooks/useDebounce";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
 import {
   IconSearch,
@@ -20,8 +19,9 @@ import {
 } from "@tabler/icons-react";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { sql, PostgreSQL } from "@codemirror/lang-sql";
-import { keymap } from "@codemirror/view";
+import { keymap, tooltips } from "@codemirror/view";
 import { Prec, Compartment } from "@codemirror/state";
+import { autocompletion, completionStatus, acceptCompletion, moveCompletionSelection, type CompletionContext, type Completion } from "@codemirror/autocomplete";
 import { history, historyKeymap } from "@codemirror/commands";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { useTheme } from "@/components/theme-provider";
@@ -95,7 +95,6 @@ const modeConfig: Record<
 };
 
 // Pre-compiled regex patterns for performance (Phase 3.1)
-const WORD_AT_CURSOR_REGEX = /[a-zA-Z_][a-zA-Z0-9_]*$/;
 const OPERATOR_REGEX = /[=<>!]+\s*$|(?:LIKE|ILIKE|IN|IS|BETWEEN)\s*$/i;
 const QUOTE_REGEX = /['"]$/;
 // Column extraction - matches column name before operator (works in subqueries too)
@@ -137,62 +136,6 @@ function extractColumnBeforeCursor(text: string): string | null {
 
   return null;
 }
-
-// Memoized suggestion item components (Phase 2.3)
-interface EnumSuggestionItemProps {
-  value: string;
-  isSelected: boolean;
-  onSelect: (value: string) => void;
-}
-
-const EnumSuggestionItem = memo<EnumSuggestionItemProps>(
-  ({ value, isSelected, onSelect }) => {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          onSelect(value);
-        }}
-        className={cn(
-          "w-full text-left px-2 py-1 text-xs rounded",
-          "hover:bg-accent",
-          isSelected && "bg-accent",
-        )}
-      >
-        <span className="font-mono">'{value}'</span>
-      </button>
-    );
-  },
-);
-EnumSuggestionItem.displayName = "EnumSuggestionItem";
-
-interface ColumnSuggestionItemProps {
-  column: FilterColumnInfo;
-  isSelected: boolean;
-  onSelect: (name: string) => void;
-}
-
-const ColumnSuggestionItem = memo<ColumnSuggestionItemProps>(
-  ({ column, isSelected, onSelect }) => {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          onSelect(column.name);
-        }}
-        className={cn(
-          "w-full text-left px-2 py-1 text-xs rounded",
-          "hover:bg-accent",
-          isSelected && "bg-accent",
-        )}
-      >
-        <span className="font-mono">{column.name}</span>
-        <span className="ml-2 text-muted-foreground">({column.dataType})</span>
-      </button>
-    );
-  },
-);
-ColumnSuggestionItem.displayName = "ColumnSuggestionItem";
 
 // ============================================================================
 // Mode Selection Menu with AI Model Submenu
@@ -240,7 +183,7 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
   const handleModeSelect = useCallback(
     (m: FilterMode) => {
       onModeChange(m);
-      const currentValue = value.replace(/^[?#]\s*/, "");
+      const currentValue = value.replace(/^[?/]\s*/, "");
       if (m === "where") {
         onValueChange(currentValue ? `?${currentValue}` : "?");
       } else {
@@ -262,7 +205,7 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
       void selectModel(modelId);
       // Switch to AI mode
       onModeChange("ai");
-      const currentValue = value.replace(/^[?#]\s*/, "");
+      const currentValue = value.replace(/^[?/]\s*/, "");
       onValueChange(currentValue);
       onFocusEditor();
     },
@@ -394,52 +337,26 @@ export const QuickFilter = memo(
     },
     ref,
   ) {
-    const [showSuggestions, setShowSuggestions] = useState(false);
-    const [suggestions, setSuggestions] = useState<FilterColumnInfo[]>([]);
-    const [enumSuggestions, setEnumSuggestions] = useState<string[]>([]);
-    const [suggestionType, setSuggestionType] = useState<"column" | "enum">(
-      "column",
-    );
-    const [selectedIndex, setSelectedIndex] = useState(0);
-    const [cursorPosition, setCursorPosition] = useState(0);
     const [hasLintError, setHasLintError] = useState(false);
     const [isFocused, setIsFocused] = useState(false);
     const focusCleanupRef = useRef<(() => void) | null>(null);
-    const justAcceptedSuggestion = useRef(false);
     const justSwitchedMode = useRef(false);
     const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastSubmittedValue = useRef<string>("");
-    const suggestionsRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [suggestionPos, setSuggestionPos] = useState({ left: 0, top: 34 });
     const parentSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const internalValueRef = useRef(value);
 
     // Refs for stable keymap access (avoid keymap recreation on every render)
     const stateRefs = useRef({
-      showSuggestions: false,
-      suggestionType: "column" as "column" | "enum",
-      suggestions: [] as FilterColumnInfo[],
-      enumSuggestions: [] as string[],
-      selectedIndex: 0,
       mode: "search" as FilterMode,
       hasLintError: false,
       value: "",
-      cursorPosition: 0,
-      columns: [] as FilterColumnInfo[],
       onClear: undefined as (() => void) | undefined,
     });
-    // Keep refs in sync (critical for stable keymap callbacks)
-    stateRefs.current.showSuggestions = showSuggestions;
-    stateRefs.current.suggestionType = suggestionType;
-    stateRefs.current.suggestions = suggestions;
-    stateRefs.current.enumSuggestions = enumSuggestions;
-    stateRefs.current.selectedIndex = selectedIndex;
     stateRefs.current.mode = mode;
     stateRefs.current.hasLintError = hasLintError;
     stateRefs.current.value = value;
-    stateRefs.current.cursorPosition = cursorPosition;
-    stateRefs.current.columns = columns;
     stateRefs.current.onClear = onClear;
 
     // Theme for CodeMirror
@@ -472,29 +389,6 @@ export const QuickFilter = memo(
 
     // Note: SQL validation now uses Rust backend (no worker setup needed)
 
-    // Click-outside handler for suggestions dropdown (replaces Popover behavior)
-    useEffect(() => {
-      if (!showSuggestions) return;
-
-      const handleClickOutside = (e: MouseEvent) => {
-        const target = e.target as Node;
-        if (
-          containerRef.current &&
-          !containerRef.current.contains(target) &&
-          suggestionsRef.current &&
-          !suggestionsRef.current.contains(target)
-        ) {
-          setShowSuggestions(false);
-        }
-      };
-
-      // Use capture to handle click before other handlers
-      document.addEventListener("mousedown", handleClickOutside, true);
-      return () => {
-        document.removeEventListener("mousedown", handleClickOutside, true);
-      };
-    }, [showSuggestions]);
-
     // Expose focus method to parent
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -504,7 +398,6 @@ export const QuickFilter = memo(
         const activeElement = document.activeElement;
         if (!activeElement) return false;
         if (containerRef.current?.contains(activeElement)) return true;
-        if (suggestionsRef.current?.contains(activeElement)) return true;
         return Boolean(editorViewRef.current?.hasFocus);
       },
     }));
@@ -580,6 +473,7 @@ export const QuickFilter = memo(
       const themeExts = getThemeExtensions(actualTheme);
 
       return [
+        tooltips({ parent: document.body }),
         history(),
         keymap.of(historyKeymap),
         ...themeExts,
@@ -636,120 +530,14 @@ export const QuickFilter = memo(
       });
     }, [mode, modeCompartment, sqlModeExtensions]);
 
-    // Debounce value and cursor position TOGETHER to avoid double effect runs
-    // When both change, we only want one effect execution, not two
-    // Use stable reference via useMemo to prevent debounce reset on every render
-    const inputState = useMemo(
-      () => ({ value, cursor: cursorPosition }),
-      [value, cursorPosition],
-    );
-    const debouncedState = useDebounce(inputState, 250);
-    const debouncedValue = debouncedState.value;
-    const debouncedCursor = debouncedState.cursor;
-
-    // Memoize column map for O(1) lookups (Phase 1.3)
+    // Memoize column map for O(1) lookups
     const columnMap = useMemo(() => {
       const map = new Map<string, FilterColumnInfo>();
       columns.forEach((col) => map.set(col.name.toLowerCase(), col));
       return map;
     }, [columns]);
 
-    // Memoize filtered columns helper (Phase 1.3)
-    const getFilteredColumns = useCallback(
-      (searchTerm: string) => {
-        const lowerSearch = searchTerm.toLowerCase();
-        return columns.filter((c) =>
-          c.name.toLowerCase().includes(lowerSearch),
-        );
-      },
-      [columns],
-    );
-
-    // Update suggestions based on input
-    useEffect(() => {
-      // Get word at cursor
-      const beforeCursor = debouncedValue.slice(0, debouncedCursor);
-      const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
-
-      if (match) {
-        // Check if we're in a value context (after an operator)
-        const textBeforeWord = beforeCursor
-          .slice(0, beforeCursor.length - match[0].length)
-          .trim();
-        const isAfterOperator = OPERATOR_REGEX.test(textBeforeWord);
-        const isAfterQuote = QUOTE_REGEX.test(textBeforeWord);
-
-        if (isAfterOperator || isAfterQuote) {
-          // We're typing a value - check if the column has enum values
-          // Use improved extraction that handles subqueries
-          const columnName = extractColumnBeforeCursor(textBeforeWord);
-
-          if (columnName) {
-            const column = columnMap.get(columnName.toLowerCase());
-            if (column?.enumValues && column.enumValues.length > 0) {
-              const searchTerm = match[0].toLowerCase();
-              const filtered = column.enumValues.filter((v) =>
-                v.toLowerCase().includes(searchTerm),
-              );
-              if (filtered.length > 0) {
-                setEnumSuggestions(filtered);
-                setSuggestionType("enum");
-                if (!justAcceptedSuggestion.current) {
-                  setShowSuggestions(true);
-                }
-                setSelectedIndex(0);
-                return;
-              }
-            }
-          }
-          setShowSuggestions(false);
-          return;
-        }
-
-        // We're typing a column name
-        const searchTerm = match[0];
-        const filtered = getFilteredColumns(searchTerm);
-        setSuggestions(filtered);
-        setSuggestionType("column");
-
-        // Don't show suggestion if user already typed exact column name
-        const isExactMatch =
-          filtered.length === 1 &&
-          filtered[0]?.name.toLowerCase() === searchTerm.toLowerCase();
-
-        if (
-          filtered.length > 0 &&
-          !justAcceptedSuggestion.current &&
-          !isExactMatch
-        ) {
-          setShowSuggestions(true);
-        } else {
-          setShowSuggestions(false);
-        }
-        setSelectedIndex(0);
-      } else {
-        // Check if cursor is right after operator with no text yet
-        const trimmedBefore = beforeCursor.trim();
-        // Use improved extraction that handles subqueries
-        const columnName = extractColumnBeforeCursor(trimmedBefore);
-
-        if (columnName) {
-          const column = columnMap.get(columnName.toLowerCase());
-          if (column?.enumValues && column.enumValues.length > 0) {
-            setEnumSuggestions(column.enumValues);
-            setSuggestionType("enum");
-            if (!justAcceptedSuggestion.current) {
-              setShowSuggestions(true);
-            }
-            setSelectedIndex(0);
-            return;
-          }
-        }
-        setShowSuggestions(false);
-      }
-    }, [debouncedValue, debouncedCursor, columnMap, getFilteredColumns, mode]);
-
-    // Auto-submit after 3s of inactivity (no lint errors, value changed, not loading)
+    // Auto-submit after idle period (no lint errors, value changed, not loading)
     useEffect(() => {
       // Clear any existing timer
       if (autoSubmitTimer.current) {
@@ -757,12 +545,11 @@ export const QuickFilter = memo(
         autoSubmitTimer.current = null;
       }
 
-      // Skip if: loading, empty value, suggestions open, same as last submitted, or lint error in WHERE mode
-      const trimmedValue = value.replace(/^[?#]/, "").trim();
+      // Skip if: loading, empty value, same as last submitted, or lint error in WHERE mode
+      const trimmedValue = value.replace(/^[?/]/, "").trim();
       if (
         isLoading ||
         !trimmedValue ||
-        showSuggestions ||
         value === lastSubmittedValue.current ||
         (mode === "where" && hasLintError)
       ) {
@@ -781,7 +568,7 @@ export const QuickFilter = memo(
           autoSubmitTimer.current = null;
         }
       };
-    }, [value, isLoading, showSuggestions, mode, hasLintError, onSubmit]);
+    }, [value, isLoading, mode, hasLintError, onSubmit]);
 
     // Reset lastSubmittedValue when value is cleared
     useEffect(() => {
@@ -790,103 +577,18 @@ export const QuickFilter = memo(
       }
     }, [value]);
 
-    const insertSuggestion = useCallback(
-      (text: string, isEnum: boolean) => {
-        // Read from refs for stable callback (prevents keymap recreation on every keystroke)
-        const s = stateRefs.current;
-        const currentValue = s.value;
-        const currentCursor = s.cursorPosition;
-        const currentMode = s.mode;
-
-        const beforeCursor = currentValue.slice(0, currentCursor);
-        const afterCursor = currentValue.slice(currentCursor);
-
-        // Find start of current word
-        const match = beforeCursor.match(WORD_AT_CURSOR_REGEX);
-        const wordStart = match
-          ? currentCursor - match[0].length
-          : currentCursor;
-
-        // For enum values, wrap in quotes
-        const insertText = isEnum ? `'${text}'` : text;
-        const newValue =
-          currentValue.slice(0, wordStart) + insertText + afterCursor;
-
-        // Set flag to prevent suggestions from re-appearing
-        justAcceptedSuggestion.current = true;
-
-        // Hide suggestions immediately
-        setShowSuggestions(false);
-
-        // Calculate cursor position in editor coordinates (without prefix)
-        const prefixLen =
-          (newValue.startsWith("?") && currentMode === "where") ||
-          (newValue.startsWith("!") && currentMode === "search")
-            ? 1
-            : 0;
-        const editorPos = wordStart + insertText.length - prefixLen;
-
-        // Update value and cursor position synchronously via editor
-        const view = editorViewRef.current;
-        if (view) {
-          const changes = {
-            from: 0,
-            to: view.state.doc.length,
-            insert:
-              newValue.startsWith("?") ||
-              newValue.startsWith("/") ||
-              newValue.startsWith("!")
-                ? newValue.slice(1)
-                : newValue,
-          };
-
-          const validPos = Math.max(
-            0,
-            Math.min(editorPos, changes.insert.length),
-          );
-
-          view.dispatch({
-            changes,
-            selection: { anchor: validPos, head: validPos },
-          });
-          view.focus();
-        }
-
-        // Update parent value
-        onValueChange(newValue);
-
-        // Reset flag after debounce delay (250ms) + buffer to ensure effect has run
-        setTimeout(() => {
-          justAcceptedSuggestion.current = false;
-        });
-      },
-      [onValueChange], // Stable deps only - value/cursor read from refs
-    );
-
     // Memoized keymap extension using refs for stable access
     const keymapExtension = useMemo(() => {
       return Prec.highest(
         keymap.of([
           {
             key: "Enter",
-            run: () => {
-              const s = stateRefs.current;
-              if (s.showSuggestions) {
-                const currentSuggestions =
-                  s.suggestionType === "enum"
-                    ? s.enumSuggestions
-                    : s.suggestions;
-                if (currentSuggestions.length > 0) {
-                  if (s.suggestionType === "enum") {
-                    const enumValue = s.enumSuggestions[s.selectedIndex];
-                    if (enumValue) insertSuggestion(enumValue, true);
-                  } else {
-                    const suggestion = s.suggestions[s.selectedIndex];
-                    if (suggestion) insertSuggestion(suggestion.name, false);
-                  }
-                  return true;
-                }
+            run: (view) => {
+              // Let CodeMirror handle if autocompletion is open
+              if (completionStatus(view.state)) {
+                return acceptCompletion(view);
               }
+              const s = stateRefs.current;
               if (s.mode === "where" && s.hasLintError) return true;
               // Flush any pending debounced sync so parent has the latest value
               if (parentSyncTimer.current) {
@@ -923,12 +625,10 @@ export const QuickFilter = memo(
           },
           {
             key: "Escape",
-            run: () => {
+            run: (view) => {
+              // Let CodeMirror close autocompletion first
+              if (completionStatus(view.state)) return false;
               const s = stateRefs.current;
-              if (s.showSuggestions) {
-                setShowSuggestions(false);
-                return true;
-              }
               if (s.value) {
                 if (s.onClear) {
                   s.onClear();
@@ -942,50 +642,27 @@ export const QuickFilter = memo(
           },
           {
             key: "ArrowDown",
-            run: () => {
-              const s = stateRefs.current;
-              if (s.showSuggestions) {
-                const currentSuggestions =
-                  s.suggestionType === "enum"
-                    ? s.enumSuggestions
-                    : s.suggestions;
-                setSelectedIndex((i) =>
-                  Math.min(i + 1, currentSuggestions.length - 1),
-                );
-                return true;
+            run: (view) => {
+              if (completionStatus(view.state)) {
+                return moveCompletionSelection(true)(view);
               }
               return false;
             },
           },
           {
             key: "ArrowUp",
-            run: () => {
-              if (stateRefs.current.showSuggestions) {
-                setSelectedIndex((i) => Math.max(i - 1, 0));
-                return true;
+            run: (view) => {
+              if (completionStatus(view.state)) {
+                return moveCompletionSelection(false)(view);
               }
               return false;
             },
           },
           {
             key: "Tab",
-            run: () => {
-              const s = stateRefs.current;
-              if (s.showSuggestions) {
-                const currentSuggestions =
-                  s.suggestionType === "enum"
-                    ? s.enumSuggestions
-                    : s.suggestions;
-                if (currentSuggestions.length > 0) {
-                  if (s.suggestionType === "enum") {
-                    const enumValue = s.enumSuggestions[s.selectedIndex];
-                    if (enumValue) insertSuggestion(enumValue, true);
-                  } else {
-                    const suggestion = s.suggestions[s.selectedIndex];
-                    if (suggestion) insertSuggestion(suggestion.name, false);
-                  }
-                  return true;
-                }
+            run: (view) => {
+              if (completionStatus(view.state)) {
+                return acceptCompletion(view);
               }
               return false;
             },
@@ -1037,20 +714,121 @@ export const QuickFilter = memo(
               return false;
             },
           },
-          {
-            key: "Mod-.",
-            run: () => {
-              justAcceptedSuggestion.current = false;
-              setSuggestions(stateRefs.current.columns);
-              setSuggestionType("column");
-              setShowSuggestions(stateRefs.current.columns.length > 0);
-              setSelectedIndex(0);
-              return true;
-            },
-          },
         ]),
       );
-    }, [insertSuggestion, onSubmit, onValueChange, onModeChange]);
+    }, [onSubmit, onValueChange, onModeChange]);
+
+    // Ref for columns so the completion source stays stable
+    const columnsRef = useRef(columns);
+    columnsRef.current = columns;
+
+    // Column map ref for enum lookups
+    const columnMapRef = useRef(columnMap);
+    columnMapRef.current = columnMap;
+
+    // CodeMirror autocompletion extension for column names and enum values
+    const completionExtension = useMemo(() => {
+      return autocompletion({
+        aboveCursor: false,
+        override: [
+          (context: CompletionContext) => {
+            const fullText = context.state.doc.sliceString(0, context.pos);
+
+            // Try matching a word at cursor (for partial typing)
+            const word = context.matchBefore(/[a-zA-Z_][a-zA-Z0-9_]*/);
+            const from = word?.from ?? context.pos;
+            const typed = word?.text ?? "";
+            const textBeforeWord = fullText.slice(0, from).trimEnd();
+
+            // --- Value context: suggest enum values ---
+            // Detect if cursor is positioned where a value is expected
+            const isValueContext =
+              // After = <> != etc: status =
+              OPERATOR_REGEX.test(textBeforeWord) ||
+              // Right after a quote: status = '
+              QUOTE_REGEX.test(textBeforeWord) ||
+              // Typing inside quotes: status = 'pen
+              /[=<>!]+\s*'[^']*$/.test(fullText) ||
+              // First value in IN list: IN ('  or IN (  or NOT IN ('
+              /\bNOT\s+IN\s*\(\s*'?[^']*$/i.test(fullText) ||
+              /\bIN\s*\(\s*'?[^']*$/i.test(fullText) ||
+              // Subsequent values in IN list: IN ('val1', '  or IN ('val1', pen
+              /\bIN\s*\([^)]*,\s*'?[^']*$/i.test(fullText) ||
+              // After LIKE/ILIKE: status LIKE '
+              /(?:LIKE|ILIKE)\s+'[^']*$/i.test(fullText);
+
+            if (isValueContext) {
+              // Extract column name — try multiple strategies
+              let colName = extractColumnBeforeCursor(textBeforeWord);
+              if (!colName) {
+                // Look for column before IN/NOT IN keyword
+                const inMatch = fullText.match(/([a-zA-Z_][a-zA-Z0-9_.]*)\s+(?:NOT\s+)?IN\s*\(/i);
+                if (inMatch?.[1]) {
+                  // Handle table.column — take last part
+                  const parts = inMatch[1].split(".");
+                  colName = parts[parts.length - 1] ?? null;
+                }
+              }
+              if (colName) {
+                const col = columnMapRef.current.get(colName.toLowerCase());
+                if (col?.enumValues && col.enumValues.length > 0) {
+                  // Find the start position for replacement (include the opening quote if present)
+                  const quoteMatch = fullText.match(/['"]([^'"]*)?$/);
+                  const replaceFrom = quoteMatch
+                    ? context.pos - (quoteMatch[1]?.length ?? 0) - 1
+                    : from;
+                  const filterText = quoteMatch?.[1]?.toLowerCase() ?? typed.toLowerCase();
+
+                  const options: Completion[] = col.enumValues
+                    .filter((v) => !filterText || v.toLowerCase().includes(filterText))
+                    .map((v) => ({
+                      label: v,
+                      displayLabel: `'${v}'`,
+                      type: "enum",
+                      apply: `'${v}'`,
+                    }));
+                  if (options.length > 0) {
+                    return { from: replaceFrom, options, filter: false };
+                  }
+                }
+              }
+              return null;
+            }
+
+            // --- Column context: suggest column names ---
+            // Trigger when: typing a word, after AND/OR, at start of input, or explicit
+            const shouldSuggestColumns =
+              !!word ||
+              context.explicit ||
+              // After logical operators: AND |  OR |
+              /\b(?:AND|OR)\s+$/i.test(textBeforeWord) ||
+              // At start of empty input
+              fullText.trim() === "";
+
+            if (!shouldSuggestColumns) return null;
+
+            const lower = typed.toLowerCase();
+            const options: Completion[] = columnsRef.current
+              .filter((c) => {
+                if (!lower) return true;
+                // Don't suggest if user already typed exact column name
+                if (c.name.toLowerCase() === lower) return false;
+                return c.name.toLowerCase().includes(lower);
+              })
+              .map((c) => ({
+                label: c.name,
+                detail: c.dataType,
+                type: "property",
+              }));
+
+            return options.length > 0 ? { from, options } : null;
+          },
+        ],
+        icons: false,
+        addToOptions: [],
+        activateOnTyping: true,
+      });
+    }, []); // Stable — reads from refs
 
     // Stable combined extensions array - uses Compartment for mode-specific extensions
     // This prevents CodeMirror re-initialization when switching between modes
@@ -1058,8 +836,8 @@ export const QuickFilter = memo(
     // IMPORTANT: Do not include 'mode' in deps - compartment handles mode changes
     const combinedExtensions = useMemo(() => {
       // Start with empty compartment - will be reconfigured on mount via effect
-      return [...baseExtensions, modeCompartment.of([]), keymapExtension];
-    }, [baseExtensions, modeCompartment, keymapExtension]);
+      return [...baseExtensions, modeCompartment.of([]), keymapExtension, completionExtension];
+    }, [baseExtensions, modeCompartment, keymapExtension, completionExtension]);
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
@@ -1231,61 +1009,22 @@ export const QuickFilter = memo(
       [mode, onModeChange, syncToParent, flushParentSync],
     );
 
-    // Limit rendered suggestions for performance (Phase 2.1)
-    const MAX_VISIBLE_SUGGESTIONS = 50;
-    const visibleSuggestions = useMemo(() => {
-      return suggestions.slice(0, MAX_VISIBLE_SUGGESTIONS);
-    }, [suggestions]);
-
-    const visibleEnumSuggestions = useMemo(() => {
-      return enumSuggestions.slice(0, MAX_VISIBLE_SUGGESTIONS);
-    }, [enumSuggestions]);
-
-    // Stable select handlers for memoized components (Phase 2.3)
-    const handleEnumSelect = useCallback(
-      (enumValue: string) => {
-        insertSuggestion(enumValue, true);
-      },
-      [insertSuggestion],
-    );
-
-    const handleColumnSelect = useCallback(
-      (columnName: string) => {
-        insertSuggestion(columnName, false);
-      },
-      [insertSuggestion],
-    );
-
-    // Memoized onUpdate handler - uses refs to avoid stale closure issues
-    const handleEditorUpdate = useCallback(
-      (update: {
-        selectionSet: boolean;
-        view: EditorView;
-        state: { selection: { main: { head: number } } };
-      }) => {
-        if (update.selectionSet) {
-          const pos = update.state.selection.main.head;
-          const s = stateRefs.current;
-          const prefixLen =
-            s.value.startsWith("?") && s.mode === "where" ? 1 : 0;
-          setCursorPosition(pos + prefixLen);
-
-          // Calculate cursor position for suggestion dropdown (fixed positioning)
-          const coords = update.view.coordsAtPos(pos);
-          if (coords) {
-            setSuggestionPos({ left: coords.left, top: coords.bottom + 4 });
-          }
-        }
-      },
-      [], // No deps - reads from stateRefs
-    );
 
     return (
       <div className="flex flex-col gap-1">
         <div className="flex items-center">
           {/* Input with mode selector inside */}
           <div className="flex-1 relative" style={{ minHeight: 30 }}>
-            <DropdownMenu>
+            <DropdownMenu
+              modal={false}
+              onOpenChange={(open) => {
+                if (!open) {
+                  // Re-focus editor after dropdown fully closes
+                  // Use 100ms to ensure close animation and focus-restore have completed
+                  setTimeout(() => { editorViewRef.current?.focus(); }, 100);
+                }
+              }}
+            >
               <div
                 ref={containerRef}
                 className={cn(
@@ -1295,9 +1034,9 @@ export const QuickFilter = memo(
                   isFocused
                     ? "max-h-[120px] z-30 bg-background shadow-md"
                     : "max-h-[30px] bg-input/20 dark:bg-input/30",
-                  "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
-                  error &&
-                    "border-destructive focus-within:ring-destructive/50",
+                  error
+                    ? "border-destructive ring-destructive/50 ring-[3px] focus-within:ring-destructive/50"
+                    : "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
                   value && !error && "border-primary/50",
                 )}
               >
@@ -1353,7 +1092,6 @@ export const QuickFilter = memo(
                     };
                     setIsFocused(view.hasFocus);
                   }}
-                  onUpdate={handleEditorUpdate}
                 />
                 {/* Clear button */}
                 {value && (
@@ -1381,42 +1119,6 @@ export const QuickFilter = memo(
                 />
               )}
             </DropdownMenu>
-            {/* Suggestions dropdown - fixed positioned at cursor */}
-            {showSuggestions && (
-              <div
-                ref={suggestionsRef}
-                className="fixed z-50 w-64 rounded-md border border-border bg-popover p-1 shadow-md"
-                style={{
-                  contain: "layout style",
-                  left: suggestionPos.left,
-                  top: suggestionPos.top,
-                }}
-                onMouseDown={(e) => {
-                  // Prevent blur on input when clicking suggestions
-                  e.preventDefault();
-                }}
-              >
-                <div className="max-h-48 overflow-y-auto">
-                  {suggestionType === "enum"
-                    ? visibleEnumSuggestions.map((enumValue, idx) => (
-                        <EnumSuggestionItem
-                          key={enumValue}
-                          value={enumValue}
-                          isSelected={idx === selectedIndex}
-                          onSelect={handleEnumSelect}
-                        />
-                      ))
-                    : visibleSuggestions.map((col, idx) => (
-                        <ColumnSuggestionItem
-                          key={col.name}
-                          column={col}
-                          isSelected={idx === selectedIndex}
-                          onSelect={handleColumnSelect}
-                        />
-                      ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

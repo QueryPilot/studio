@@ -129,14 +129,17 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       }
       return metadata?.viewType || "data";
     });
-    // Show tab loading indicator while content initializes or view changes
+    // Show tab loading indicator while content initializes or view changes.
+    // For data view, SqlDataGrid manages its own loading via tabId prop.
+    // For other views (structure, indexes, triggers, definition), set loading
+    // on view switch and clear after the child component renders content.
     useEffect(() => {
       useTabLoadingStore.getState().setLoading(tabId, true);
       return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
     }, [tabId, contentReady, activeView]);
 
-    // Callback for child components to signal they finished loading
-    const markTabLoaded = useCallback(() => {
+    // Callback for child views to signal data has loaded
+    const onViewLoaded = useCallback(() => {
       useTabLoadingStore.getState().setLoading(tabId, false);
     }, [tabId]);
 
@@ -562,6 +565,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       isView={isView}
                       kind={metadata.kind}
                       onActionsChange={handleViewActionsChange}
+                      onLoaded={onViewLoaded}
                     />
                   </FeatureErrorBoundary>
                 )}
@@ -577,6 +581,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       table={metadata.table || ""}
                       dbType={dbType}
                       onActionsChange={handleViewActionsChange}
+                      onLoaded={onViewLoaded}
                     />
                   </FeatureErrorBoundary>
                 )}
@@ -591,6 +596,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       schema={metadata.schema}
                       table={metadata.table || ""}
                       onActionsChange={handleViewActionsChange}
+                      onLoaded={onViewLoaded}
                     />
                   </FeatureErrorBoundary>
                 )}
@@ -605,6 +611,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       schema={metadata.schema}
                       table={metadata.table || ""}
                       onActionsChange={handleViewActionsChange}
+                      onLoaded={onViewLoaded}
                     />
                   </FeatureErrorBoundary>
                 )}
@@ -627,6 +634,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       }
                       className="h-full"
                       onDefinitionLoad={handleDefinitionLoad}
+                      onLoaded={onViewLoaded}
                     />
                   </FeatureErrorBoundary>
                 )}

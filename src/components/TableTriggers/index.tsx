@@ -54,6 +54,7 @@ interface TableTriggersProps {
   table: string;
   schema?: string;
   onActionsChange?: (actions: React.ReactNode) => void;
+  onLoaded?: () => void;
 }
 
 export const TableTriggers = memo(function TableTriggers({
@@ -62,10 +63,13 @@ export const TableTriggers = memo(function TableTriggers({
   table,
   schema,
   onActionsChange: _onActionsChange,
+  onLoaded,
 }: TableTriggersProps) {
   const [triggers, setTriggers] = useState<TriggerMeta[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { if (!isLoading) onLoaded?.(); }, [isLoading, onLoaded]);
 
   // Dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
