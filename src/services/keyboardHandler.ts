@@ -14,7 +14,11 @@ const nowMs = (): number => (
     : Date.now()
 );
 
-const isNativeTextInputElement = (element: EventTarget | null): boolean => {
+const isElementInCodeMirror = (element: EventTarget | null): boolean => (
+  element instanceof HTMLElement && Boolean(element.closest(".cm-editor"))
+);
+
+const isNativeTextInputElement = (element: EventTarget | null, inCodeMirror?: boolean): boolean => {
   if (!(element instanceof HTMLElement)) return false;
   // Exclude GlideDataGrid's internal hidden keyboard-capture input
   // (lives inside `.gdg-style`) — it's not a real user-facing text field.
@@ -25,13 +29,9 @@ const isNativeTextInputElement = (element: EventTarget | null): boolean => {
     element.tagName === "INPUT" ||
     element.tagName === "TEXTAREA" ||
     element.isContentEditable ||
-    Boolean(element.closest(".cm-editor"))
+    (inCodeMirror ?? isElementInCodeMirror(element))
   );
 };
-
-const isCodeMirrorElement = (element: EventTarget | null): boolean => (
-  element instanceof HTMLElement && Boolean(element.closest(".cm-editor"))
-);
 
 export interface KeyboardHandlerOptions {
   chordTimeoutMs?: number;
@@ -107,12 +107,13 @@ export class KeyboardHandler {
     // This allows browser's native undo/redo and text editing shortcuts to work
     const target = event.target as HTMLElement | null;
     const activeElement = document.activeElement as HTMLElement | null;
+    // Compute CodeMirror focus once and reuse — avoids repeated .closest() DOM walks
+    const targetInCM = isElementInCodeMirror(target);
+    const activeInCM = isElementInCodeMirror(activeElement);
+    const codeMirrorFocused = targetInCM || activeInCM;
     const isNativeTextInput =
-      isNativeTextInputElement(target) ||
-      isNativeTextInputElement(activeElement);
-    const codeMirrorFocused =
-      isCodeMirrorElement(target) ||
-      isCodeMirrorElement(activeElement);
+      isNativeTextInputElement(target, targetInCM) ||
+      isNativeTextInputElement(activeElement, activeInCM);
 
     // Always defer Mod-D to CodeMirror multi-cursor when editor is focused.
     // This prevents global bindings from hijacking a core editor shortcut.

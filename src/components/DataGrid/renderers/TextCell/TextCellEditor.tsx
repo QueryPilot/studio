@@ -198,7 +198,7 @@ export function TextCellEditor<T extends TextCellEditorValue>({
   }, [nullable, commit]);
 
   return (
-    <div className="flex flex-col gdg-editor-shell click-outside-ignore max-w-[600px] min-w-[300px]">
+    <div className="flex flex-col gdg-editor-shell click-outside-ignore min-w-full max-w-[600px]">
       {/* Header with column info */}
       <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/50 border-b border-border/50 shrink-0">
         {isPrimaryKey && (

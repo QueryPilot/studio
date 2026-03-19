@@ -142,23 +142,41 @@ export function ColumnHeaderContextMenuItems({
           <ContextMenuSeparator />
           <ContextMenuGroup>
             <ContextMenuLabel className="text-xs text-muted-foreground py-1 px-2">
-              Toggle Columns
+              Visible Columns
             </ContextMenuLabel>
-            {allColumns.map((col) => {
-              const isVisible = columnVisibility[col.id] !== false;
-              return (
-                <ContextMenuCheckboxItem
-                  key={col.id}
-                  checked={isVisible}
-                  onCheckedChange={() => { onToggleColumnVisibility(col.id); }}
-                  onSelect={(e) => { e.preventDefault(); }}
-                  className="py-1.5"
-                >
-                  <span className="truncate">{col.name ?? col.field}</span>
-                </ContextMenuCheckboxItem>
-              );
-            })}
+            {allColumns.filter((col) => columnVisibility[col.id] !== false).map((col) => (
+              <ContextMenuCheckboxItem
+                key={col.id}
+                checked={true}
+                onCheckedChange={() => { onToggleColumnVisibility(col.id); }}
+                onSelect={(e) => { e.preventDefault(); }}
+                className="py-1.5"
+              >
+                <span className="truncate">{col.name ?? col.field}</span>
+              </ContextMenuCheckboxItem>
+            ))}
           </ContextMenuGroup>
+          {allColumns.some((col) => columnVisibility[col.id] === false) && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuGroup>
+                <ContextMenuLabel className="text-xs text-muted-foreground py-1 px-2">
+                  Hidden Columns
+                </ContextMenuLabel>
+                {allColumns.filter((col) => columnVisibility[col.id] === false).map((col) => (
+                  <ContextMenuCheckboxItem
+                    key={col.id}
+                    checked={false}
+                    onCheckedChange={() => { onToggleColumnVisibility(col.id); }}
+                    onSelect={(e) => { e.preventDefault(); }}
+                    className="py-1.5"
+                  >
+                    <span className="truncate">{col.name ?? col.field}</span>
+                  </ContextMenuCheckboxItem>
+                ))}
+              </ContextMenuGroup>
+            </>
+          )}
         </ContextMenuSubContent>
       </ContextMenuSub>
 

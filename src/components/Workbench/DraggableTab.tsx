@@ -34,6 +34,7 @@ interface DraggableTabProps {
   displayName: string;
   isActive: boolean;
   isFocused: boolean;
+  isLoading?: boolean;
   isLast: boolean;
   tabType?: string;
   isView?: boolean;
@@ -81,6 +82,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   displayName,
   isActive,
   isFocused,
+  isLoading = false,
   isLast,
   tabType = "table",
   isView,
@@ -219,7 +221,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               className={cn(
                 "group px-2 py-1 text-xs h-8 transition-colors flex items-center gap-1.5 cursor-move relative group",
                 {
-                  "bg-background text-foreground font-medium z-10 sticky left-0 right-0":
+                  "bg-background text-foreground z-10 sticky left-0 right-0":
                     isActive && isFocused,
                   "bg-background/90 text-foreground/70 z-10 sticky left-0 right-0":
                     isActive && !isFocused,
@@ -279,6 +281,13 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   </span>
                 )}
               </span>
+              {/* Loading progress bar — nprogress-style at tab bottom */}
+              {isLoading && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 z-20">
+                  <div className="absolute inset-0 bg-primary/20" />
+                  <div className="absolute inset-y-0 left-0 bg-primary animate-tab-progress" />
+                </div>
+              )}
             </div>
           }
         />
