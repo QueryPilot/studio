@@ -32,10 +32,11 @@ impl MssqlAdapter {
     /// Best-effort reset of per-session plan options that can leak from prior tabs/queries.
     /// When SHOWPLAN is left ON, SQL Server returns plan rows instead of query rows.
     pub async fn reset_session_state(conn: &mut bb8::PooledConnection<'_, ConnectionManager>) {
-        const RESET_SQL: [&str; 3] = [
+        const RESET_SQL: [&str; 4] = [
             "SET SHOWPLAN_TEXT OFF",
             "SET SHOWPLAN_ALL OFF",
             "SET SHOWPLAN_XML OFF",
+            "SET STATISTICS PROFILE OFF",
         ];
 
         for statement in RESET_SQL {
