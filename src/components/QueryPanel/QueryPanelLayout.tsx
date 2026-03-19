@@ -64,6 +64,7 @@ interface QueryPanelLayoutProps {
   onFixWithAI: (errorMessage: string) => void;
   refreshNotice?: string;
   onRefreshResults?: () => void;
+  showplanMode?: string | null;
 }
 
 function getStatementKeyword(statement: string): string {
@@ -123,6 +124,7 @@ export function QueryPanelLayout({
   onFixWithAI,
   refreshNotice,
   onRefreshResults,
+  showplanMode,
 }: QueryPanelLayoutProps) {
   const hasModeTabs = activeSupportedModes.length > 0;
   const showResultHeader = batchResults.length > 0 || hasModeTabs;
@@ -216,6 +218,7 @@ export function QueryPanelLayout({
                       onToggleResults={onToggleResults}
                       onToggleOutline={onToggleOutline}
                       onDialectChange={onDialectChange}
+                      showplanMode={showplanMode}
                     />
                   </ResizablePanel>
 
@@ -303,7 +306,7 @@ export function QueryPanelLayout({
                                       />
                                       <span>
                                         #{entry.statementIndex}{" "}
-                                        {getStatementKeyword(entry.statement)}
+                                        {entry.showplanLabel ?? getStatementKeyword(entry.statement)}
                                       </span>
                                     </button>
                                   ))}

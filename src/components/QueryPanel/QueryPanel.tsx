@@ -50,6 +50,7 @@ import {
   createEmptyResultViewPresentation,
   type ResultViewPresentation,
 } from "./query-result-view";
+import { parseShowplanSet, type ShowplanFormat } from "./showplan-state-tracker";
 
 interface QueryPanelProps {
   panelId: string;
@@ -156,9 +157,11 @@ export const QueryPanel = memo(function QueryPanel({
     setSelectedDialect,
     setSelectedStatementCount,
     setShowOutline,
+    setShowplanMode,
     setShowResults,
     setShowSaveDialog,
     showOutline,
+    showplanMode,
     showResults,
     showSaveDialog,
     persistSql,
@@ -310,6 +313,52 @@ export const QueryPanel = memo(function QueryPanel({
         };
       }
 
+      // Check if this is a SET SHOWPLAN command (single-statement mode)
+      if (dbType?.toLowerCase() === "sqlserver") {
+        const showplanSetResult = parseShowplanSet(sql);
+        if (showplanSetResult) {
+          setShowplanMode(showplanSetResult.enabled ? showplanSetResult.format : null);
+          const message = `${showplanSetResult.enabled ? "Enabled" : "Disabled"} execution plan mode`;
+          const setResult_: QueryResult = {
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            message,
+          };
+          setResult(setResult_);
+          setShowResults(true);
+          if (isSingleRun) {
+            isExecutingRef.current = false;
+          }
+          const presentation = buildResultViewPresentation({
+            sql,
+            result: setResult_,
+          });
+          return {
+            success: true,
+            sql,
+            result: setResult_,
+            presentation,
+          };
+        }
+      }
+
+      // SHOWPLAN wrapping for single statements
+      let effectiveSql = sql;
+      let singleShowplanFormat: ShowplanFormat | null = null;
+
+      if (showplanMode && dbType?.toLowerCase() === "sqlserver") {
+        const SET_COMMAND_MAP: Record<string, string> = {
+          all: "SHOWPLAN_ALL",
+          xml: "SHOWPLAN_XML",
+          text: "SHOWPLAN_TEXT",
+          statistics_profile: "STATISTICS PROFILE",
+        };
+        const setCommand = SET_COMMAND_MAP[showplanMode] ?? showplanMode;
+        effectiveSql = `SET ${setCommand} ON\n${sql}\nSET ${setCommand} OFF`;
+        singleShowplanFormat = showplanMode as ShowplanFormat;
+      }
+
       if (isSingleRun) {
         setIsExecuting(true);
         setExecutionStatus("executing");
@@ -408,7 +457,7 @@ export const QueryPanel = memo(function QueryPanel({
         const streamPromise = tableStreamingService.streamQuery(
           effectiveConnectionId,
           tabId,
-          sql,
+          effectiveSql,
           pageSize,
           (progress) => {
             if (progress.started && progress.columns && !started) {
@@ -538,6 +587,7 @@ export const QueryPanel = memo(function QueryPanel({
           previousMode: isSingleRun
             ? singleResultPresentationModeRef.current
             : undefined,
+          showplanFormat: singleShowplanFormat,
         });
 
         setResult(finalResult);
@@ -786,6 +836,9 @@ export const QueryPanel = memo(function QueryPanel({
       setResult,
       setQueryState,
       setRefreshActionQuery,
+      setShowplanMode,
+      setShowResults,
+      showplanMode,
       schema,
       database,
       dbType,
@@ -850,6 +903,7 @@ export const QueryPanel = memo(function QueryPanel({
       try {
         const orchestrationResult = await orchestrateRunAllExecution({
           runPlan,
+          dbType,
           isCancelRequested: () => cancelRequestedRef.current,
           onStatementResult: appendResult,
           executeStatement: async (statement, { internalTxnStep }) => {
@@ -868,6 +922,10 @@ export const QueryPanel = memo(function QueryPanel({
             };
           },
         });
+
+        if (orchestrationResult.finalShowplanState !== undefined) {
+          setShowplanMode(orchestrationResult.finalShowplanState);
+        }
 
         const lastResult =
           orchestrationResult.statementResults[
@@ -910,6 +968,7 @@ export const QueryPanel = memo(function QueryPanel({
       setIsStreaming,
       setQueryState,
       setResult,
+      setShowplanMode,
       setShowResults,
       tabId,
     ],
@@ -1234,6 +1293,7 @@ export const QueryPanel = memo(function QueryPanel({
             : undefined
         }
         onRefreshResults={canRefreshResults ? handleRefreshResults : undefined}
+        showplanMode={showplanMode}
       />
       <SaveQueryDialog
         open={showSaveDialog}
