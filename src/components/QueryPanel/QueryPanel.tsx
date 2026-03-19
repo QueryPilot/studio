@@ -41,6 +41,7 @@ import {
   type BatchStatementResult,
 } from "./query-batch-orchestrator";
 import { useAcpStore } from "@/stores/acpStore";
+import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { QueryPanelLayout } from "./QueryPanelLayout";
 import { useQueryPanelState } from "./useQueryPanelState";
@@ -193,6 +194,13 @@ export const QueryPanel = memo(function QueryPanel({
     };
   }, [panelId, tabId, connectionId, database, schema]);
 
+  // Sync query execution loading state to tab loading store
+  useEffect(() => {
+    const loading = isExecuting || isStreaming;
+    useTabLoadingStore.getState().setLoading(tabId, loading);
+    return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
+  }, [tabId, isExecuting, isStreaming]);
+
   // Update focused editor when panel focus changes
   useEffect(() => {
     const editorId = `${panelId}:${tabId}`;
@@ -220,6 +228,10 @@ export const QueryPanel = memo(function QueryPanel({
   const cancelRequestedRef = useRef(false);
   const [singleResultPresentation, setSingleResultPresentation] =
     useState<ResultViewPresentation>(createEmptyResultViewPresentation);
+  const singleResultPresentationModeRef = useRef(singleResultPresentation.mode);
+  singleResultPresentationModeRef.current = singleResultPresentation.mode;
+  const inTransactionRef = useRef(inTransaction);
+  inTransactionRef.current = inTransaction;
 
   const executeSingleStatement = useCallback(
     async (
@@ -533,7 +545,7 @@ export const QueryPanel = memo(function QueryPanel({
         const presentation = buildResultViewPresentation({
           sql,
           result: finalResult,
-          previousMode: isSingleRun ? singleResultPresentation.mode : undefined,
+          previousMode: isSingleRun ? singleResultPresentationModeRef.current : undefined,
         });
 
         setResult(finalResult);
@@ -651,8 +663,10 @@ export const QueryPanel = memo(function QueryPanel({
 
           // MSSQL KILL terminates the entire session, destroying any open
           // transaction. Clear the flag so the UI stays consistent.
+          // Read from ref to avoid closing over the reactive value (which
+          // would force re-creation of this callback on every toggle).
           if (
-            inTransaction &&
+            inTransactionRef.current &&
             (dbType === "sqlserver" || dbType === "mssql")
           ) {
             setQueryState(tabId, { inTransaction: false });
@@ -670,7 +684,7 @@ export const QueryPanel = memo(function QueryPanel({
           const cancelledPresentation = buildResultViewPresentation({
             sql,
             result: cancelledResult,
-            previousMode: isSingleRun ? singleResultPresentation.mode : undefined,
+            previousMode: isSingleRun ? singleResultPresentationModeRef.current : undefined,
           });
           if (isSingleRun) {
             setSingleResultPresentation(cancelledPresentation);
@@ -704,7 +718,7 @@ export const QueryPanel = memo(function QueryPanel({
         const errorPresentation = buildResultViewPresentation({
           sql,
           result: errorResult,
-          previousMode: isSingleRun ? singleResultPresentation.mode : undefined,
+          previousMode: isSingleRun ? singleResultPresentationModeRef.current : undefined,
         });
 
         setResult(errorResult);
@@ -769,7 +783,6 @@ export const QueryPanel = memo(function QueryPanel({
       lastSelectQueryRef,
       queryRef,
       effectiveConnectionId,
-      singleResultPresentation.mode,
       tabId,
       setExecutionStatus,
       setIsExecuting,
@@ -780,7 +793,6 @@ export const QueryPanel = memo(function QueryPanel({
       schema,
       database,
       dbType,
-      inTransaction,
     ],
   );
 

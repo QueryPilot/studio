@@ -27,6 +27,8 @@ import { parseRange } from "./utils";
 import type { Bounds, TstzRangeCustomCell } from "./types";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
 
+const TZ_OFFSET_REGEX = /([+-]\d{2}:?\d{2}|Z)$/;
+
 interface RangeEditorProps {
   value: TstzRangeCustomCell;
   onFinishedEditing: (
@@ -158,15 +160,6 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
     }
   });
 
-  const toDate = (text: string): Date | undefined => {
-    if (!text) return undefined;
-    const hasOffset = /([+-]\d{2}:?\d{2}|Z)$/.test(text);
-    // Use dayjs.utc() for offset-aware strings to avoid WebKit's new Date()
-    // misinterpreting timezone offsets (e.g. parsing +00:00 as local time).
-    const d = hasOffset ? dayjs.utc(text) : dayjs.tz(text, tz);
-    return d.isValid() ? d.toDate() : undefined;
-  };
-
   // cycle helpers
   const cycleLower = () => {
     setBounds((prev) =>
@@ -183,13 +176,30 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
     );
   };
 
-  const lowerDateValue = toDate(lowerText);
-  const upperDateValue = toDate(upperText);
+  // Memoize date parsing so dayjs objects are only created when text/tz change
+  const { lowerDateValue, upperDateValue, lowerTimeValue, upperTimeValue } =
+    useMemo(() => {
+      const toDate = (text: string): Date | undefined => {
+        if (!text) return undefined;
+        const hasOffset = TZ_OFFSET_REGEX.test(text);
+        // Use dayjs.utc() for offset-aware strings to avoid WebKit's new Date()
+        // misinterpreting timezone offsets (e.g. parsing +00:00 as local time).
+        const d = hasOffset ? dayjs.utc(text) : dayjs.tz(text, tz);
+        return d.isValid() ? d.toDate() : undefined;
+      };
+      const lower = toDate(lowerText);
+      const upper = toDate(upperText);
+      const displayLower = lower ?? new Date();
+      const displayUpper = upper ?? new Date();
+      return {
+        lowerDateValue: lower,
+        upperDateValue: upper,
+        lowerTimeValue: dayjs.utc(displayLower).format("HH:mm:ss"),
+        upperTimeValue: dayjs.utc(displayUpper).format("HH:mm:ss"),
+      };
+    }, [lowerText, upperText, tz]);
   const displayLowerDate = lowerDateValue ?? new Date();
   const displayUpperDate = upperDateValue ?? new Date();
-  // Use dayjs.utc() to extract time in UTC — matches the UTC Date objects from toDate()
-  const lowerTimeValue = dayjs.utc(displayLowerDate).format("HH:mm:ss");
-  const upperTimeValue = dayjs.utc(displayUpperDate).format("HH:mm:ss");
 
   useCommitOnUnmount(finishedRef, commitCurrentValues);
 

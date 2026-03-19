@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { type DropPosition, type TabMetadata } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import {
   IconX,
   IconLayoutGrid,
@@ -268,6 +269,8 @@ export const Panel: React.FC<PanelProps> = React.memo(
       (state) => state.updateTabMetadata,
     );
 
+    const loadingTabs = useTabLoadingStore((state) => state.loadingTabs);
+
     const panelRef = useRef<HTMLDivElement>(null);
     const tabsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -425,6 +428,7 @@ export const Panel: React.FC<PanelProps> = React.memo(
                     displayName={displayName}
                     isActive={content.activeTabId === tabId}
                     isFocused={isFocused}
+                    isLoading={loadingTabs.has(tabId)}
                     isLast={index === content.tabIds.length - 1}
                     tabType={metadata?.type || "table"}
                     isView={metadata?.isView}

@@ -412,27 +412,16 @@ export const defaultCommands: Command[] = [
 
         // Get store states
         const crudStore = useCrudStore.getState();
-        const tabStateStore = useTabStateStore.getState();
-
-        // Check for pending changes
+        // Check for pending changes (query text is auto-persisted to tab metadata,
+        // so only pending data edits need a warning)
         const hasPendingEdits = crudStore.stagedCommands.size > 0;
-        const hasUnsavedQueryChanges = tabStateStore.hasAnyUnsavedChanges();
 
         logger.info("[RefreshAll] Pending edits:", hasPendingEdits);
-        logger.info("[RefreshAll] Unsaved queries:", hasUnsavedQueryChanges);
 
-        if (hasPendingEdits || hasUnsavedQueryChanges) {
-          // Build description of changes
-          let description = "";
-          if (hasPendingEdits) {
-            const totalChanges = Array.from(crudStore.stagedCommands.values())
-              .reduce((sum, cmds) => sum + cmds.length, 0);
-            description += `${totalChanges} pending data ${totalChanges === 1 ? 'edit' : 'edits'}`;
-          }
-          if (hasUnsavedQueryChanges) {
-            if (description) description += " and ";
-            description += "unsaved query changes";
-          }
+        if (hasPendingEdits) {
+          const totalChanges = Array.from(crudStore.stagedCommands.values())
+            .reduce((sum, cmds) => sum + cmds.length, 0);
+          const description = `${totalChanges} pending data ${totalChanges === 1 ? 'edit' : 'edits'}`;
 
           logger.info("[RefreshAll] Showing confirmation toast");
 

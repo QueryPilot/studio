@@ -4,6 +4,7 @@ import { IconTrash, IconKey } from "@tabler/icons-react";
 import type { GeometryCustomCell } from "./types";
 import { parseGeometry } from "./utils";
 import { useCommitOnUnmount } from "../hooks/useCommitOnUnmount";
+import { useEditorResize } from "../hooks/useEditorResize";
 import { CodeEditor } from "@/components/CodeEditor";
 
 interface GeometryCellEditorProps {
@@ -25,7 +26,6 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
 
   const finishedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 400, height: 300 });
 
   const nullable = Boolean(value.data.nullable);
   const { columnName, isPrimaryKey, dbType } = value.data;
@@ -119,58 +119,16 @@ export const GeometryCellEditor: React.FC<GeometryCellEditorProps> = ({
 
   useCommitOnUnmount(finishedRef, commitCurrentText);
 
-  // Resize handling
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    let isResizing = false;
-    let startX = 0;
-    let startY = 0;
-    let startWidth = 0;
-    let startHeight = 0;
-
-    const handleMouseDown = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.classList.contains("resize-handle")) {
-        isResizing = true;
-        startX = e.clientX;
-        startY = e.clientY;
-        startWidth = container.offsetWidth;
-        startHeight = container.offsetHeight;
-        e.preventDefault();
-      }
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = Math.max(300, Math.min(800, startWidth + (e.clientX - startX)));
-      const newHeight = Math.max(200, Math.min(500, startHeight + (e.clientY - startY)));
-      setSize({ width: newWidth, height: newHeight });
-    };
-
-    const handleMouseUp = () => {
-      isResizing = false;
-    };
-
-    container.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      container.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, []);
+  useEditorResize({ containerRef, minWidth: 300, minHeight: 200, maxHeight: 500 });
 
   return (
     <div
       ref={containerRef}
       className="flex flex-col gdg-editor-shell click-outside-ignore"
       style={{
-        width: `${size.width}px`,
-        height: `${size.height}px`,
+        width: 400,
+        minWidth: "100%",
+        height: 300,
         position: "relative",
       }}
     >

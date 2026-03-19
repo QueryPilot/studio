@@ -367,6 +367,13 @@ function groupToSql(
   return parts.join(` ${group.logical} `);
 }
 
+const RE_WHITESPACE = /\s/;
+const RE_IDENTIFIER_START = /[A-Za-z_]/;
+const RE_IDENTIFIER_PART = /[A-Za-z0-9_]/;
+const isWhitespace = (char: string) => RE_WHITESPACE.test(char);
+const isIdentifierStart = (char: string) => RE_IDENTIFIER_START.test(char);
+const isIdentifierPart = (char: string) => RE_IDENTIFIER_PART.test(char);
+
 function qualifyRawWhereClause(
   clause: string,
   columnPrefix: string,
@@ -376,7 +383,6 @@ function qualifyRawWhereClause(
   const prefix = `${columnPrefix}.`;
   const columnSet = new Set(columnNames);
   const columnLowerSet = new Set(columnNames.map((name) => name.toLowerCase()));
-  const isWhitespace = (char: string) => /\s/.test(char);
   const isMySQL = dbType === DbType.MySQL;
 
   const findPrevNonWhitespace = (fromIndex: number) => {
@@ -399,8 +405,7 @@ function qualifyRawWhereClause(
     return undefined;
   };
 
-  const isIdentifierStart = (char: string) => /[A-Za-z_]/.test(char);
-  const isIdentifierPart = (char: string) => /[A-Za-z0-9_]/.test(char);
+  // Character classification uses module-level regexes (see top of function)
 
   let result = "";
   let i = 0;

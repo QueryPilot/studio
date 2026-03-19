@@ -163,6 +163,7 @@ function validateBoolean(v: unknown): ValidationResult {
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIMESTAMP_REGEX =
   /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+const TIME_REGEX = /^([01]?\d|2[0-3]):([0-5]\d)(:([0-5]\d))?(\.\d+)?$/;
 
 function validateDate(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
@@ -183,8 +184,7 @@ function validateTimestamp(v: unknown): ValidationResult {
 
 function validateTime(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
-  const timeRegex = /^([01]?\d|2[0-3]):([0-5]\d)(:([0-5]\d))?(\.\d+)?$/;
-  return timeRegex.test(String(v))
+  return TIME_REGEX.test(String(v))
     ? VALID
     : { valid: false, error: "Invalid time format (expected: HH:MM:SS)" };
 }

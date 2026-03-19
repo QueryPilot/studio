@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { nanoid } from "nanoid";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCrudStore } from "@/stores/crudStore";
+import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import type { CrudCommand, JsonValue } from "@/types/crud";
 import type { InspectorTab } from "../components/inspector";
 import { BaseDataGrid } from "../base/BaseDataGrid";
@@ -108,6 +109,8 @@ export interface SqlDataGridProps {
   focused?: boolean;
   /** Override grid ID used for sort preferences (for per-tab sort isolation) */
   sortGridId?: string;
+  /** Tab ID for tab-level loading indicator */
+  tabId?: string;
 }
 
 export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
@@ -451,6 +454,7 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
+    isFetching,
     refetch,
   } = tableDataQuery;
 
@@ -461,6 +465,15 @@ IMPORTANT: Only output the WHERE clause (without WHERE keyword). No explanation.
 
   const isLoading = status === "loading";
   const isError = status === "error";
+
+  // Sync loading state to tab loading store for the progress indicator.
+  // isFetching covers initial load, refetch, filter/sort changes, pagination.
+  const tabId = props.tabId;
+  useEffect(() => {
+    if (!tabId) return;
+    useTabLoadingStore.getState().setLoading(tabId, isFetching || quickFilterLoading);
+    return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
+  }, [tabId, isFetching, quickFilterLoading]);
 
   // --- FK Metadata ---
   // Build FK reference map from table structure (needed before columns)

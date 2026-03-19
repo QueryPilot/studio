@@ -66,49 +66,6 @@ const RowCountDisplay = memo(function RowCountDisplay({
 });
 
 /**
- * Streaming progress indicator (with progress bar)
- */
-const StreamingProgress = memo(function StreamingProgress({
-  loadedRows,
-  estimatedTotal,
-}: {
-  loadedRows: number;
-  estimatedTotal: number;
-}) {
-  const percentage = useMemo(() => {
-    if (!estimatedTotal || estimatedTotal === 0) return 0;
-    return Math.min(Math.round((loadedRows / estimatedTotal) * 100), 99);
-  }, [loadedRows, estimatedTotal]);
-
-  return (
-    <>
-      <IconLoader2 className="h-3 w-3 animate-spin" />
-      <span className="text-primary">Streaming {percentage}%</span>
-      <div className="w-24 h-1 bg-muted rounded-full overflow-hidden">
-        <div
-          className="h-full bg-primary transition-all duration-300 ease-out"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-      <span className="text-muted-foreground">•</span>
-    </>
-  );
-});
-
-/**
- * Simple streaming spinner (no progress bar)
- */
-const StreamingSpinner = memo(function StreamingSpinner() {
-  return (
-    <>
-      <IconLoader2 className="h-3 w-3 animate-spin text-primary" />
-      <span className="text-primary">Streaming...</span>
-      <span className="text-muted-foreground">•</span>
-    </>
-  );
-});
-
-/**
  * Processing indicator for batch/paste operations
  */
 const ProcessingIndicator = memo(function ProcessingIndicator() {
@@ -249,7 +206,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   conversionMs,
   cursorSetupMs: _cursorSetupMs,
   totalStreamingMs: _totalStreamingMs,
-  isStreaming = false,
+  isStreaming: _isStreaming = false,
   isProcessing = false,
   readOnlyReason,
   onSelectIdentifierColumns,
@@ -259,11 +216,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   leftContent,
   className,
 }: DataGridStatusBarProps) {
-  // Show progress bar ONLY when we have estimatedTotal (table browsing)
-  const showProgressBar =
-    isStreaming && estimatedTotal && estimatedTotal > loadedRows;
-  const showStreamingSpinner = isStreaming && !showProgressBar;
-
   // Determine if we should show selection summary
   const showSelectionSummary =
     selectedRowsData.length > 0 &&
@@ -337,15 +289,6 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
             </TooltipContent>
           </Tooltip>
         )}
-
-        {showProgressBar && estimatedTotal && (
-          <StreamingProgress
-            loadedRows={loadedRows}
-            estimatedTotal={estimatedTotal}
-          />
-        )}
-
-        {showStreamingSpinner && <StreamingSpinner />}
 
         <RowCountDisplay
           loadedRows={loadedRows}

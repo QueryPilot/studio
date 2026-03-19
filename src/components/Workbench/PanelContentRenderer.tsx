@@ -41,6 +41,7 @@ import { MongoCollectionWorkbench } from "@/components/MongoCollectionWorkbench"
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
+import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { writeClipboardText } from "@/lib/clipboard";
 
@@ -100,6 +101,16 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         cancelled = true;
       };
     }, [tabId]);
+
+    // Show tab loading indicator while content initializes
+    useEffect(() => {
+      if (!contentReady) {
+        useTabLoadingStore.getState().setLoading(tabId, true);
+      } else {
+        useTabLoadingStore.getState().setLoading(tabId, false);
+      }
+      return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
+    }, [tabId, contentReady]);
 
     // Get dbType from connection profile
     const connectionId = metadata?.connectionId || activeConnectionId || "";
@@ -525,6 +536,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       onActionsChange={handleViewActionsChange}
                       initialFilter={metadata.initialFilter as string | undefined}
                       panelId={panelId}
+                      tabId={tabId}
                       focused={isPanelFocused}
                       sortGridId={perTabSortGridId(
                         `${metadata.connectionId || activeConnectionId || ""}:${metadata.database || ""}:${metadata.schema}:${metadata.table || ""}`,
