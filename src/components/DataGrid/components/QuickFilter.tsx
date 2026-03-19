@@ -249,7 +249,7 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
       }
       onFocusEditor();
     },
-    [value, onModeChange, onValueChange, onFocusEditor]
+    [value, onModeChange, onValueChange, onFocusEditor],
   );
 
   // Handle AI mode with agent and model selection
@@ -267,7 +267,15 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
       onValueChange(currentValue);
       onFocusEditor();
     },
-    [value, onModeChange, onValueChange, onFocusEditor, selectAgent, selectModel, selectedAgentId]
+    [
+      value,
+      onModeChange,
+      onValueChange,
+      onFocusEditor,
+      selectAgent,
+      selectModel,
+      selectedAgentId,
+    ],
   );
 
   // Non-AI modes (search, where)
@@ -284,7 +292,9 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
         return (
           <DropdownMenuItem
             key={m}
-            onClick={() => { handleModeSelect(m); }}
+            onClick={() => {
+              handleModeSelect(m);
+            }}
             className={cn("text-xs", mode === m && "bg-accent")}
           >
             <Icon className="h-3.5 w-3.5 mr-2" />
@@ -301,10 +311,7 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
       {/* AI Filter with model submenu grouped by agent */}
       <DropdownMenuSub>
         <DropdownMenuSubTrigger
-          className={cn(
-            "text-xs",
-            mode === "ai" && "bg-accent"
-          )}
+          className={cn("text-xs", mode === "ai" && "bg-accent")}
         >
           <IconSparkles className="h-3.5 w-3.5 mr-2" />
           <div className="flex flex-col flex-1">
@@ -312,13 +319,18 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
               {clientSideFiltering ? "AI Filter" : modeConfig.ai.label}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {clientSideFiltering ? "Generate search patterns" : modeConfig.ai.description}
+              {clientSideFiltering
+                ? "Generate search patterns"
+                : modeConfig.ai.description}
             </span>
           </div>
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
           {installedAgents.length === 0 ? (
-            <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+            <DropdownMenuItem
+              disabled
+              className="text-xs text-muted-foreground"
+            >
               No AI agents installed
             </DropdownMenuItem>
           ) : (
@@ -330,11 +342,14 @@ const QuickFilterModeMenu = memo(function QuickFilterModeMenu({
                 </div>
                 {/* Models for this agent */}
                 {agent.models?.map((model) => {
-                  const isSelected = selectedAgentId === agent.id && selectedModel === model.id;
+                  const isSelected =
+                    selectedAgentId === agent.id && selectedModel === model.id;
                   return (
                     <DropdownMenuItem
                       key={`${agent.id}:${model.id}`}
-                      onClick={() => { handleAiModeWithModel(agent.id, model.id); }}
+                      onClick={() => {
+                        handleAiModeWithModel(agent.id, model.id);
+                      }}
                       className="text-xs"
                     >
                       <div className="flex items-center gap-2 w-full">
@@ -397,6 +412,9 @@ export const QuickFilter = memo(
     const lastSubmittedValue = useRef<string>("");
     const suggestionsRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [suggestionLeft, setSuggestionLeft] = useState(0);
+    const parentSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const internalValueRef = useRef(value);
 
     // Refs for stable keymap access (avoid keymap recreation on every render)
     const stateRefs = useRef({
@@ -434,7 +452,10 @@ export const QuickFilter = memo(
 
     // Set editorTextFocus context when QuickFilter is focused
     // This prevents global keybindings (like workspace.undo) from capturing Cmd+Z
-    useContextKey("editorTextFocus", isFocused, { scopeId, resetOnUnmount: true });
+    useContextKey("editorTextFocus", isFocused, {
+      scopeId,
+      resetOnUnmount: true,
+    });
 
     // Cleanup focus listeners on unmount
     useEffect(() => {
@@ -444,6 +465,11 @@ export const QuickFilter = memo(
         setIsFocused(false);
       };
     }, []);
+
+    // Keep internal ref in sync when parent value changes externally
+    useEffect(() => {
+      internalValueRef.current = value;
+    }, [value]);
 
     // Note: SQL validation now uses Rust backend (no worker setup needed)
 
@@ -863,8 +889,13 @@ export const QuickFilter = memo(
                 }
               }
               if (s.mode === "where" && s.hasLintError) return true;
-              // Update lastSubmittedValue to prevent duplicate auto-submit
-              lastSubmittedValue.current = s.value;
+              // Flush any pending debounced sync so parent has the latest value
+              if (parentSyncTimer.current) {
+                clearTimeout(parentSyncTimer.current);
+                parentSyncTimer.current = null;
+                onValueChange(internalValueRef.current);
+              }
+              lastSubmittedValue.current = internalValueRef.current;
               onSubmit();
               return true;
             },
@@ -873,7 +904,12 @@ export const QuickFilter = memo(
             // Block Shift+Enter from inserting newlines (this is a single-line filter)
             key: "Shift-Enter",
             run: () => {
-              lastSubmittedValue.current = stateRefs.current.value;
+              if (parentSyncTimer.current) {
+                clearTimeout(parentSyncTimer.current);
+                parentSyncTimer.current = null;
+                onValueChange(internalValueRef.current);
+              }
+              lastSubmittedValue.current = internalValueRef.current;
               onSubmit();
               return true;
             },
@@ -882,7 +918,12 @@ export const QuickFilter = memo(
             // Cmd/Ctrl+Enter also submits
             key: "Mod-Enter",
             run: () => {
-              lastSubmittedValue.current = stateRefs.current.value;
+              if (parentSyncTimer.current) {
+                clearTimeout(parentSyncTimer.current);
+                parentSyncTimer.current = null;
+                onValueChange(internalValueRef.current);
+              }
+              lastSubmittedValue.current = internalValueRef.current;
               onSubmit();
               return true;
             },
@@ -1024,16 +1065,18 @@ export const QuickFilter = memo(
     // IMPORTANT: Do not include 'mode' in deps - compartment handles mode changes
     const combinedExtensions = useMemo(() => {
       // Start with empty compartment - will be reconfigured on mount via effect
-      return [
-        ...baseExtensions,
-        modeCompartment.of([]),
-        keymapExtension,
-      ];
+      return [...baseExtensions, modeCompartment.of([]), keymapExtension];
     }, [baseExtensions, modeCompartment, keymapExtension]);
 
     // Clear button handler (Phase 1.4)
     const handleClearClick = useCallback(() => {
       justSwitchedMode.current = true;
+      // Cancel any pending debounced sync to prevent stale value from reappearing
+      if (parentSyncTimer.current) {
+        clearTimeout(parentSyncTimer.current);
+        parentSyncTimer.current = null;
+      }
+      internalValueRef.current = "";
       // Call onClear to persist cleared state to store, or fall back to manual reset
       if (onClear) {
         onClear();
@@ -1055,7 +1098,44 @@ export const QuickFilter = memo(
       });
     }, [onClear, onValueChange, onModeChange, mode]);
 
-    // CodeMirror change handler (Phase 1.4) - Optimized to reduce unnecessary state updates
+    // Debounced sync to parent - avoids re-rendering the entire BaseDataGrid on every keystroke
+    const syncToParent = useCallback(
+      (prefixedValue: string) => {
+        internalValueRef.current = prefixedValue;
+        if (parentSyncTimer.current) {
+          clearTimeout(parentSyncTimer.current);
+        }
+        parentSyncTimer.current = setTimeout(() => {
+          parentSyncTimer.current = null;
+          onValueChange(prefixedValue);
+        }, 80);
+      },
+      [onValueChange],
+    );
+
+    // Flush pending sync immediately (for mode switches and clears)
+    const flushParentSync = useCallback(
+      (prefixedValue: string) => {
+        internalValueRef.current = prefixedValue;
+        if (parentSyncTimer.current) {
+          clearTimeout(parentSyncTimer.current);
+          parentSyncTimer.current = null;
+        }
+        onValueChange(prefixedValue);
+      },
+      [onValueChange],
+    );
+
+    // Cleanup sync timer on unmount
+    useEffect(() => {
+      return () => {
+        if (parentSyncTimer.current) {
+          clearTimeout(parentSyncTimer.current);
+        }
+      };
+    }, []);
+
+    // CodeMirror change handler - uses debounced parent sync for performance
     const handleEditorChange = useCallback(
       (newValue: string) => {
         // Skip if we just switched modes (prevents loop from editor dispatch)
@@ -1071,7 +1151,7 @@ export const QuickFilter = memo(
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("where");
-          onValueChange("?" + contentWithoutPrefix);
+          flushParentSync("?" + contentWithoutPrefix);
           // Update editor to remove prefix from display
           const view = editorViewRef.current;
           if (view) {
@@ -1092,7 +1172,7 @@ export const QuickFilter = memo(
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("ai");
-          onValueChange("#" + contentWithoutPrefix);
+          flushParentSync("#" + contentWithoutPrefix);
           // Update editor to remove prefix from display
           const view = editorViewRef.current;
           if (view) {
@@ -1113,7 +1193,7 @@ export const QuickFilter = memo(
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("search");
-          onValueChange(contentWithoutPrefix); // Search mode has no prefix
+          flushParentSync(contentWithoutPrefix); // Search mode has no prefix
           // Update editor to remove prefix from display
           const view = editorViewRef.current;
           if (view) {
@@ -1135,9 +1215,9 @@ export const QuickFilter = memo(
         // User must press Backspace on already empty editor to reset to search mode
         if (newValue === "") {
           if (mode === "where") {
-            onValueChange("?");
+            syncToParent("?");
           } else {
-            onValueChange("");
+            syncToParent("");
           }
           return;
         }
@@ -1150,12 +1230,12 @@ export const QuickFilter = memo(
           expectedValue = newValue;
         }
 
-        // Only call onValueChange if value actually changed (avoid unnecessary parent re-renders)
-        if (expectedValue !== value) {
-          onValueChange(expectedValue);
+        // Debounced sync to parent to avoid re-rendering on every keystroke
+        if (expectedValue !== internalValueRef.current) {
+          syncToParent(expectedValue);
         }
       },
-      [mode, onModeChange, onValueChange, value],
+      [mode, onModeChange, syncToParent, flushParentSync],
     );
 
     // Limit rendered suggestions for performance (Phase 2.1)
@@ -1187,6 +1267,7 @@ export const QuickFilter = memo(
     const handleEditorUpdate = useCallback(
       (update: {
         selectionSet: boolean;
+        view: EditorView;
         state: { selection: { main: { head: number } } };
       }) => {
         if (update.selectionSet) {
@@ -1195,6 +1276,13 @@ export const QuickFilter = memo(
           const prefixLen =
             s.value.startsWith("?") && s.mode === "where" ? 1 : 0;
           setCursorPosition(pos + prefixLen);
+
+          // Calculate cursor X offset relative to container for suggestion positioning
+          const coords = update.view.coordsAtPos(pos);
+          const containerRect = containerRef.current?.getBoundingClientRect();
+          if (coords && containerRect) {
+            setSuggestionLeft(Math.max(0, coords.left - containerRect.left));
+          }
         }
       },
       [], // No deps - reads from stateRefs
@@ -1210,6 +1298,8 @@ export const QuickFilter = memo(
                 ref={containerRef}
                 className={cn(
                   "relative w-full rounded-md border border-input bg-input/20 dark:bg-input/30 pl-8 pr-7 text-xs",
+                  "transition-[max-height] duration-150 ease-out overflow-hidden",
+                  isFocused ? "max-h-[120px]" : "max-h-[30px]",
                   "focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]",
                   error &&
                     "border-destructive focus-within:ring-destructive/50",
@@ -1218,13 +1308,13 @@ export const QuickFilter = memo(
               >
                 {/* Mode selector - inside input at left */}
                 {searchModeOnly && !clientSideFiltering ? (
-                  <div className="absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground">
+                  <div className="absolute left-1 top-[5px] z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground">
                     <IconSearch className="size-3.5" />
                   </div>
                 ) : (
                   <DropdownMenuTrigger
                     className={cn(
-                      "absolute left-1 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors",
+                      "absolute left-1 top-1 z-10 flex items-center justify-center rounded-sm size-5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors",
                       isLoading && "pointer-events-none opacity-50",
                     )}
                     disabled={isLoading}
@@ -1249,13 +1339,17 @@ export const QuickFilter = memo(
                   basicSetup={false}
                   height="auto"
                   minHeight="28px"
-                  maxHeight="80px"
+                  maxHeight="120px"
                   onCreateEditor={(view) => {
                     focusCleanupRef.current?.();
                     editorViewRef.current = view;
                     // Track focus state for editorTextFocus context
-                    const handleFocus = () => setIsFocused(true);
-                    const handleBlur = () => setIsFocused(false);
+                    const handleFocus = () => {
+                      setIsFocused(true);
+                    };
+                    const handleBlur = () => {
+                      setIsFocused(false);
+                    };
                     view.dom.addEventListener("focus", handleFocus, true);
                     view.dom.addEventListener("blur", handleBlur, true);
                     focusCleanupRef.current = () => {
@@ -1266,8 +1360,8 @@ export const QuickFilter = memo(
                   }}
                   onUpdate={handleEditorUpdate}
                 />
-                {/* Clear/Loading indicator */}
-                <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                {/* Copy & Clear / Loading indicator */}
+                <div className="absolute right-1 top-[2px] flex items-center">
                   {isLoading ? (
                     <IconLoader2 className="size-3.5 animate-spin text-muted-foreground" />
                   ) : value ? (
@@ -1294,12 +1388,12 @@ export const QuickFilter = memo(
                 />
               )}
             </DropdownMenu>
-            {/* Suggestions dropdown - lightweight positioned div (no Portal/Popover overhead) */}
+            {/* Suggestions dropdown - positioned at cursor */}
             {showSuggestions && (
               <div
                 ref={suggestionsRef}
-                className="absolute left-0 top-full mt-1 z-50 w-64 rounded-md border border-border bg-popover p-1 shadow-md"
-                style={{ contain: "layout style" }}
+                className="absolute top-full mt-1 z-50 w-64 rounded-md border border-border bg-popover p-1 shadow-md"
+                style={{ contain: "layout style", left: `${suggestionLeft}px` }}
                 onMouseDown={(e) => {
                   // Prevent blur on input when clicking suggestions
                   e.preventDefault();

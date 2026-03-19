@@ -17,6 +17,7 @@ import { KeyboardProvider } from "./components/KeyboardProvider";
 import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp/KeyboardShortcutsHelp";
+import { GlobalConfirmDialog } from "./components/GlobalConfirmDialog";
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
@@ -83,6 +84,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
               <Toaster richColors closeButton position="bottom-left" />
               <CommandPalette />
               <KeyboardShortcutsHelp />
+              <GlobalConfirmDialog />
             </TooltipProvider>
           </ThemeProvider>
         </QueryClientProvider>

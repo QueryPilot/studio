@@ -811,34 +811,6 @@ export function GlobalChangesDialog(props: GlobalChangesDialogProps) {
     setSqlGenerated(false);
   }, [ddlPreviewCommands, connections]);
 
-  // Debug: Log when dialog state changes (not on every render)
-  useEffect(() => {
-    if (open) {
-      logger.debug("[GlobalChangesDialog] Dialog opened with state:", {
-        connectionId,
-        database,
-        schema,
-        table,
-        isTableSpecific,
-        connectionCommandsLength: connectionCommands.length,
-        groupedByRowLength: groupedByRow.length,
-        totalChanges,
-        viewMode,
-      });
-    }
-  }, [
-    open,
-    connectionId,
-    database,
-    schema,
-    table,
-    isTableSpecific,
-    connectionCommands.length,
-    groupedByRow.length,
-    totalChanges,
-    viewMode,
-  ]);
-
   // Copy SQL to clipboard
   const handleCopySQL = useCallback(async () => {
     try {

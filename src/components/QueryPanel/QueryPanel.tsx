@@ -198,7 +198,9 @@ export const QueryPanel = memo(function QueryPanel({
   useEffect(() => {
     const loading = isExecuting || isStreaming;
     useTabLoadingStore.getState().setLoading(tabId, loading);
-    return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
+    return () => {
+      useTabLoadingStore.getState().setLoading(tabId, false);
+    };
   }, [tabId, isExecuting, isStreaming]);
 
   // Update focused editor when panel focus changes
@@ -210,18 +212,6 @@ export const QueryPanel = memo(function QueryPanel({
       editorRegistry.clearFocusedEditor(editorId);
     }
   }, [isPanelFocused, panelId, tabId]);
-
-  // IconKeyboard services for command registration
-  const keyboardServices = useKeyboardServicesOptional();
-
-  // Debug: IconCheck if keyboardServices is available
-  useEffect(() => {
-    logger.info("[QueryPanel] keyboardServices:", {
-      available: !!keyboardServices,
-      commandService: !!keyboardServices?.commandService,
-      tabId,
-    });
-  }, [keyboardServices, tabId]);
 
   // Ref to track if execution is in progress (prevents double-execution from duplicate events)
   const isExecutingRef = useRef(false);
@@ -545,7 +535,9 @@ export const QueryPanel = memo(function QueryPanel({
         const presentation = buildResultViewPresentation({
           sql,
           result: finalResult,
-          previousMode: isSingleRun ? singleResultPresentationModeRef.current : undefined,
+          previousMode: isSingleRun
+            ? singleResultPresentationModeRef.current
+            : undefined,
         });
 
         setResult(finalResult);
@@ -684,7 +676,9 @@ export const QueryPanel = memo(function QueryPanel({
           const cancelledPresentation = buildResultViewPresentation({
             sql,
             result: cancelledResult,
-            previousMode: isSingleRun ? singleResultPresentationModeRef.current : undefined,
+            previousMode: isSingleRun
+              ? singleResultPresentationModeRef.current
+              : undefined,
           });
           if (isSingleRun) {
             setSingleResultPresentation(cancelledPresentation);
@@ -718,7 +712,9 @@ export const QueryPanel = memo(function QueryPanel({
         const errorPresentation = buildResultViewPresentation({
           sql,
           result: errorResult,
-          previousMode: isSingleRun ? singleResultPresentationModeRef.current : undefined,
+          previousMode: isSingleRun
+            ? singleResultPresentationModeRef.current
+            : undefined,
         });
 
         setResult(errorResult);
