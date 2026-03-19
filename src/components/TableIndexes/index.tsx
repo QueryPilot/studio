@@ -64,6 +64,7 @@ interface TableIndexesProps {
   schema?: string;
   dbType?: DbType;
   onActionsChange?: (actions: React.ReactNode) => void;
+  onLoaded?: () => void;
 }
 
 export const TableIndexes = memo(function TableIndexes({
@@ -73,6 +74,7 @@ export const TableIndexes = memo(function TableIndexes({
   schema,
   dbType: propDbType,
   onActionsChange: _onActionsChange,
+  onLoaded,
 }: TableIndexesProps) {
   const [indexes, setIndexes] = useState<TableIndex[]>([]);
   const [statsMap, setStatsMap] = useState<Map<string, IndexUsageStats>>(
@@ -80,6 +82,8 @@ export const TableIndexes = memo(function TableIndexes({
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { if (!isLoading) onLoaded?.(); }, [isLoading, onLoaded]);
 
   // Dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

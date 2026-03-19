@@ -7,7 +7,7 @@
  * - Row count and data size
  */
 
-import { memo, useMemo, useCallback } from "react";
+import { memo, useMemo, useCallback, useEffect } from "react";
 import { GridCellKind, type Item } from "@glideapps/glide-data-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconAlertCircle, IconLayoutGrid } from "@tabler/icons-react";
@@ -81,6 +81,7 @@ interface TablePartitionsProps {
   table: string;
   schema?: string;
   onActionsChange?: (actions: React.ReactNode) => void;
+  onLoaded?: () => void;
 }
 
 export const TablePartitions = memo(function TablePartitions({
@@ -89,6 +90,7 @@ export const TablePartitions = memo(function TablePartitions({
   table,
   schema,
   onActionsChange: _onActionsChange,
+  onLoaded,
 }: TablePartitionsProps) {
   // Get connection info for dbType
   const connection = useConnectionStore((s) => s.getConnection(connectionId));
@@ -101,6 +103,8 @@ export const TablePartitions = memo(function TablePartitions({
     dbType,
     enabled: true,
   });
+
+  useEffect(() => { if (!isLoading) onLoaded?.(); }, [isLoading, onLoaded]);
 
   const gridRows = useMemo(
     () => transformPartitionsToRows(partitions),

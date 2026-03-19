@@ -180,6 +180,7 @@ interface TableStructureProps {
   isView?: boolean;
   kind?: "Table" | "View" | "MaterializedView";
   onActionsChange?: (actions: React.ReactNode) => void;
+  onLoaded?: () => void;
 }
 
 export const TableStructure = memo(function TableStructure({
@@ -192,6 +193,7 @@ export const TableStructure = memo(function TableStructure({
   isView = false,
   kind,
   onActionsChange: _onActionsChange,
+  onLoaded,
 }: TableStructureProps) {
   // Determine entity type for read-only behavior
   const entityType: "table" | "view" | "materialized_view" =
@@ -229,6 +231,8 @@ export const TableStructure = memo(function TableStructure({
     schema,
     options: structureOptions,
   });
+
+  useEffect(() => { if (!isLoading) onLoaded?.(); }, [isLoading, onLoaded]);
 
   const { targets: foreignKeyTargets } = useForeignKeyTargets({
     connectionId,

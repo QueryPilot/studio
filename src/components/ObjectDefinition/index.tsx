@@ -17,6 +17,7 @@ interface ObjectDefinitionProps {
   objectType: ObjectDefinitionType;
   className?: string;
   onDefinitionLoad?: (definition: string) => void;
+  onLoaded?: () => void;
 }
 
 export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
@@ -28,10 +29,13 @@ export const ObjectDefinition: React.FC<ObjectDefinitionProps> = React.memo(
     objectType,
     className,
     onDefinitionLoad,
+    onLoaded,
   }) => {
     const [definition, setDefinition] = useState<string>("");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => { if (!loading) onLoaded?.(); }, [loading, onLoaded]);
     const connections = useConnectionStore((state) => state.connections);
 
     // Determine database dialect from connection using smart detection
