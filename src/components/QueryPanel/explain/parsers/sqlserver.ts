@@ -229,6 +229,8 @@ export function parseSqlServerShowplanAll(
   const estimateRowsIndex = normalizedColumns.indexOf("estimaterows");
   const subtreeCostIndex = normalizedColumns.indexOf("totalsubtreecost");
   const argumentIndex = normalizedColumns.indexOf("argument");
+  const actualRowsIndex = normalizedColumns.indexOf("rows");
+  const executesIndex = normalizedColumns.indexOf("executes");
 
   const raw = input.rows
     .map((row) =>
@@ -307,6 +309,19 @@ export function parseSqlServerShowplanAll(
 
     // Preserve input row order for deterministic root ordering.
     node.order = rowIndex;
+
+    if (actualRowsIndex >= 0) {
+      const actualRows = parseNumber(row[actualRowsIndex]);
+      if (actualRows !== undefined) {
+        node.actualRows = actualRows;
+      }
+    }
+    if (executesIndex >= 0) {
+      const executes = parseNumber(row[executesIndex]);
+      if (executes !== undefined) {
+        node.loops = executes;
+      }
+    }
 
     nodeMap.set(nodeKey, node);
     parentMap.set(nodeKey, parentKey);
