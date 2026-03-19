@@ -1,5 +1,6 @@
 import type { ViewMode } from "@/types/viewMode";
 import type { QueryResult } from "@/stores/tabStateStore";
+import type { ShowplanFormat } from "./showplan-state-tracker";
 import { isExplainResult } from "./ExplainViewer";
 
 export interface ResultViewPresentation {
@@ -10,6 +11,7 @@ export interface ResultViewPresentation {
 
 const STANDARD_VIEW_MODES: ViewMode[] = ["table", "json"];
 const EXPLAIN_VIEW_MODES: ViewMode[] = ["explain", "raw", "stats"];
+const SHOWPLAN_TEXT_VIEW_MODES: ViewMode[] = ["raw"];
 
 export function createEmptyResultViewPresentation(): ResultViewPresentation {
   return {
@@ -30,13 +32,18 @@ export function buildResultViewPresentation({
   sql,
   result,
   previousMode,
+  showplanFormat,
 }: {
   sql: string;
   result: QueryResult;
   previousMode?: ViewMode;
+  showplanFormat?: ShowplanFormat | null;
 }): ResultViewPresentation {
+  const isShowplan = showplanFormat != null;
   const explainLike =
-    isExplainStatement(sql) || isExplainResult(result.columns, result.rows);
+    isShowplan ||
+    isExplainStatement(sql) ||
+    isExplainResult(result.columns, result.rows);
 
   if (result.error || result.columns.length === 0) {
     return {
@@ -46,8 +53,20 @@ export function buildResultViewPresentation({
     };
   }
 
-  const supportedModes = explainLike ? EXPLAIN_VIEW_MODES : STANDARD_VIEW_MODES;
-  const defaultMode: ViewMode = explainLike ? "explain" : "table";
+  let supportedModes: ViewMode[];
+  let defaultMode: ViewMode;
+
+  if (showplanFormat === "text") {
+    supportedModes = SHOWPLAN_TEXT_VIEW_MODES;
+    defaultMode = "raw";
+  } else if (explainLike) {
+    supportedModes = EXPLAIN_VIEW_MODES;
+    defaultMode = "explain";
+  } else {
+    supportedModes = STANDARD_VIEW_MODES;
+    defaultMode = "table";
+  }
+
   const mode =
     previousMode && supportedModes.includes(previousMode)
       ? previousMode
