@@ -246,7 +246,9 @@ const TreeNode = memo(function TreeNode({
               <span>
                 Cost:{" "}
                 <span className="font-mono">
-                  {node.cost.startup.toFixed(1)}..{node.cost.total.toFixed(1)}
+                  {node.cost.startup > 0
+                    ? `${node.cost.startup.toFixed(1)}..${node.cost.total.toFixed(1)}`
+                    : node.cost.total.toFixed(4)}
                 </span>
                 <span
                   className="ml-1 font-medium"

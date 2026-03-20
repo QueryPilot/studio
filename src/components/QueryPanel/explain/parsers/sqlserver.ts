@@ -187,30 +187,12 @@ function normalizeArgumentValue(value: string | undefined): string | undefined {
 }
 
 function extractRelationFromArgument(argument: string | undefined): string | undefined {
+  // Only extract relation from OBJECT:(...) segments in the argument.
+  // Do NOT fall back to generic bracket/dotted identifier matching —
+  // arguments like ORDER BY:([Expr1004] DESC) or GROUP BY:([c].[first_name])
+  // contain bracket identifiers that are column/expression refs, not table names.
   const objectInfo = extractObjectInfo(argument);
-  if (objectInfo.relation) {
-    return objectInfo.relation;
-  }
-
-  if (!argument) {
-    return undefined;
-  }
-
-  const bracketIdentifiers = Array.from(argument.matchAll(/\[([^\]]+)\]/g))
-    .map((match) => match[1])
-    .filter((part): part is string => Boolean(part && part.length > 0));
-  if (bracketIdentifiers.length > 0) {
-    return bracketIdentifiers[bracketIdentifiers.length - 1];
-  }
-
-  const dottedIdentifiers = argument
-    .split(".")
-    .map((part) => cleanIdentifier(part))
-    .filter((part) => part.length > 0);
-  if (dottedIdentifiers.length === 0) {
-    return undefined;
-  }
-  return dottedIdentifiers[dottedIdentifiers.length - 1];
+  return objectInfo.relation;
 }
 
 export function parseSqlServerShowplanAll(
@@ -229,6 +211,7 @@ export function parseSqlServerShowplanAll(
   const estimateRowsIndex = normalizedColumns.indexOf("estimaterows");
   const subtreeCostIndex = normalizedColumns.indexOf("totalsubtreecost");
   const argumentIndex = normalizedColumns.indexOf("argument");
+  const typeIndex = normalizedColumns.indexOf("type");
   const actualRowsIndex = normalizedColumns.indexOf("rows");
   const executesIndex = normalizedColumns.indexOf("executes");
 
@@ -275,13 +258,22 @@ export function parseSqlServerShowplanAll(
       extractArgumentSegment(argument, "PREDICATE"),
     );
 
+    // Determine node type: prefer PhysicalOp, then LogicalOp, then Type column
+    // (e.g. "SELECT"), and only use stmtText as last resort (truncated).
+    // For statement-level rows (Type=SELECT/INSERT/etc.), PhysicalOp and LogicalOp
+    // are NULL — use the Type column value instead of dumping the full SQL text.
+    const typeColumn = typeIndex >= 0 ? formatCell(row[typeIndex]) : undefined;
+    const resolvedType =
+      (physicalOp && physicalOp !== "NULL" ? physicalOp : undefined) ||
+      (logicalOp && logicalOp !== "NULL" ? logicalOp : undefined) ||
+      (typeColumn && typeColumn !== "NULL" && typeColumn !== "PLAN_ROW"
+        ? typeColumn
+        : undefined) ||
+      "Operation";
+
     const node: ExplainNode = {
       id: `sqlserver-node-${normalizedStmtId}-${nodeId}`,
-      type:
-        (physicalOp && physicalOp !== "NULL" ? physicalOp : undefined) ||
-        (logicalOp && logicalOp !== "NULL" ? logicalOp : undefined) ||
-        (stmtText && stmtText !== "NULL" ? stmtText : undefined) ||
-        "Operation",
+      type: resolvedType,
       relation,
       rows: estimateRowsIndex >= 0 ? parseNumber(row[estimateRowsIndex]) : undefined,
       raw: input.columns
