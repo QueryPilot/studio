@@ -839,30 +839,35 @@ async fn execute_mssql_stream(
     let query_future = async {
         let query_result = AssertUnwindSafe(async {
             if is_showplan {
-                // SHOWPLAN batch: use into_results() to get all result sets,
-                // then find the first non-empty one (the plan data).
-                let result = query_conn
-                    .simple_query(sql_owned.as_str())
+                // SQL Server requires SET SHOWPLAN to be the only statement in its batch.
+                // Execute as 3 separate queries on the same connection.
+                let (set_on, inner_query, set_off) =
+                    crate::adapters::mssql::MssqlAdapter::parse_showplan_batch(
+                        sql_owned.as_str(),
+                    )
+                    .ok_or_else(|| "Invalid SHOWPLAN batch format".to_string())?;
+
+                // Step 1: SET SHOWPLAN ON
+                let on_result = query_conn
+                    .simple_query(set_on.as_str())
                     .await
-                    .map_err(|e| format!("Query failed: {}", e))?;
+                    .map_err(|e| format!("Failed to enable SHOWPLAN: {}", e))?;
+                let _ = on_result.into_first_result().await;
 
-                let result_sets: Vec<Vec<tiberius::Row>> = result
-                    .into_results()
+                // Step 2: Execute query (returns plan rows)
+                let mut plan_result = query_conn
+                    .simple_query(inner_query.as_str())
                     .await
-                    .map_err(|e| format!("Failed to collect results: {}", e))?;
+                    .map_err(|e| format!("SHOWPLAN query failed: {}", e))?;
 
-                // Find first non-empty result set (plan rows)
-                let rows = result_sets
-                    .into_iter()
-                    .find(|rs| !rs.is_empty())
-                    .unwrap_or_default();
+                let columns_opt = plan_result
+                    .columns()
+                    .await
+                    .map_err(|e| format!("Failed to get plan columns: {}", e))?;
 
-                // Extract columns from row metadata (sync, via row.columns())
-                let columns: Vec<ColumnMeta> = rows
-                    .first()
-                    .map(|row| {
-                        row.columns()
-                            .iter()
+                let columns: Vec<ColumnMeta> = columns_opt
+                    .map(|cols| {
+                        cols.iter()
                             .map(|col| ColumnMeta {
                                 name: col.name().to_string(),
                                 data_type:
@@ -888,6 +893,15 @@ async fn execute_mssql_stream(
                     .unwrap_or_default();
 
                 let column_count = columns.len();
+                let rows: Vec<tiberius::Row> = plan_result
+                    .into_first_result()
+                    .await
+                    .map_err(|e| format!("Failed to collect plan rows: {}", e))?;
+
+                // Step 3: SET SHOWPLAN OFF (cleanup)
+                if let Ok(off_result) = query_conn.simple_query(set_off.as_str()).await {
+                    let _ = off_result.into_first_result().await;
+                }
 
                 Ok::<_, String>((columns, column_count, rows))
             } else {
