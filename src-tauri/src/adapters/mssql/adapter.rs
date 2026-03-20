@@ -502,6 +502,33 @@ impl MssqlAdapter {
         Ok(sql)
     }
 
+    /// Extract SHOWPLAN format and inner query from a wrapped batch.
+    /// Input format: "SET SHOWPLAN_ALL ON;\n{query};\nSET SHOWPLAN_ALL OFF;"
+    /// Returns: (set_on_command, inner_query, set_off_command)
+    pub fn parse_showplan_batch(sql: &str) -> Option<(String, String, String)> {
+        let trimmed = sql.trim();
+        // Split on the first newline to get SET ON command and rest
+        let first_newline = trimmed.find('\n')?;
+        let set_on = trimmed[..first_newline]
+            .trim()
+            .trim_end_matches(';')
+            .to_string();
+        let rest = trimmed[first_newline + 1..].trim();
+
+        // Split rest on the last newline to get inner query and SET OFF command
+        let last_newline = rest.rfind('\n')?;
+        let inner_query = rest[..last_newline]
+            .trim()
+            .trim_end_matches(';')
+            .to_string();
+        let set_off = rest[last_newline + 1..]
+            .trim()
+            .trim_end_matches(';')
+            .to_string();
+
+        Some((set_on, inner_query, set_off))
+    }
+
     /// Check if SQL is a SHOWPLAN/STATISTICS PROFILE wrapped batch.
     /// These batches start with SET SHOWPLAN_*/STATISTICS PROFILE ON and
     /// must skip session reset and type rewriting.
@@ -680,30 +707,43 @@ impl SqlQueryable for MssqlAdapter {
         let query_result =
             AssertUnwindSafe(async move {
                 if is_showplan {
-                    // SHOWPLAN batch: use into_results() to get all result sets,
-                    // then find the first non-empty one (the plan data).
-                    let result = conn
-                        .simple_query(sql.as_str())
-                        .await
-                        .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-
-                    let result_sets: Vec<Vec<tiberius::Row>> =
-                        result.into_results().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Failed to collect results: {}", e))
+                    // SQL Server requires SET SHOWPLAN to be the only statement in its batch.
+                    // Execute as 3 separate queries on the same connection.
+                    let (set_on, inner_query, set_off) =
+                        Self::parse_showplan_batch(sql.as_str()).ok_or_else(|| {
+                            AppError::DatabaseError(
+                                "Invalid SHOWPLAN batch format".to_string(),
+                            )
                         })?;
 
-                    // Find first non-empty result set (plan rows)
-                    let rows = result_sets
-                        .into_iter()
-                        .find(|rs| !rs.is_empty())
-                        .unwrap_or_default();
+                    // Step 1: SET SHOWPLAN_ALL ON
+                    let on_result = conn
+                        .simple_query(set_on.as_str())
+                        .await
+                        .map_err(|e| {
+                            AppError::DatabaseError(format!(
+                                "Failed to enable SHOWPLAN: {}",
+                                e
+                            ))
+                        })?;
+                    let _ = on_result.into_first_result().await;
 
-                    // Extract columns from row metadata (sync, via row.columns())
-                    let columns: Vec<CapabilityColumnMeta> = rows
-                        .first()
-                        .map(|row| {
-                            row.columns()
-                                .iter()
+                    // Step 2: Execute the query (returns plan rows, not data)
+                    let mut plan_result = conn
+                        .simple_query(inner_query.as_str())
+                        .await
+                        .map_err(|e| {
+                            AppError::DatabaseError(format!("SHOWPLAN query failed: {}", e))
+                        })?;
+
+                    // Collect plan results
+                    let columns_opt = plan_result.columns().await.map_err(|e| {
+                        AppError::DatabaseError(format!("Failed to get plan columns: {}", e))
+                    })?;
+
+                    let columns: Vec<CapabilityColumnMeta> = columns_opt
+                        .map(|cols| {
+                            cols.iter()
                                 .map(|col| CapabilityColumnMeta {
                                     name: col.name().to_string(),
                                     data_type: MssqlTypeConverter::column_type_to_string(
@@ -714,8 +754,21 @@ impl SqlQueryable for MssqlAdapter {
                         })
                         .unwrap_or_default();
 
+                    let rows: Vec<tiberius::Row> =
+                        plan_result.into_first_result().await.map_err(|e| {
+                            AppError::DatabaseError(format!(
+                                "Failed to collect plan rows: {}",
+                                e
+                            ))
+                        })?;
+
                     let json_rows: Vec<Vec<serde_json::Value>> =
                         rows.iter().map(SimpleConverter::row_to_json).collect();
+
+                    // Step 3: SET SHOWPLAN_ALL OFF (cleanup)
+                    if let Ok(off_result) = conn.simple_query(set_off.as_str()).await {
+                        let _ = off_result.into_first_result().await;
+                    }
 
                     Ok(CapabilityQueryResult {
                         columns,
