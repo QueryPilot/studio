@@ -84,7 +84,7 @@ describe("createShowplanTracker", () => {
       isShowplanSet: false,
       isShowplan: true,
       showplanFormat: "all",
-      wrappedSql: "SET SHOWPLAN_ALL ON\nSELECT * FROM users\nSET SHOWPLAN_ALL OFF",
+      wrappedSql: "SET SHOWPLAN_ALL ON;\nSELECT * FROM users;\nSET SHOWPLAN_ALL OFF;",
       label: null,
     });
   });

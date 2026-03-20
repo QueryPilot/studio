@@ -82,7 +82,7 @@ export function createShowplanTracker() {
           isShowplanSet: false,
           isShowplan: true,
           showplanFormat: activeFormat,
-          wrappedSql: `SET ${setCommand} ON\n${sql}\nSET ${setCommand} OFF`,
+          wrappedSql: `SET ${setCommand} ON;\n${sql};\nSET ${setCommand} OFF;`,
           label: null,
         };
       }

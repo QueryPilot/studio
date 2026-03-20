@@ -349,7 +349,7 @@ export const QueryPanel = memo(function QueryPanel({
 
       if (showplanMode && dbType?.toLowerCase() === "sqlserver") {
         const setCommand = SET_COMMAND_MAP[showplanMode as ShowplanFormat] ?? showplanMode;
-        effectiveSql = `SET ${setCommand} ON\n${sql}\nSET ${setCommand} OFF`;
+        effectiveSql = `SET ${setCommand} ON;\n${sql};\nSET ${setCommand} OFF;`;
         singleShowplanFormat = showplanMode as ShowplanFormat;
       }
 
