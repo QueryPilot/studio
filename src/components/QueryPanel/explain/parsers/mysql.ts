@@ -328,38 +328,55 @@ function parseMySqlJsonNode(
     childNodes.push(tmpNode);
   }
 
-  // Handle ordering_operation
+  // Helper: unwrap trivial Operation wrappers from recursive children
+  function unwrapOperation(node: ExplainNode | null): ExplainNode[] {
+    if (!node) return [];
+    if (node.type === "Operation" && !node.relation && node.children?.length) {
+      return node.children;
+    }
+    return [node];
+  }
+
+  // Handle ordering_operation (MySQL: wraps sorted results)
   if (record.ordering_operation && typeof record.ordering_operation === "object") {
     const orderObj = record.ordering_operation as Record<string, unknown>;
     const sortNode: ExplainNode = {
       id: `mysql-json-${nodeIndexRef.current++}`,
-      type: "Sort",
+      type: orderObj.using_filesort ? "Filesort" : "Sort",
       raw: JSON.stringify(record.ordering_operation),
     };
-    // Recurse into the ordering_operation's children
     const orderChild = parseMySqlJsonNode(orderObj, nodeIndexRef);
-    if (orderChild) {
-      sortNode.children = [orderChild];
-    }
+    sortNode.children = unwrapOperation(orderChild);
     childNodes.push(sortNode);
   }
 
-  // Handle grouping_operation
+  // Handle grouping_operation (MySQL: wraps grouped results)
   if (record.grouping_operation && typeof record.grouping_operation === "object") {
     const groupObj = record.grouping_operation as Record<string, unknown>;
     const groupNode: ExplainNode = {
       id: `mysql-json-${nodeIndexRef.current++}`,
-      type: "Group",
+      type: groupObj.using_temporary_table ? "Group (Temp Table)" : "Group",
       raw: JSON.stringify(record.grouping_operation),
     };
     const groupChild = parseMySqlJsonNode(groupObj, nodeIndexRef);
-    if (groupChild) {
-      groupNode.children = [groupChild];
-    }
+    groupNode.children = unwrapOperation(groupChild);
     childNodes.push(groupNode);
   }
 
-  // Handle duplicates_removal
+  // Handle buffer_result (MySQL: materializes intermediate results)
+  if (record.buffer_result && typeof record.buffer_result === "object") {
+    const bufObj = record.buffer_result as Record<string, unknown>;
+    const bufNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: bufObj.using_temporary_table ? "Buffer (Temp Table)" : "Buffer",
+      raw: JSON.stringify(record.buffer_result),
+    };
+    const bufChild = parseMySqlJsonNode(bufObj, nodeIndexRef);
+    bufNode.children = unwrapOperation(bufChild);
+    childNodes.push(bufNode);
+  }
+
+  // Handle duplicates_removal (MySQL: DISTINCT operation)
   if (record.duplicates_removal && typeof record.duplicates_removal === "object") {
     const dupObj = record.duplicates_removal as Record<string, unknown>;
     const distinctNode: ExplainNode = {
@@ -368,9 +385,7 @@ function parseMySqlJsonNode(
       raw: JSON.stringify(record.duplicates_removal),
     };
     const dupChild = parseMySqlJsonNode(dupObj, nodeIndexRef);
-    if (dupChild) {
-      distinctNode.children = [dupChild];
-    }
+    distinctNode.children = unwrapOperation(dupChild);
     childNodes.push(distinctNode);
   }
 
@@ -464,6 +479,9 @@ function parseMySqlJsonNode(
   if (typeof record.attached_condition === "string") {
     node.filter = record.attached_condition;
   }
+  if (typeof record.index_condition === "string") {
+    node.indexCond = record.index_condition;
+  }
   if (typeof record.key === "string") {
     node.indexName = record.key;
   }
@@ -478,7 +496,7 @@ function parseMySqlJsonNode(
       (k): k is string => typeof k === "string",
     );
   }
-  if (Array.isArray(record.used_key_parts)) {
+  if (!node.indexCond && Array.isArray(record.used_key_parts)) {
     node.indexCond = record.used_key_parts.filter(
       (k): k is string => typeof k === "string",
     ).join(", ");
