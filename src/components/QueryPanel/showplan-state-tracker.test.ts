@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   createShowplanTracker,
   parseShowplanSet,
-  type ShowplanFormat,
 } from "./showplan-state-tracker";
 
 describe("parseShowplanSet", () => {
