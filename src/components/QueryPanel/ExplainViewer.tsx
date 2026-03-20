@@ -118,7 +118,8 @@ const TreeNode = memo(function TreeNode({
 
   // Use exclusive actual time when available (ANALYZE),
   // operatorCost for MSSQL estimated plans (exclusive operator cost),
-  // or fallback to subtree cost for Postgres convention
+  // subtree cost for Postgres convention,
+  // or rows as a last resort (MySQL traditional has no cost data)
   const costPct =
     totalActualTime && totalActualTime > 0 && node.actualTime
       ? (nodeExclusiveTime / totalActualTime) * 100
@@ -126,7 +127,9 @@ const TreeNode = memo(function TreeNode({
         ? (node.operatorCost / totalCost) * 100
         : totalCost > 0
           ? ((node.cost?.total || 0) / totalCost) * 100
-          : 0;
+          : node.rows !== undefined && node.rows > 0
+            ? Math.min(100, Math.log10(node.rows + 1) * 25) // Log-scale rows for visual bar
+            : 0;
   const color = getNodeColor(node.type);
   const mysqlSelectType =
     typeof node.selectType === "string" ? node.selectType : undefined;
