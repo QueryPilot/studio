@@ -424,6 +424,105 @@ function parseMySqlJsonNode(
     }
   }
 
+  // Handle attached_subqueries (correlated/uncorrelated subqueries in WHERE/SELECT)
+  if (Array.isArray(record.attached_subqueries)) {
+    for (const sub of record.attached_subqueries) {
+      const subObj = sub as Record<string, unknown>;
+      const subNode: ExplainNode = {
+        id: `mysql-json-${nodeIndexRef.current++}`,
+        type: subObj.dependent ? "Dependent Subquery" : "Subquery",
+        raw: JSON.stringify(sub),
+      };
+      // attached_subquery contains a query_block
+      if (subObj.query_block && typeof subObj.query_block === "object") {
+        const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
+        subNode.children = unwrapOperation(inner);
+      }
+      childNodes.push(subNode);
+    }
+  }
+
+  // Handle having_subqueries (subqueries in HAVING clause)
+  if (Array.isArray(record.having_subqueries)) {
+    for (const sub of record.having_subqueries) {
+      const subObj = sub as Record<string, unknown>;
+      const subNode: ExplainNode = {
+        id: `mysql-json-${nodeIndexRef.current++}`,
+        type: "HAVING Subquery",
+        raw: JSON.stringify(sub),
+      };
+      if (subObj.query_block && typeof subObj.query_block === "object") {
+        const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
+        subNode.children = unwrapOperation(inner);
+      }
+      childNodes.push(subNode);
+    }
+  }
+
+  // Handle optimized_away_subqueries (constant-folded, executed once)
+  if (Array.isArray(record.optimized_away_subqueries)) {
+    for (const sub of record.optimized_away_subqueries) {
+      const subObj = sub as Record<string, unknown>;
+      const subNode: ExplainNode = {
+        id: `mysql-json-${nodeIndexRef.current++}`,
+        type: "Optimized Away Subquery",
+        raw: JSON.stringify(sub),
+      };
+      if (subObj.query_block && typeof subObj.query_block === "object") {
+        const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
+        subNode.children = unwrapOperation(inner);
+      }
+      childNodes.push(subNode);
+    }
+  }
+
+  // Handle materialized_from_subquery (subquery materialized into temp table)
+  if (record.materialized_from_subquery && typeof record.materialized_from_subquery === "object") {
+    const matObj = record.materialized_from_subquery as Record<string, unknown>;
+    const matNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Materialized Subquery",
+      raw: JSON.stringify(record.materialized_from_subquery),
+    };
+    if (matObj.query_block && typeof matObj.query_block === "object") {
+      const inner = parseMySqlJsonNode(matObj.query_block, nodeIndexRef);
+      matNode.children = unwrapOperation(inner);
+    }
+    childNodes.push(matNode);
+  }
+
+  // Handle windowing (MySQL 8.0+ window functions)
+  if (record.windowing && typeof record.windowing === "object") {
+    const winObj = record.windowing as Record<string, unknown>;
+    const winNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Window Functions",
+      raw: JSON.stringify(record.windowing),
+    };
+    // windowing may contain nested_loop, table, buffer_result, etc.
+    const winChild = parseMySqlJsonNode(winObj, nodeIndexRef);
+    winNode.children = unwrapOperation(winChild);
+    childNodes.push(winNode);
+  }
+
+  // Handle insert_from (INSERT...SELECT plans)
+  if (record.insert_from && typeof record.insert_from === "object") {
+    const insChild = parseMySqlJsonNode(record.insert_from, nodeIndexRef);
+    if (insChild) {
+      childNodes.push(...unwrapOperation(insChild));
+    }
+  }
+
+  // Handle update_body / delete_body (UPDATE/DELETE plan bodies)
+  for (const bodyKey of ["update_body", "delete_body"] as const) {
+    if (record[bodyKey] && typeof record[bodyKey] === "object") {
+      const bodyChild = parseMySqlJsonNode(record[bodyKey] as Record<string, unknown>, nodeIndexRef);
+      if (bodyChild) {
+        childNodes.push(...unwrapOperation(bodyChild));
+      }
+    }
+  }
+
   const type =
     accessType ??
     (record.nested_loop ? "Nested Loop" : undefined) ??
