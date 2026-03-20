@@ -1795,10 +1795,10 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
       if (typeof firstRow === "string" && firstRow.includes("|--")) return true;
     }
 
-    // MSSQL SHOWPLAN_XML or Postgres XML: starts with <
+    // MSSQL SHOWPLAN_XML / STATISTICS XML: check for ShowPlan namespace
     if (typeof rows[0]?.[0] === "string") {
       const trimmed = rows[0][0].trim();
-      if (trimmed.startsWith("<")) return true;
+      if (trimmed.startsWith("<") && trimmed.includes("ShowPlan")) return true;
     }
 
     // Postgres text/JSON EXPLAIN

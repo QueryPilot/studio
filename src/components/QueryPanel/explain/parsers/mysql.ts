@@ -476,7 +476,7 @@ function parseMySqlTreeLine(
   }
 
   // Extract estimated rows from (cost=... rows=...) section
-  const estimatedRowsMatch = content.match(/\(cost=[\d.]*\s+rows=(\d+)\)/i);
+  const estimatedRowsMatch = content.match(/\(cost=[\d.eE+-]*\s+rows=(\d+)\)/i);
   // Fallback: plain rows= outside of actual time context
   const plainRowsMatch = content.match(/\brows=(\d+)/i);
   const actualTimeMatch = content.match(/actual time=([\d.]+)\.\.([\d.]+)/i);
@@ -484,7 +484,7 @@ function parseMySqlTreeLine(
     /actual time=[\d.]+\.\.[\d.]+\s+rows=(\d+)/i,
   );
   const loopsMatch = content.match(/\bloops=(\d+)/i);
-  const costMatch = content.match(/\(cost=([\d.]+)/i);
+  const costMatch = content.match(/\(cost=([\d.eE+-]+)/i);
 
   const estimatedRows = estimatedRowsMatch
     ? parseInt(estimatedRowsMatch[1] || "0", 10)

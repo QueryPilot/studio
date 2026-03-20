@@ -19,7 +19,7 @@ export interface ProcessStatementResult {
 }
 
 const SHOWPLAN_PATTERN =
-  /^\s*SET\s+(SHOWPLAN_ALL|SHOWPLAN_XML|SHOWPLAN_TEXT|STATISTICS\s+PROFILE|STATISTICS\s+XML)\s+(ON|OFF)\s*$/i;
+  /^\s*SET\s+(SHOWPLAN_ALL|SHOWPLAN_XML|SHOWPLAN_TEXT|STATISTICS\s+PROFILE|STATISTICS\s+XML)\s+(ON|OFF)\s*;?\s*$/i;
 
 const FORMAT_MAP: Record<string, ShowplanFormat> = {
   SHOWPLAN_ALL: "all",
