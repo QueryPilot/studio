@@ -125,6 +125,9 @@ export interface ExplainNode {
   groupingSets?: string[];
   // Parallel aggregate
   partialMode?: string;
+  // SQL Server specific
+  operatorCost?: number; // EstimateIO + EstimateCPU (operator's own cost)
+  warnings?: string; // Plan warnings
   // Children
   children?: ExplainNode[];
   raw?: string;

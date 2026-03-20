@@ -211,6 +211,12 @@ export function parseSqlServerShowplanAll(
   const estimateRowsIndex = normalizedColumns.indexOf("estimaterows");
   const subtreeCostIndex = normalizedColumns.indexOf("totalsubtreecost");
   const argumentIndex = normalizedColumns.indexOf("argument");
+  const estimateIOIndex = normalizedColumns.indexOf("estimateio");
+  const estimateCPUIndex = normalizedColumns.indexOf("estimatecpu");
+  const avgRowSizeIndex = normalizedColumns.indexOf("avgrowsize");
+  const parallelIndex = normalizedColumns.indexOf("parallel");
+  const warningsIndex = normalizedColumns.indexOf("warnings");
+  const estimateExecutionsIndex = normalizedColumns.indexOf("estimateexecutions");
   const typeIndex = normalizedColumns.indexOf("type");
   const actualRowsIndex = normalizedColumns.indexOf("rows");
   const executesIndex = normalizedColumns.indexOf("executes");
@@ -297,6 +303,44 @@ export function parseSqlServerShowplanAll(
         startup: 0,
         total: totalCost,
       };
+    }
+
+    // Operator's own cost = EstimateIO + EstimateCPU (MSSQL-specific).
+    // More accurate than subtracting children's subtree costs.
+    const estimateIO = estimateIOIndex >= 0 ? parseNumber(row[estimateIOIndex]) : undefined;
+    const estimateCPU = estimateCPUIndex >= 0 ? parseNumber(row[estimateCPUIndex]) : undefined;
+    if (estimateIO !== undefined || estimateCPU !== undefined) {
+      node.operatorCost = (estimateIO ?? 0) + (estimateCPU ?? 0);
+    }
+
+    // AvgRowSize → width
+    const avgRowSize = avgRowSizeIndex >= 0 ? parseNumber(row[avgRowSizeIndex]) : undefined;
+    if (avgRowSize !== undefined) {
+      node.width = avgRowSize;
+    }
+
+    // Parallel flag
+    if (parallelIndex >= 0) {
+      const parallelVal = row[parallelIndex];
+      if (parallelVal === true || parallelVal === 1 || String(parallelVal).toLowerCase() === "true") {
+        node.parallelAware = true;
+      }
+    }
+
+    // Warnings
+    if (warningsIndex >= 0) {
+      const warningsVal = formatCell(row[warningsIndex]);
+      if (warningsVal && warningsVal !== "NULL") {
+        node.warnings = warningsVal;
+      }
+    }
+
+    // EstimateExecutions → loops (for estimated plans without actual Rows/Executes)
+    if (executesIndex < 0 && estimateExecutionsIndex >= 0) {
+      const estExec = parseNumber(row[estimateExecutionsIndex]);
+      if (estExec !== undefined && estExec > 1) {
+        node.loops = estExec;
+      }
     }
 
     // Preserve input row order for deterministic root ordering.

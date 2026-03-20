@@ -136,7 +136,8 @@ const TreeNode = memo(function TreeNode({
   const mysqlExtra = typeof node.extra === "string" ? node.extra : undefined;
   const mysqlPossibleKeys = Array.isArray(node.possibleKeys)
     ? node.possibleKeys.filter(
-        (value): value is string => typeof value === "string" && value.length > 0,
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
       )
     : typeof node.possibleKeys === "string" && node.possibleKeys.length > 0
       ? node.possibleKeys
@@ -516,8 +517,12 @@ const TreeNode = memo(function TreeNode({
           )}
           {mysqlExtra && (
             <div className="text-xs mt-1">
-              <span className="text-amber-600 dark:text-amber-400">Extra: </span>
-              <code className="font-mono text-muted-foreground">{mysqlExtra}</code>
+              <span className="text-amber-600 dark:text-amber-400">
+                Extra:{" "}
+              </span>
+              <code className="font-mono text-muted-foreground">
+                {mysqlExtra}
+              </code>
             </div>
           )}
           {node.presortedKey && node.presortedKey.length > 0 && (
@@ -974,17 +979,26 @@ function collectStats(
   }
 
   function traverse(node: ExplainNode) {
-    // Calculate exclusive time/cost for this node
-    const nodeTime = node.actualTime
-      ? node.actualTime.total * (node.loops || 1)
-      : (node.cost?.total ?? 0);
-    // Use recursive helper to properly account for wrapper nodes
-    const childrenTime =
-      node.children?.reduce(
-        (sum, child) => sum + getNodeInclusiveTime(child),
-        0,
-      ) || 0;
-    const exclusiveTime = Math.max(0, nodeTime - childrenTime);
+    // Calculate exclusive cost for this node.
+    // Prefer operatorCost (MSSQL EstimateIO + EstimateCPU) when available —
+    // it's the operator's own cost directly from SQL Server, more accurate
+    // than subtracting children's subtree costs.
+    let exclusiveTime: number;
+    if (node.operatorCost !== undefined) {
+      // MSSQL: direct operator cost
+      exclusiveTime = node.operatorCost;
+    } else {
+      // Postgres / fallback: subtract children from inclusive
+      const nodeTime = node.actualTime
+        ? node.actualTime.total * (node.loops || 1)
+        : (node.cost?.total ?? 0);
+      const childrenTime =
+        node.children?.reduce(
+          (sum, child) => sum + getNodeInclusiveTime(child),
+          0,
+        ) || 0;
+      exclusiveTime = Math.max(0, nodeTime - childrenTime);
+    }
 
     // Aggregate by node type
     const existing = nodeTypeMap.get(node.type) || { count: 0, time: 0 };
@@ -1062,9 +1076,7 @@ const StatsView = memo(function StatsView({
   // Use actual time when available (EXPLAIN ANALYZE / STATISTICS PROFILE),
   // otherwise fall back to estimated cost (SHOWPLAN_ALL / SHOWPLAN_XML).
   const hasActualTime = totalActualTime > 0;
-  const effectiveTotal = hasActualTime
-    ? totalActualTime
-    : (totalCost ?? 0);
+  const effectiveTotal = hasActualTime ? totalActualTime : (totalCost ?? 0);
 
   const { nodeStats, tableStats } = useMemo(
     () => collectStats(nodes, effectiveTotal),
@@ -1727,7 +1739,7 @@ export const ExplainViewer = memo(function ExplainViewer({
         ) : (
           /* Raw Output */
           <div className="h-full flex flex-col bg-muted/10">
-            <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/30">
+            <div className="flex items-center justify-between px-3 py-1.5">
               <span className="text-xs font-medium text-muted-foreground">
                 Raw Output
               </span>
@@ -1778,7 +1790,7 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
 
     // MSSQL SHOWPLAN_XML or Postgres XML: starts with <
     if (typeof rows[0]?.[0] === "string") {
-      const trimmed = (rows[0][0] as string).trim();
+      const trimmed = rows[0][0].trim();
       if (trimmed.startsWith("<")) return true;
     }
 
@@ -1793,10 +1805,22 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
       }
 
       const explainKeywords = [
-        "seq scan", "index scan", "index only scan", "bitmap",
-        "hash join", "nested loop", "merge join", "sort",
-        "aggregate", "limit", "gather", "cost=", "rows=",
-        "result", "append", "cte scan",
+        "seq scan",
+        "index scan",
+        "index only scan",
+        "bitmap",
+        "hash join",
+        "nested loop",
+        "merge join",
+        "sort",
+        "aggregate",
+        "limit",
+        "gather",
+        "cost=",
+        "rows=",
+        "result",
+        "append",
+        "cte scan",
       ];
       return explainKeywords.some((kw) => firstRow.toLowerCase().includes(kw));
     }
