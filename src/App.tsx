@@ -196,11 +196,8 @@ function App() {
             }
           } catch (error) {
             logger.error("Vault initialization failed", error);
-            // Show error toast when keychain access throws
-            if (
-              error instanceof Error &&
-              error.message.includes("Keychain access required")
-            ) {
+            // Show error toast when vault init fails due to keychain issues
+            if (!vaultStorage.isKeychainAccessible()) {
               toast.error("Keychain Access Required", {
                 description:
                   "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
