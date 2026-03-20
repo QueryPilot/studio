@@ -801,7 +801,11 @@ async fn execute_mssql_stream(
         .await
         .map_err(|e| format!("Failed to get MSSQL connection: {}", e))?;
 
-    crate::adapters::mssql::MssqlAdapter::reset_session_state(&mut query_conn).await;
+    let is_showplan = crate::adapters::mssql::MssqlAdapter::is_showplan_batch(sql);
+
+    if !is_showplan {
+        crate::adapters::mssql::MssqlAdapter::reset_session_state(&mut query_conn).await;
+    }
 
     let spid: i16 = {
         let result = query_conn
@@ -822,62 +826,120 @@ async fn execute_mssql_stream(
     let start_time = std::time::Instant::now();
 
     // Rewrite SQL to handle unsupported column types (sql_variant, geography, geometry, hierarchyid)
-    let sql_owned =
+    let sql_owned = if is_showplan {
+        sql.to_string()
+    } else {
         crate::adapters::mssql::MssqlAdapter::rewrite_for_unsupported_types(&mut query_conn, sql)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())?
+    };
 
     // Execute the query on the SAME connection we got the SPID from.
     // Collect rows eagerly (tiberius limitation) then process in progressive batches.
     let query_future = async {
         let query_result = AssertUnwindSafe(async {
-            let mut result = query_conn
-                .simple_query(sql_owned.as_str())
-                .await
-                .map_err(|e| format!("Query failed: {}", e))?;
+            if is_showplan {
+                // SHOWPLAN batch: use into_results() to get all result sets,
+                // then find the first non-empty one (the plan data).
+                let result = query_conn
+                    .simple_query(sql_owned.as_str())
+                    .await
+                    .map_err(|e| format!("Query failed: {}", e))?;
 
-            // Extract column metadata directly into ColumnMeta (bypassing CapabilityColumnMeta)
-            let columns_opt = result
-                .columns()
-                .await
-                .map_err(|e| format!("Failed to get columns: {}", e))?;
+                let result_sets: Vec<Vec<tiberius::Row>> = result
+                    .into_results()
+                    .await
+                    .map_err(|e| format!("Failed to collect results: {}", e))?;
 
-            let columns: Vec<ColumnMeta> = columns_opt
-                .map(|cols| {
-                    cols.iter()
-                        .map(|col| ColumnMeta {
-                            name: col.name().to_string(),
-                            data_type:
-                                crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_cell_type(
-                                    &col.column_type(),
-                                ),
-                            db_type:
-                                crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_string(
-                                    &col.column_type(),
-                                ),
-                            nullable: true,
-                            primary_key: false,
-                            type_oid: None,
-                            default_value: None,
-                            comment: None,
-                            enum_values: None,
-                            type_category: None,
-                            precision: None,
-                            scale: None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+                // Find first non-empty result set (plan rows)
+                let rows = result_sets
+                    .into_iter()
+                    .find(|rs| !rs.is_empty())
+                    .unwrap_or_default();
 
-            let column_count = columns.len();
+                // Extract columns from row metadata (sync, via row.columns())
+                let columns: Vec<ColumnMeta> = rows
+                    .first()
+                    .map(|row| {
+                        row.columns()
+                            .iter()
+                            .map(|col| ColumnMeta {
+                                name: col.name().to_string(),
+                                data_type:
+                                    crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_cell_type(
+                                        &col.column_type(),
+                                    ),
+                                db_type:
+                                    crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_string(
+                                        &col.column_type(),
+                                    ),
+                                nullable: true,
+                                primary_key: false,
+                                type_oid: None,
+                                default_value: None,
+                                comment: None,
+                                enum_values: None,
+                                type_category: None,
+                                precision: None,
+                                scale: None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
-            // Collect all rows (tiberius doesn't support row-by-row streaming)
-            let rows: Vec<tiberius::Row> = result
-                .into_first_result()
-                .await
-                .map_err(|e| format!("Failed to collect rows: {}", e))?;
+                let column_count = columns.len();
 
-            Ok::<_, String>((columns, column_count, rows))
+                Ok::<_, String>((columns, column_count, rows))
+            } else {
+                // Standard path: use columns() + into_first_result()
+                let mut result = query_conn
+                    .simple_query(sql_owned.as_str())
+                    .await
+                    .map_err(|e| format!("Query failed: {}", e))?;
+
+                // Extract column metadata directly into ColumnMeta (bypassing CapabilityColumnMeta)
+                let columns_opt = result
+                    .columns()
+                    .await
+                    .map_err(|e| format!("Failed to get columns: {}", e))?;
+
+                let columns: Vec<ColumnMeta> = columns_opt
+                    .map(|cols| {
+                        cols.iter()
+                            .map(|col| ColumnMeta {
+                                name: col.name().to_string(),
+                                data_type:
+                                    crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_cell_type(
+                                        &col.column_type(),
+                                    ),
+                                db_type:
+                                    crate::adapters::mssql::types::MssqlTypeConverter::column_type_to_string(
+                                        &col.column_type(),
+                                    ),
+                                nullable: true,
+                                primary_key: false,
+                                type_oid: None,
+                                default_value: None,
+                                comment: None,
+                                enum_values: None,
+                                type_category: None,
+                                precision: None,
+                                scale: None,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let column_count = columns.len();
+
+                // Collect all rows (tiberius doesn't support row-by-row streaming)
+                let rows: Vec<tiberius::Row> = result
+                    .into_first_result()
+                    .await
+                    .map_err(|e| format!("Failed to collect rows: {}", e))?;
+
+                Ok::<_, String>((columns, column_count, rows))
+            }
         })
         .catch_unwind()
         .await;

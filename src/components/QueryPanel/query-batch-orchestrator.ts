@@ -4,6 +4,10 @@ import {
   buildResultViewPresentation,
   type ResultViewPresentation,
 } from "./query-result-view";
+import {
+  createShowplanTracker,
+  type ShowplanFormat,
+} from "./showplan-state-tracker";
 
 export interface BatchStatementResult {
   statementIndex: number;
@@ -11,6 +15,7 @@ export interface BatchStatementResult {
   status: "success" | "error" | "skipped";
   result: QueryResult;
   presentation: ResultViewPresentation;
+  showplanLabel?: string | null;
 }
 
 export interface ExecuteBatchStatementOptions {
@@ -26,6 +31,7 @@ export interface ExecuteBatchStatementResult {
 
 export interface OrchestrateRunAllExecutionInput {
   runPlan: RunAllPlan;
+  dbType?: string;
   executeStatement: (
     sql: string,
     options: ExecuteBatchStatementOptions,
@@ -41,6 +47,7 @@ export interface OrchestrateRunAllExecutionResult {
   skippedCount: number;
   cancelled: boolean;
   transactionOutcome: "none" | "begin_failed" | "committed" | "rolled_back";
+  finalShowplanState: ShowplanFormat | null;
 }
 
 function makeSkippedResult(message: string): QueryResult {
@@ -54,6 +61,7 @@ function makeSkippedResult(message: string): QueryResult {
 
 export async function orchestrateRunAllExecution({
   runPlan,
+  dbType,
   executeStatement,
   isCancelRequested,
   onStatementResult,
@@ -84,6 +92,9 @@ export async function orchestrateRunAllExecution({
       transactionOutcome = "begin_failed";
     }
   }
+
+  const showplanTracker =
+    dbType?.toLowerCase() === "sqlserver" ? createShowplanTracker() : null;
 
   for (const [index, statement] of runPlan.statements.entries()) {
     if (isCancelRequested?.()) {
@@ -118,7 +129,33 @@ export async function orchestrateRunAllExecution({
       continue;
     }
 
-    const statementResult = await executeStatement(statement, {
+    // MSSQL SHOWPLAN interception
+    const showplanResult = showplanTracker?.processStatement(statement);
+
+    if (showplanResult?.isShowplanSet) {
+      appendResult({
+        statementIndex: index + 1,
+        statement,
+        status: "success",
+        result: {
+          columns: [],
+          rows: [],
+          rowCount: 0,
+          message: showplanResult.label ?? "OK",
+        },
+        presentation: {
+          mode: "table",
+          supportedModes: [],
+          isExplainLike: false,
+        },
+        showplanLabel: showplanResult.label,
+      });
+      continue;
+    }
+
+    const sqlToExecute = showplanResult?.wrappedSql ?? statement;
+
+    const statementResult = await executeStatement(sqlToExecute, {
       internalTxnStep: false,
     });
 
@@ -133,6 +170,7 @@ export async function orchestrateRunAllExecution({
           buildResultViewPresentation({
             sql: statement,
             result: statementResult.result,
+            showplanFormat: showplanResult?.showplanFormat,
           }),
       });
       continue;
@@ -210,5 +248,6 @@ export async function orchestrateRunAllExecution({
     skippedCount,
     cancelled: wasCancelled,
     transactionOutcome,
+    finalShowplanState: showplanTracker?.getState() ?? null,
   };
 }

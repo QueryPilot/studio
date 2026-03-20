@@ -66,6 +66,7 @@ interface QueryToolbarProps {
   onToggleResults: () => void;
   onToggleOutline?: () => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
+  showplanMode?: string | null;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -85,6 +86,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onToggleResults,
   onToggleOutline,
   onDialectChange,
+  showplanMode,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
   const currentDialectLabel =
@@ -144,6 +146,20 @@ export const QueryToolbar = memo(function QueryToolbar({
               ))}
             </SelectContent>
           </Select>
+
+          {/* SHOWPLAN Mode Indicator */}
+          {showplanMode && (
+            <>
+              <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />
+              <div
+                className="flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400 hidden @[400px]/toolbar:flex"
+                title={`Execution plan mode active: ${showplanMode.toUpperCase()}`}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                {showplanMode.toUpperCase().replace("_", " ")}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right side */}
