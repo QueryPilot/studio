@@ -134,7 +134,9 @@ export function parseMySqlTraditionalExplain(
     };
   });
 
-  const nodes: ExplainNode[] = records.map((record, index) => {
+  // Build nodes with selectId tracking
+  const selectIdByNode = new Map<ExplainNode, number>();
+  const allNodes: ExplainNode[] = records.map((record, index) => {
     const node: ExplainNode = {
       id: `mysql-node-${index}`,
       type: record.accessType || "UNKNOWN",
@@ -143,6 +145,9 @@ export function parseMySqlTraditionalExplain(
       indexName: record.key,
       raw: record.raw,
     };
+
+    const selectId = record.id ? parseInt(record.id, 10) : 1;
+    selectIdByNode.set(node, Number.isFinite(selectId) ? selectId : 1);
 
     if (record.selectType) {
       node.selectType = record.selectType;
@@ -169,8 +174,44 @@ export function parseMySqlTraditionalExplain(
     return node;
   });
 
+  // Group nodes by selectId and build tree
+  const nodesBySelectId = new Map<number, ExplainNode[]>();
+  for (const node of allNodes) {
+    const selectId = selectIdByNode.get(node) ?? 1;
+    const group = nodesBySelectId.get(selectId) || [];
+    group.push(node);
+    nodesBySelectId.set(selectId, group);
+  }
+
+  const sortedIds = Array.from(nodesBySelectId.keys()).sort((a, b) => a - b);
+
+  // Build tree: higher IDs are children of the last node with the previous ID
+  const roots: ExplainNode[] = [];
+  for (let i = 0; i < sortedIds.length; i++) {
+    const id = sortedIds[i];
+    if (id === undefined) continue;
+    const nodes = nodesBySelectId.get(id) || [];
+    if (i === 0) {
+      roots.push(...nodes);
+    } else {
+      const prevId = sortedIds[i - 1];
+      if (prevId === undefined) {
+        roots.push(...nodes);
+        continue;
+      }
+      const prevNodes = nodesBySelectId.get(prevId) || [];
+      const parent = prevNodes[prevNodes.length - 1];
+      if (parent) {
+        if (!parent.children) parent.children = [];
+        parent.children.push(...nodes);
+      } else {
+        roots.push(...nodes);
+      }
+    }
+  }
+
   return {
-    nodes,
+    nodes: roots,
     totalCost: 0,
     raw,
   };
@@ -219,6 +260,87 @@ function parseMySqlJsonNode(
     }
   }
 
+  // Handle ordering_operation
+  if (record.ordering_operation && typeof record.ordering_operation === "object") {
+    const orderObj = record.ordering_operation as Record<string, unknown>;
+    const sortNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Sort",
+      raw: JSON.stringify(record.ordering_operation),
+    };
+    // Recurse into the ordering_operation's children
+    const orderChild = parseMySqlJsonNode(orderObj, nodeIndexRef);
+    if (orderChild) {
+      sortNode.children = [orderChild];
+    }
+    childNodes.push(sortNode);
+  }
+
+  // Handle grouping_operation
+  if (record.grouping_operation && typeof record.grouping_operation === "object") {
+    const groupObj = record.grouping_operation as Record<string, unknown>;
+    const groupNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Group",
+      raw: JSON.stringify(record.grouping_operation),
+    };
+    const groupChild = parseMySqlJsonNode(groupObj, nodeIndexRef);
+    if (groupChild) {
+      groupNode.children = [groupChild];
+    }
+    childNodes.push(groupNode);
+  }
+
+  // Handle duplicates_removal
+  if (record.duplicates_removal && typeof record.duplicates_removal === "object") {
+    const dupObj = record.duplicates_removal as Record<string, unknown>;
+    const distinctNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Distinct",
+      raw: JSON.stringify(record.duplicates_removal),
+    };
+    const dupChild = parseMySqlJsonNode(dupObj, nodeIndexRef);
+    if (dupChild) {
+      distinctNode.children = [dupChild];
+    }
+    childNodes.push(distinctNode);
+  }
+
+  // Handle union_result
+  if (record.union_result && typeof record.union_result === "object") {
+    const unionObj = record.union_result as Record<string, unknown>;
+    const unionNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Union",
+      relation:
+        typeof unionObj.table_name === "string" ? unionObj.table_name : undefined,
+      raw: JSON.stringify(record.union_result),
+    };
+    if (Array.isArray(unionObj.query_specifications)) {
+      const unionChildren: ExplainNode[] = [];
+      for (const spec of unionObj.query_specifications) {
+        const specNode = parseMySqlJsonNode(spec, nodeIndexRef);
+        if (specNode) {
+          unionChildren.push(specNode);
+        }
+      }
+      if (unionChildren.length > 0) {
+        unionNode.children = unionChildren;
+      }
+    }
+    childNodes.push(unionNode);
+  }
+
+  // Handle subqueries array
+  if (Array.isArray(record.subqueries)) {
+    for (const subquery of record.subqueries) {
+      const subNode = parseMySqlJsonNode(subquery, nodeIndexRef);
+      if (subNode) {
+        childNodes.push(subNode);
+      }
+    }
+  }
+
   const type =
     accessType ??
     (record.nested_loop ? "Nested Loop" : undefined) ??
@@ -235,6 +357,27 @@ function parseMySqlJsonNode(
     rows: estimatedRows,
     raw,
   };
+
+  // Extract cost_info (table-level) or query_cost (root-level)
+  const costInfoObj = record.cost_info as Record<string, unknown> | undefined;
+  const costRecord =
+    costInfoObj ??
+    (typeof record.query_cost === "string"
+      ? { query_cost: record.query_cost }
+      : undefined);
+  if (costRecord) {
+    const rawCost = costRecord.query_cost ?? costRecord.prefix_cost;
+    const costStr =
+      typeof rawCost === "string"
+        ? rawCost
+        : typeof rawCost === "number"
+          ? rawCost.toString()
+          : "0";
+    const queryCost = parseFloat(costStr);
+    if (!isNaN(queryCost) && queryCost > 0) {
+      node.cost = { startup: 0, total: queryCost };
+    }
+  }
 
   if (childNodes.length > 0) {
     node.children = childNodes;
@@ -332,9 +475,22 @@ function parseMySqlTreeLine(
     }
   }
 
-  const rowsMatch = content.match(/\brows=(\d+)/i);
+  // Extract estimated rows from (cost=... rows=...) section
+  const estimatedRowsMatch = content.match(/\(cost=[\d.]*\s+rows=(\d+)\)/i);
+  // Fallback: plain rows= outside of actual time context
+  const plainRowsMatch = content.match(/\brows=(\d+)/i);
   const actualTimeMatch = content.match(/actual time=([\d.]+)\.\.([\d.]+)/i);
+  const actualRowsMatch = content.match(
+    /actual time=[\d.]+\.\.[\d.]+\s+rows=(\d+)/i,
+  );
   const loopsMatch = content.match(/\bloops=(\d+)/i);
+  const costMatch = content.match(/\(cost=([\d.]+)/i);
+
+  const estimatedRows = estimatedRowsMatch
+    ? parseInt(estimatedRowsMatch[1] || "0", 10)
+    : plainRowsMatch
+      ? parseInt(plainRowsMatch[1] || "0", 10)
+      : undefined;
 
   const node: ExplainNode = {
     id: `mysql-tree-${nodeIndexRef.current++}`,
@@ -342,9 +498,17 @@ function parseMySqlTreeLine(
     relation,
     indexName,
     indexCond,
-    rows: rowsMatch ? parseInt(rowsMatch[1] || "0", 10) : undefined,
+    rows: estimatedRows,
     raw: content,
   };
+
+  // Extract cost from (cost=X.XX ...)
+  if (costMatch) {
+    const costValue = parseFloat(costMatch[1] || "0");
+    if (!isNaN(costValue) && costValue > 0) {
+      node.cost = { startup: 0, total: costValue };
+    }
+  }
 
   if (actualTimeMatch) {
     node.actualTime = {
@@ -353,8 +517,9 @@ function parseMySqlTreeLine(
     };
   }
 
-  if (rowsMatch) {
-    node.actualRows = parseInt(rowsMatch[1] || "0", 10);
+  // Only set actualRows when EXPLAIN ANALYZE data is present
+  if (actualRowsMatch) {
+    node.actualRows = parseInt(actualRowsMatch[1] || "0", 10);
   }
 
   if (loopsMatch) {
