@@ -1722,43 +1722,65 @@ export const ExplainViewer = memo(function ExplainViewer({
 // ============================================================================
 
 export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
-  if (columns.length !== 1) return false;
+  if (columns.length === 0 || rows.length === 0) return false;
 
-  const colName = columns[0]?.toLowerCase() || "";
-  if (!colName.includes("query plan") && !colName.includes("explain")) {
+  const normalized = columns.map((c) => c.toLowerCase().trim());
+
+  // --- Postgres / single-column formats ---
+  if (columns.length === 1) {
+    const colName = normalized[0] || "";
+
+    // MSSQL SHOWPLAN_TEXT: single "stmttext" column with indented plan text
+    if (colName === "stmttext") {
+      const firstRow = rows[0]?.[0];
+      if (typeof firstRow === "string" && firstRow.includes("|--")) return true;
+    }
+
+    // MSSQL SHOWPLAN_XML or Postgres XML: starts with <
+    if (typeof rows[0]?.[0] === "string") {
+      const trimmed = (rows[0][0] as string).trim();
+      if (trimmed.startsWith("<")) return true;
+    }
+
+    // Postgres text/JSON EXPLAIN
+    if (colName.includes("query plan") || colName.includes("explain")) {
+      const firstRow = rows[0]?.[0];
+      if (typeof firstRow !== "string") return false;
+
+      const trimmed = firstRow.trim();
+      if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+        return trimmed.includes('"Plan"') || trimmed.includes('"Node Type"');
+      }
+
+      const explainKeywords = [
+        "seq scan", "index scan", "index only scan", "bitmap",
+        "hash join", "nested loop", "merge join", "sort",
+        "aggregate", "limit", "gather", "cost=", "rows=",
+        "result", "append", "cte scan",
+      ];
+      return explainKeywords.some((kw) => firstRow.toLowerCase().includes(kw));
+    }
+
     return false;
   }
 
-  const firstRow = rows[0]?.[0];
-  if (typeof firstRow !== "string") return false;
-
-  // Check for JSON format
-  const trimmed = firstRow.trim();
-  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-    // Try to detect JSON EXPLAIN format
-    return trimmed.includes('"Plan"') || trimmed.includes('"Node Type"');
+  // --- MSSQL SHOWPLAN_ALL: multi-column with NodeId + Parent + PhysicalOp ---
+  if (
+    normalized.includes("nodeid") &&
+    normalized.includes("parent") &&
+    normalized.includes("physicalop")
+  ) {
+    return true;
   }
 
-  // Text format keywords
-  const explainKeywords = [
-    "seq scan",
-    "index scan",
-    "index only scan",
-    "bitmap",
-    "hash join",
-    "nested loop",
-    "merge join",
-    "sort",
-    "aggregate",
-    "limit",
-    "gather",
-    "cost=",
-    "rows=",
-    "result",
-    "append",
-    "cte scan",
-  ];
+  // --- MSSQL STATISTICS PROFILE: multi-column with Rows + Executes + StmtText ---
+  if (
+    normalized.includes("rows") &&
+    normalized.includes("executes") &&
+    normalized.includes("stmttext")
+  ) {
+    return true;
+  }
 
-  const lower = firstRow.toLowerCase();
-  return explainKeywords.some((kw) => lower.includes(kw));
+  return false;
 }

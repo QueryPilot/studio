@@ -99,6 +99,7 @@ export function useQueryPanelState({
   const [refreshActionQuery, setRefreshActionQuery] = useState<string | null>(
     null,
   );
+  const [showplanMode, setShowplanMode] = useState<string | null>(null);
   const [batchResults, setBatchResults] = useState<BatchStatementResult[]>([]);
   const [activeBatchResultIndex, setActiveBatchResultIndex] = useState(0);
   const [isBatchExecuting, setIsBatchExecuting] = useState(false);
@@ -135,6 +136,7 @@ export function useQueryPanelState({
     const connectionDialect = resolveDialectFromDbType(dbType);
     setSelectedDialect(connectionDialect);
     setDetectedDialect(connectionDialect);
+    setShowplanMode(null);
   }, [connectionId, dbType]);
 
   const setQuery = useCallback((value: string) => {
@@ -358,10 +360,12 @@ export function useQueryPanelState({
     setSelectedDialect,
     setSelectedStatementCount,
     setShowOutline,
+    setShowplanMode,
     setShowResults,
     setShowSaveDialog,
     setViewMode,
     showOutline,
+    showplanMode,
     showResults,
     showSaveDialog,
     viewMode,

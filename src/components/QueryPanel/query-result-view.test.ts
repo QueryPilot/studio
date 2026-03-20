@@ -51,3 +51,48 @@ describe("query-result-view", () => {
     expect(presentation.mode).toBe("table");
   });
 });
+
+describe("buildResultViewPresentation - MSSQL SHOWPLAN", () => {
+  it("forces explain mode when showplanFormat is provided", () => {
+    const result = buildResultViewPresentation({
+      sql: "SET SHOWPLAN_ALL ON\nSELECT * FROM orders\nSET SHOWPLAN_ALL OFF",
+      result: {
+        columns: ["NodeId", "Parent", "PhysicalOp", "LogicalOp"],
+        rows: [[1, 0, "Scan", "Scan"]],
+        rowCount: 1,
+      },
+      showplanFormat: "all",
+    });
+    expect(result.isExplainLike).toBe(true);
+    expect(result.mode).toBe("explain");
+    expect(result.supportedModes).toEqual(["explain", "raw", "stats"]);
+  });
+
+  it("forces raw mode for SHOWPLAN_TEXT", () => {
+    const result = buildResultViewPresentation({
+      sql: "SET SHOWPLAN_TEXT ON\nSELECT 1\nSET SHOWPLAN_TEXT OFF",
+      result: {
+        columns: ["StmtText"],
+        rows: [["  |--Constant Scan"]],
+        rowCount: 1,
+      },
+      showplanFormat: "text",
+    });
+    expect(result.isExplainLike).toBe(true);
+    expect(result.mode).toBe("raw");
+    expect(result.supportedModes).toEqual(["raw"]);
+  });
+
+  it("does not force explain when showplanFormat is null", () => {
+    const result = buildResultViewPresentation({
+      sql: "SELECT * FROM orders",
+      result: {
+        columns: ["id", "name"],
+        rows: [[1, "test"]],
+        rowCount: 1,
+      },
+    });
+    expect(result.isExplainLike).toBe(false);
+    expect(result.mode).toBe("table");
+  });
+});
