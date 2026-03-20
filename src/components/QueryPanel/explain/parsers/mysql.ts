@@ -248,7 +248,17 @@ function parseMySqlJsonNode(
     for (const child of record.nested_loop) {
       const parsedChild = parseMySqlJsonNode(child, nodeIndexRef);
       if (parsedChild) {
-        childNodes.push(parsedChild);
+        // Unwrap trivial Operation wrappers from nested_loop items
+        // (e.g., {table: {table_name: "p", ...}} creates Operation → table node)
+        if (
+          parsedChild.type === "Operation" &&
+          parsedChild.children?.length === 1 &&
+          !parsedChild.relation
+        ) {
+          childNodes.push(parsedChild.children[0]!);
+        } else {
+          childNodes.push(parsedChild);
+        }
       }
     }
   }
@@ -258,6 +268,64 @@ function parseMySqlJsonNode(
     if (nestedBlock) {
       childNodes.push(nestedBlock);
     }
+  }
+
+  // Handle filesort (MariaDB JSON format wraps sorted results in filesort object)
+  if (record.filesort && typeof record.filesort === "object") {
+    const filesortObj = record.filesort as Record<string, unknown>;
+    const sortNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Filesort",
+      sortKey: typeof filesortObj.sort_key === "string" ? filesortObj.sort_key.split(", ") : undefined,
+      raw: JSON.stringify(record.filesort),
+    };
+    // Filesort may contain temporary_table or nested_loop directly
+    const sortChildren: ExplainNode[] = [];
+    if (filesortObj.temporary_table && typeof filesortObj.temporary_table === "object") {
+      const tmpObj = filesortObj.temporary_table as Record<string, unknown>;
+      const tmpNode: ExplainNode = {
+        id: `mysql-json-${nodeIndexRef.current++}`,
+        type: "Temporary Table",
+        raw: JSON.stringify(filesortObj.temporary_table),
+      };
+      // Temporary table usually contains nested_loop
+      const tmpChild = parseMySqlJsonNode(tmpObj, nodeIndexRef);
+      if (tmpChild && tmpChild.type !== "Operation") {
+        tmpNode.children = [tmpChild];
+      } else if (tmpChild?.children) {
+        tmpNode.children = tmpChild.children;
+      }
+      sortChildren.push(tmpNode);
+    } else {
+      // No temporary_table — recurse directly for nested_loop, table, etc.
+      const sortChild = parseMySqlJsonNode(filesortObj, nodeIndexRef);
+      if (sortChild && sortChild.type !== "Operation") {
+        sortChildren.push(sortChild);
+      } else if (sortChild?.children) {
+        sortChildren.push(...sortChild.children);
+      }
+    }
+    if (sortChildren.length > 0) {
+      sortNode.children = sortChildren;
+    }
+    childNodes.push(sortNode);
+  }
+
+  // Handle standalone temporary_table (MariaDB JSON format, without filesort wrapper)
+  if (!record.filesort && record.temporary_table && typeof record.temporary_table === "object") {
+    const tmpObj = record.temporary_table as Record<string, unknown>;
+    const tmpNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: "Temporary Table",
+      raw: JSON.stringify(record.temporary_table),
+    };
+    const tmpChild = parseMySqlJsonNode(tmpObj, nodeIndexRef);
+    if (tmpChild && tmpChild.type !== "Operation") {
+      tmpNode.children = [tmpChild];
+    } else if (tmpChild?.children) {
+      tmpNode.children = tmpChild.children;
+    }
+    childNodes.push(tmpNode);
   }
 
   // Handle ordering_operation
@@ -358,15 +426,15 @@ function parseMySqlJsonNode(
     raw,
   };
 
-  // Extract cost_info (table-level) or query_cost (root-level)
+  // Extract cost — MySQL uses cost_info.prefix_cost/query_cost,
+  // MariaDB uses a direct "cost" number on the table/query_block object
   const costInfoObj = record.cost_info as Record<string, unknown> | undefined;
-  const costRecord =
-    costInfoObj ??
-    (typeof record.query_cost === "string"
-      ? { query_cost: record.query_cost }
-      : undefined);
-  if (costRecord) {
-    const rawCost = costRecord.query_cost ?? costRecord.prefix_cost;
+  const directCost = parseNumber(record.cost);
+  if (directCost !== undefined && directCost > 0) {
+    // MariaDB: direct cost field on table objects
+    node.cost = { startup: 0, total: directCost };
+  } else if (costInfoObj) {
+    const rawCost = costInfoObj.query_cost ?? costInfoObj.prefix_cost;
     const costStr =
       typeof rawCost === "string"
         ? rawCost
@@ -377,6 +445,43 @@ function parseMySqlJsonNode(
     if (!isNaN(queryCost) && queryCost > 0) {
       node.cost = { startup: 0, total: queryCost };
     }
+  } else if (typeof record.query_cost === "string" || typeof record.query_cost === "number") {
+    const queryCost = parseFloat(String(record.query_cost));
+    if (!isNaN(queryCost) && queryCost > 0) {
+      node.cost = { startup: 0, total: queryCost };
+    }
+  }
+
+  // MariaDB/MySQL: extract table-level details
+  const loops = parseNumber(record.loops);
+  if (loops !== undefined && loops > 1) {
+    node.loops = loops;
+  }
+  const filtered = parseNumber(record.filtered);
+  if (filtered !== undefined) {
+    node.filtered = filtered;
+  }
+  if (typeof record.attached_condition === "string") {
+    node.filter = record.attached_condition;
+  }
+  if (typeof record.key === "string") {
+    node.indexName = record.key;
+  }
+  if (typeof record.ref === "string" || Array.isArray(record.ref)) {
+    node.ref = Array.isArray(record.ref) ? record.ref.join(", ") : record.ref;
+  }
+  if (typeof record.key_length === "string") {
+    node.keyLen = record.key_length;
+  }
+  if (Array.isArray(record.possible_keys)) {
+    node.possibleKeys = record.possible_keys.filter(
+      (k): k is string => typeof k === "string",
+    );
+  }
+  if (Array.isArray(record.used_key_parts)) {
+    node.indexCond = record.used_key_parts.filter(
+      (k): k is string => typeof k === "string",
+    ).join(", ");
   }
 
   if (childNodes.length > 0) {
@@ -414,10 +519,13 @@ function parseMySqlJsonExplain(input: ParseMySqlInput): ParsedExplain {
     return { nodes: [], totalCost: 0, raw };
   }
 
+  // Unwrap trivial wrapper nodes (Operation, Query Block) that have a single
+  // child and no relation. Stop unwrapping if the child is a meaningful
+  // operation node (Filesort, Sort, Temporary Table, etc.) — in that case
+  // the Query Block label provides useful context.
   let normalizedRoot = rootNode;
   while (
-    (normalizedRoot.type === "Operation" ||
-      normalizedRoot.type.startsWith("Query Block")) &&
+    normalizedRoot.type === "Operation" &&
     !normalizedRoot.relation &&
     normalizedRoot.children &&
     normalizedRoot.children.length === 1

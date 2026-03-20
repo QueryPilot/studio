@@ -20,9 +20,13 @@ describe("parseMySqlExplain JSON/TREE", () => {
     });
 
     expect(parsed.nodes).toHaveLength(1);
-    expect(parsed.nodes[0]?.type).toBe("ALL");
-    expect(parsed.nodes[0]?.relation).toBe("users");
-    expect(parsed.nodes[0]?.rows).toBe(1000);
+    // Root is the Query Block; table node is its child
+    const root = parsed.nodes[0]!;
+    expect(root.type).toBe("Query Block 1");
+    expect(root.children).toHaveLength(1);
+    expect(root.children![0]!.type).toBe("ALL");
+    expect(root.children![0]!.relation).toBe("users");
+    expect(root.children![0]!.rows).toBe(1000);
   });
 
   it("extracts cost_info from JSON format", () => {
@@ -146,5 +150,89 @@ describe("parseMySqlExplain JSON/TREE", () => {
     expect(parsed.nodes).toHaveLength(1);
     expect(parsed.nodes[0]?.cost).toEqual({ startup: 0, total: 10.5 });
     expect(parsed.nodes[0]?.rows).toBe(5);
+  });
+
+  it("parses MariaDB JSON format with filesort + temporary_table + nested_loop", () => {
+    const mariadbPlan = {
+      query_block: {
+        select_id: 1,
+        cost: 0.019,
+        filesort: {
+          sort_key: "p.id, p.name",
+          temporary_table: {
+            nested_loop: [
+              {
+                table: {
+                  table_name: "p",
+                  access_type: "ALL",
+                  loops: 1,
+                  rows: 2,
+                  cost: 0.011,
+                  filtered: 100,
+                  attached_condition: "p.is_active = 1",
+                },
+              },
+              {
+                table: {
+                  table_name: "cat",
+                  access_type: "eq_ref",
+                  possible_keys: ["PRIMARY"],
+                  key: "PRIMARY",
+                  key_length: "4",
+                  used_key_parts: ["id"],
+                  ref: ["todoapp.p.category_id"],
+                  loops: 2,
+                  rows: 1,
+                  cost: 0.003,
+                  filtered: 100,
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const parsed = parseMySqlExplain({
+      columns: ["EXPLAIN"],
+      rows: [[JSON.stringify(mariadbPlan)]],
+    });
+
+    // Root should be Query Block
+    expect(parsed.nodes).toHaveLength(1);
+    const root = parsed.nodes[0]!;
+    expect(root.type).toBe("Query Block 1");
+
+    // Should have Filesort child
+    const filesort = root.children?.[0];
+    expect(filesort).toBeDefined();
+    expect(filesort!.type).toBe("Filesort");
+    expect(filesort!.sortKey).toEqual(["p.id", "p.name"]);
+
+    // Filesort → Temporary Table
+    const tmpTable = filesort!.children?.[0];
+    expect(tmpTable).toBeDefined();
+    expect(tmpTable!.type).toBe("Temporary Table");
+
+    // Temporary Table → Nested Loop with 2 table children
+    const nestedLoop = tmpTable!.children?.[0];
+    expect(nestedLoop).toBeDefined();
+    expect(nestedLoop!.type).toBe("Nested Loop");
+
+    // Table nodes
+    const tables = nestedLoop!.children ?? [];
+    expect(tables).toHaveLength(2);
+
+    // First table: p
+    expect(tables[0]!.relation).toBe("p");
+    expect(tables[0]!.type).toBe("ALL");
+    expect(tables[0]!.cost).toEqual({ startup: 0, total: 0.011 });
+    expect(tables[0]!.filter).toBe("p.is_active = 1");
+
+    // Second table: cat
+    expect(tables[1]!.relation).toBe("cat");
+    expect(tables[1]!.type).toBe("eq_ref");
+    expect(tables[1]!.indexName).toBe("PRIMARY");
+    expect(tables[1]!.possibleKeys).toEqual(["PRIMARY"]);
+    expect(tables[1]!.indexCond).toBe("id");
   });
 });
