@@ -116,14 +116,17 @@ const TreeNode = memo(function TreeNode({
     }, 0) || 0;
   const nodeExclusiveTime = Math.max(0, nodeInclusiveTime - childrenTotalTime);
 
-  // Use exclusive actual time when available (ANALYZE)
-  // Fallback to estimated cost for plain EXPLAIN
+  // Use exclusive actual time when available (ANALYZE),
+  // operatorCost for MSSQL estimated plans (exclusive operator cost),
+  // or fallback to subtree cost for Postgres convention
   const costPct =
     totalActualTime && totalActualTime > 0 && node.actualTime
       ? (nodeExclusiveTime / totalActualTime) * 100
-      : totalCost > 0
-        ? ((node.cost?.total || 0) / totalCost) * 100
-        : 0;
+      : node.operatorCost !== undefined && totalCost > 0
+        ? (node.operatorCost / totalCost) * 100
+        : totalCost > 0
+          ? ((node.cost?.total || 0) / totalCost) * 100
+          : 0;
   const color = getNodeColor(node.type);
   const mysqlSelectType =
     typeof node.selectType === "string" ? node.selectType : undefined;
@@ -239,7 +242,13 @@ const TreeNode = memo(function TreeNode({
                   !node.actualTime &&
                   !node.actualRows &&
                   !node.loops &&
-                  !node.indexName,
+                  !node.indexName &&
+                  !mysqlSelectType &&
+                  mysqlFiltered === undefined &&
+                  !mysqlRef &&
+                  !mysqlKeyLen &&
+                  !mysqlExtra &&
+                  mysqlPossibleKeys.length === 0,
               },
             )}
           >
@@ -932,14 +941,12 @@ const PHYSICAL_TABLE_SCANS = new Set([
   "Table Scan",
   "Clustered Index Scan",
   "Clustered Index Seek",
-  "Index Scan",
   "Index Seek",
   "Nonclustered Index Scan",
   "Nonclustered Index Seek",
   "RID Lookup",
   "Key Lookup",
   // MySQL
-  "Table Scan",
   "Index Lookup",
   "Index Range Scan",
   "Full Index Scan",
