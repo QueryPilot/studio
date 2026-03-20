@@ -680,9 +680,26 @@ function parseMySqlTreeLine(
   const relationMatch = descriptor.match(/\bon\s+([`"A-Za-z0-9_.]+)/i);
   const relation = relationMatch?.[1]?.replace(/[`"]/g, "");
 
-  const type = relationMatch
+  // Extract filter condition from "Filter: (...)" or "Sort: key DESC"
+  let filter: string | undefined;
+  let sortKey: string[] | undefined;
+  const filterMatch = descriptor.match(/^Filter:\s*(.+)$/i);
+  const sortMatch = descriptor.match(/^Sort:\s*(.+)$/i);
+  if (filterMatch) {
+    filter = filterMatch[1]?.trim();
+  }
+  if (sortMatch) {
+    sortKey = [sortMatch[1]?.trim() ?? ""];
+  }
+
+  let type = relationMatch
     ? descriptor.slice(0, relationMatch.index).trim()
     : descriptor;
+
+  // Clean up type: remove trailing colon content for Filter/Sort nodes
+  if (filterMatch) type = "Filter";
+  if (sortMatch) type = "Sort";
+  // "Aggregate using temporary table" → keep as-is (descriptive)
 
   let indexName: string | undefined;
   let indexCond: string | undefined;
@@ -723,6 +740,8 @@ function parseMySqlTreeLine(
     relation,
     indexName,
     indexCond,
+    filter,
+    sortKey,
     rows: estimatedRows,
     raw: content,
   };
@@ -755,9 +774,12 @@ function parseMySqlTreeLine(
 }
 
 function parseMySqlTreeExplain(input: ParseMySqlInput): ParsedExplain {
+  // MySQL may return the tree as one multiline cell or as separate rows.
+  // Split multiline cells into individual lines to handle both cases.
   const lines = input.rows
     .map((row) => row[0])
     .filter((value): value is string => typeof value === "string")
+    .flatMap((value) => value.split("\n"))
     .filter((line) => line.trim().length > 0);
 
   const raw = lines.join("\n");
@@ -799,9 +821,12 @@ function parseMySqlTreeExplain(input: ParseMySqlInput): ParsedExplain {
     stack.push(parsed);
   }
 
+  // Use root node's cost as totalCost for StatsView percentages
+  const totalCost = roots[0]?.cost?.total ?? 0;
+
   return {
     nodes: roots,
-    totalCost: 0,
+    totalCost,
     raw,
   };
 }
