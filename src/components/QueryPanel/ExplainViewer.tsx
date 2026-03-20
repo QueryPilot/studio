@@ -1505,7 +1505,7 @@ export const ExplainViewer = memo(function ExplainViewer({
           parsed.jit ||
           parsed.settings?.length ||
           parsed.queryIdentifier) && (
-          <div className="border-b bg-gradient-to-r from-muted/30 to-muted/10">
+          <div className="border-b bg-muted/40">
             <div className="px-4 py-3 space-y-2">
               {/* Timing Section */}
               {(parsed.planningTime !== undefined ||
@@ -1835,11 +1835,29 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
     return false;
   }
 
+  // --- SQLite EXPLAIN QUERY PLAN: id + parent + detail ---
+  if (
+    normalized.includes("id") &&
+    normalized.includes("parent") &&
+    normalized.some((c) => c.endsWith("detail"))
+  ) {
+    return true;
+  }
+
   // --- MSSQL SHOWPLAN_ALL: multi-column with NodeId + Parent + PhysicalOp ---
   if (
     normalized.includes("nodeid") &&
     normalized.includes("parent") &&
     normalized.includes("physicalop")
+  ) {
+    return true;
+  }
+
+  // --- MySQL traditional EXPLAIN: table + type + (select_type or possible_keys) ---
+  if (
+    normalized.includes("table") &&
+    normalized.includes("type") &&
+    (normalized.includes("select_type") || normalized.includes("possible_keys"))
   ) {
     return true;
   }
