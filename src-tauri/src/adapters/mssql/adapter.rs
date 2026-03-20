@@ -32,11 +32,12 @@ impl MssqlAdapter {
     /// Best-effort reset of per-session plan options that can leak from prior tabs/queries.
     /// When SHOWPLAN is left ON, SQL Server returns plan rows instead of query rows.
     pub async fn reset_session_state(conn: &mut bb8::PooledConnection<'_, ConnectionManager>) {
-        const RESET_SQL: [&str; 4] = [
+        const RESET_SQL: [&str; 5] = [
             "SET SHOWPLAN_TEXT OFF",
             "SET SHOWPLAN_ALL OFF",
             "SET SHOWPLAN_XML OFF",
             "SET STATISTICS PROFILE OFF",
+            "SET STATISTICS XML OFF",
         ];
 
         for statement in RESET_SQL {
@@ -529,15 +530,16 @@ impl MssqlAdapter {
         Some((set_on, inner_query, set_off))
     }
 
-    /// Check if SQL is a SHOWPLAN/STATISTICS PROFILE wrapped batch.
-    /// These batches start with SET SHOWPLAN_*/STATISTICS PROFILE ON and
-    /// must skip session reset and type rewriting.
+    /// Check if SQL is a SHOWPLAN/STATISTICS wrapped batch.
+    /// These batches start with SET SHOWPLAN_*/STATISTICS PROFILE/STATISTICS XML ON
+    /// and must skip session reset and type rewriting.
     pub fn is_showplan_batch(sql: &str) -> bool {
         let trimmed = sql.trim_start().to_uppercase();
         trimmed.starts_with("SET SHOWPLAN_ALL ON")
             || trimmed.starts_with("SET SHOWPLAN_XML ON")
             || trimmed.starts_with("SET SHOWPLAN_TEXT ON")
             || trimmed.starts_with("SET STATISTICS PROFILE ON")
+            || trimmed.starts_with("SET STATISTICS XML ON")
     }
 
     /// Extract simple column name from expression (handles col, [col], table.col, etc.)

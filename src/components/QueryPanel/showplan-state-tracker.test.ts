@@ -54,6 +54,13 @@ describe("parseShowplanSet", () => {
     });
   });
 
+  it("detects SET STATISTICS XML ON", () => {
+    expect(parseShowplanSet("SET STATISTICS XML ON")).toEqual({
+      format: "statistics_xml",
+      enabled: true,
+    });
+  });
+
   it("returns null for non-SHOWPLAN statements", () => {
     expect(parseShowplanSet("SELECT * FROM users")).toBeNull();
     expect(parseShowplanSet("SET NOCOUNT ON")).toBeNull();
