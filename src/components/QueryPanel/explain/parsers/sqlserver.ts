@@ -519,6 +519,35 @@ export function parseSqlServerXmlShowplan(
       };
     }
 
+    // Extract operator-level cost for accurate StatsView
+    const estimateIO = parseNumber(relOp.getAttribute("EstimateIO"));
+    const estimateCPU = parseNumber(relOp.getAttribute("EstimateCPU"));
+    if (estimateIO !== undefined || estimateCPU !== undefined) {
+      node.operatorCost = (estimateIO ?? 0) + (estimateCPU ?? 0);
+    }
+
+    // Extract actual execution stats from RunTimeInformation (STATISTICS XML)
+    const runtimeInfos = getElementsWithinRelOp(relOp, "RunTimeCountersPerThread");
+    if (runtimeInfos.length > 0) {
+      let totalActualRows = 0;
+      let totalActualExecutions = 0;
+      let totalElapsedMs = 0;
+      for (const rt of runtimeInfos) {
+        totalActualRows += parseNumber(rt.getAttribute("ActualRows")) ?? 0;
+        totalActualExecutions += parseNumber(rt.getAttribute("ActualExecutions")) ?? 0;
+        totalElapsedMs += parseNumber(rt.getAttribute("ActualElapsedms")) ?? 0;
+      }
+      if (totalActualRows > 0 || totalActualExecutions > 0) {
+        node.actualRows = totalActualRows;
+      }
+      if (totalActualExecutions > 0) {
+        node.loops = totalActualExecutions;
+      }
+      if (totalElapsedMs > 0) {
+        node.actualTime = { startup: 0, total: totalElapsedMs };
+      }
+    }
+
     const children = getImmediateChildRelOps(relOp).map(parseRelOpElement);
     if (children.length > 0) {
       node.children = children;
