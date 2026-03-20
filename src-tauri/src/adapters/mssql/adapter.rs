@@ -542,6 +542,16 @@ impl MssqlAdapter {
             || trimmed.starts_with("SET STATISTICS XML ON")
     }
 
+    /// Check if this is a STATISTICS (not SHOWPLAN) batch.
+    /// STATISTICS formats execute the query and return data rows PLUS plan rows.
+    /// The plan is in the LAST result set, not the first.
+    /// SHOWPLAN formats don't execute — the plan is the ONLY (first) result set.
+    pub fn is_statistics_batch(sql: &str) -> bool {
+        let trimmed = sql.trim_start().to_uppercase();
+        trimmed.starts_with("SET STATISTICS PROFILE ON")
+            || trimmed.starts_with("SET STATISTICS XML ON")
+    }
+
     /// Extract simple column name from expression (handles col, [col], table.col, etc.)
     fn extract_simple_column_name(expr: &str) -> Option<String> {
         let trimmed = expr.trim();
@@ -730,22 +740,47 @@ impl SqlQueryable for MssqlAdapter {
                         })?;
                     let _ = on_result.into_first_result().await;
 
-                    // Step 2: Execute the query (returns plan rows, not data)
-                    let mut plan_result = conn
+                    // Step 2: Execute the query
+                    let plan_result = conn
                         .simple_query(inner_query.as_str())
                         .await
                         .map_err(|e| {
                             AppError::DatabaseError(format!("SHOWPLAN query failed: {}", e))
                         })?;
 
-                    // Collect plan results
-                    let columns_opt = plan_result.columns().await.map_err(|e| {
-                        AppError::DatabaseError(format!("Failed to get plan columns: {}", e))
-                    })?;
+                    // For STATISTICS formats (XML/PROFILE), the query executes and
+                    // returns data rows first, then plan rows last.
+                    // For SHOWPLAN formats, the plan is the only (first) result set.
+                    let is_statistics = Self::is_statistics_batch(sql.as_str());
 
-                    let columns: Vec<CapabilityColumnMeta> = columns_opt
-                        .map(|cols| {
-                            cols.iter()
+                    let all_results: Vec<Vec<tiberius::Row>> =
+                        plan_result.into_results().await.map_err(|e| {
+                            AppError::DatabaseError(format!(
+                                "Failed to collect plan results: {}",
+                                e
+                            ))
+                        })?;
+
+                    // Pick the right result set: last non-empty for STATISTICS,
+                    // first non-empty for SHOWPLAN
+                    let plan_rows = if is_statistics {
+                        all_results
+                            .into_iter()
+                            .rev()
+                            .find(|rs| !rs.is_empty())
+                            .unwrap_or_default()
+                    } else {
+                        all_results
+                            .into_iter()
+                            .find(|rs| !rs.is_empty())
+                            .unwrap_or_default()
+                    };
+
+                    let columns: Vec<CapabilityColumnMeta> = plan_rows
+                        .first()
+                        .map(|row| {
+                            row.columns()
+                                .iter()
                                 .map(|col| CapabilityColumnMeta {
                                     name: col.name().to_string(),
                                     data_type: MssqlTypeConverter::column_type_to_string(
@@ -756,16 +791,8 @@ impl SqlQueryable for MssqlAdapter {
                         })
                         .unwrap_or_default();
 
-                    let rows: Vec<tiberius::Row> =
-                        plan_result.into_first_result().await.map_err(|e| {
-                            AppError::DatabaseError(format!(
-                                "Failed to collect plan rows: {}",
-                                e
-                            ))
-                        })?;
-
                     let json_rows: Vec<Vec<serde_json::Value>> =
-                        rows.iter().map(SimpleConverter::row_to_json).collect();
+                        plan_rows.iter().map(SimpleConverter::row_to_json).collect();
 
                     // Step 3: SET SHOWPLAN_ALL OFF (cleanup)
                     if let Ok(off_result) = conn.simple_query(set_off.as_str()).await {

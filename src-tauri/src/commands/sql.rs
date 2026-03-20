@@ -854,20 +854,40 @@ async fn execute_mssql_stream(
                     .map_err(|e| format!("Failed to enable SHOWPLAN: {}", e))?;
                 let _ = on_result.into_first_result().await;
 
-                // Step 2: Execute query (returns plan rows)
-                let mut plan_result = query_conn
+                // Step 2: Execute query
+                let plan_result = query_conn
                     .simple_query(inner_query.as_str())
                     .await
                     .map_err(|e| format!("SHOWPLAN query failed: {}", e))?;
 
-                let columns_opt = plan_result
-                    .columns()
-                    .await
-                    .map_err(|e| format!("Failed to get plan columns: {}", e))?;
+                // STATISTICS formats return data + plan; plan is LAST result set.
+                // SHOWPLAN formats return plan only; plan is FIRST result set.
+                let is_statistics =
+                    crate::adapters::mssql::MssqlAdapter::is_statistics_batch(sql_owned.as_str());
 
-                let columns: Vec<ColumnMeta> = columns_opt
-                    .map(|cols| {
-                        cols.iter()
+                let all_results: Vec<Vec<tiberius::Row>> = plan_result
+                    .into_results()
+                    .await
+                    .map_err(|e| format!("Failed to collect plan results: {}", e))?;
+
+                let plan_rows = if is_statistics {
+                    all_results
+                        .into_iter()
+                        .rev()
+                        .find(|rs| !rs.is_empty())
+                        .unwrap_or_default()
+                } else {
+                    all_results
+                        .into_iter()
+                        .find(|rs| !rs.is_empty())
+                        .unwrap_or_default()
+                };
+
+                let columns: Vec<ColumnMeta> = plan_rows
+                    .first()
+                    .map(|row| {
+                        row.columns()
+                            .iter()
                             .map(|col| ColumnMeta {
                                 name: col.name().to_string(),
                                 data_type:
@@ -893,17 +913,13 @@ async fn execute_mssql_stream(
                     .unwrap_or_default();
 
                 let column_count = columns.len();
-                let rows: Vec<tiberius::Row> = plan_result
-                    .into_first_result()
-                    .await
-                    .map_err(|e| format!("Failed to collect plan rows: {}", e))?;
 
-                // Step 3: SET SHOWPLAN OFF (cleanup)
+                // Step 3: SET SHOWPLAN/STATISTICS OFF (cleanup)
                 if let Ok(off_result) = query_conn.simple_query(set_off.as_str()).await {
                     let _ = off_result.into_first_result().await;
                 }
 
-                Ok::<_, String>((columns, column_count, rows))
+                Ok::<_, String>((columns, column_count, plan_rows))
             } else {
                 // Standard path: use columns() + into_first_result()
                 let mut result = query_conn
