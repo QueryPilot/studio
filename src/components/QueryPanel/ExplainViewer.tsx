@@ -913,6 +913,7 @@ interface TableStats {
 
 // Physical table scan types (not derived sources like CTEs or subqueries)
 const PHYSICAL_TABLE_SCANS = new Set([
+  // PostgreSQL
   "Seq Scan",
   "Index Scan",
   "Index Only Scan",
@@ -920,6 +921,21 @@ const PHYSICAL_TABLE_SCANS = new Set([
   "Tid Scan",
   "Tid Range Scan",
   "Sample Scan",
+  // SQL Server
+  "Table Scan",
+  "Clustered Index Scan",
+  "Clustered Index Seek",
+  "Index Scan",
+  "Index Seek",
+  "Nonclustered Index Scan",
+  "Nonclustered Index Seek",
+  "RID Lookup",
+  "Key Lookup",
+  // MySQL
+  "Table Scan",
+  "Index Lookup",
+  "Index Range Scan",
+  "Full Index Scan",
 ]);
 
 function collectStats(
@@ -936,13 +952,17 @@ function collectStats(
     }
   >();
 
-  // Get inclusive time for a node, recursively summing children for wrapper nodes
+  // Get inclusive time/cost for a node, recursively summing children for wrapper nodes.
+  // Uses actualTime when available (EXPLAIN ANALYZE / STATISTICS PROFILE),
+  // falls back to cost.total (estimated plans like SHOWPLAN_ALL).
   function getNodeInclusiveTime(node: ExplainNode): number {
     if (node.actualTime) {
       return node.actualTime.total * (node.loops || 1);
     }
-    // For wrapper nodes (CTE, SubPlan, InitPlan) without actualTime,
-    // sum descendants' inclusive times
+    if (node.cost) {
+      return node.cost.total;
+    }
+    // For wrapper nodes without actualTime or cost, sum descendants
     return (
       node.children?.reduce(
         (sum, child) => sum + getNodeInclusiveTime(child),
@@ -952,10 +972,10 @@ function collectStats(
   }
 
   function traverse(node: ExplainNode) {
-    // Calculate exclusive time for this node
+    // Calculate exclusive time/cost for this node
     const nodeTime = node.actualTime
       ? node.actualTime.total * (node.loops || 1)
-      : 0;
+      : (node.cost?.total ?? 0);
     // Use recursive helper to properly account for wrapper nodes
     const childrenTime =
       node.children?.reduce(
@@ -1031,22 +1051,39 @@ function collectStats(
 const StatsView = memo(function StatsView({
   nodes,
   totalActualTime,
+  totalCost,
 }: {
   nodes: ExplainNode[];
   totalActualTime: number;
+  totalCost?: number;
 }) {
+  // Use actual time when available (EXPLAIN ANALYZE / STATISTICS PROFILE),
+  // otherwise fall back to estimated cost (SHOWPLAN_ALL / SHOWPLAN_XML).
+  const hasActualTime = totalActualTime > 0;
+  const effectiveTotal = hasActualTime
+    ? totalActualTime
+    : (totalCost ?? 0);
+
   const { nodeStats, tableStats } = useMemo(
-    () => collectStats(nodes, totalActualTime),
-    [nodes, totalActualTime],
+    () => collectStats(nodes, effectiveTotal),
+    [nodes, effectiveTotal],
   );
   const hasTableStats = tableStats.length > 0;
 
-  const formatTime = (ms: number) => {
-    if (ms < 0.001) return "0.000 ms";
-    return `${ms.toFixed(3)} ms`;
+  const formatMetric = (value: number) => {
+    if (hasActualTime) {
+      if (value < 0.001) return "0.000 ms";
+      return `${value.toFixed(3)} ms`;
+    }
+    // Estimated cost (no unit)
+    return value.toFixed(4);
   };
 
   const formatPercent = (pct: number) => `${pct.toFixed(1)} %`;
+
+  const metricLabel = hasActualTime ? "sum of times" : "estimated cost";
+  const tableMetricLabel = hasActualTime ? "Total time" : "Est. cost";
+  const tableScanMetricLabel = hasActualTime ? "sum of times" : "est. cost";
 
   return (
     <div className="h-full overflow-auto p-1">
@@ -1074,7 +1111,7 @@ const StatsView = memo(function StatsView({
                     count
                   </th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">
-                    sum of times
+                    {metricLabel}
                   </th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">
                     % of query
@@ -1089,7 +1126,7 @@ const StatsView = memo(function StatsView({
                       {stat.count}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono">
-                      {formatTime(stat.totalTime)}
+                      {formatMetric(stat.totalTime)}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono">
                       {formatPercent(stat.percentOfQuery)}
@@ -1118,7 +1155,7 @@ const StatsView = memo(function StatsView({
                       Scan count
                     </th>
                     <th className="text-right px-3 py-2 font-medium text-muted-foreground">
-                      Total time
+                      {tableMetricLabel}
                     </th>
                     <th className="text-right px-3 py-2 font-medium text-muted-foreground">
                       % of query
@@ -1132,7 +1169,7 @@ const StatsView = memo(function StatsView({
                       count
                     </th>
                     <th className="text-right px-3 py-1 font-medium text-muted-foreground/70">
-                      sum of times
+                      {tableScanMetricLabel}
                     </th>
                     <th className="text-right px-3 py-1 font-medium text-muted-foreground/70">
                       % of table
@@ -1150,7 +1187,7 @@ const StatsView = memo(function StatsView({
                           {table.scanCount}
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono">
-                          {formatTime(table.totalTime)}
+                          {formatMetric(table.totalTime)}
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono">
                           {formatPercent(table.percentOfQuery)}
@@ -1168,7 +1205,7 @@ const StatsView = memo(function StatsView({
                             {scan.count}
                           </td>
                           <td className="px-3 py-1 text-right font-mono">
-                            {formatTime(scan.totalTime)}
+                            {formatMetric(scan.totalTime)}
                           </td>
                           <td className="px-3 py-1 text-right font-mono">
                             {formatPercent(scan.percentOfTable)}
@@ -1683,6 +1720,7 @@ export const ExplainViewer = memo(function ExplainViewer({
           <StatsView
             nodes={parsed.nodes}
             totalActualTime={parsed.totalActualTime || 0}
+            totalCost={parsed.totalCost}
           />
         ) : (
           /* Raw Output */
