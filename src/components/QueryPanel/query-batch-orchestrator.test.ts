@@ -204,3 +204,84 @@ describe("orchestrateRunAllExecution", () => {
     expect(result.skippedCount).toBe(3);
   });
 });
+
+describe("orchestrateRunAllExecution - MSSQL SHOWPLAN", () => {
+  it("intercepts SET SHOWPLAN statements and wraps queries", async () => {
+    const executedStatements: string[] = [];
+    const result = await orchestrateRunAllExecution({
+      runPlan: {
+        statements: [
+          "SET SHOWPLAN_ALL ON",
+          "SELECT * FROM orders",
+          "SELECT * FROM customers",
+          "SET SHOWPLAN_ALL OFF",
+        ],
+        hasManualTransaction: false,
+        shouldAutoWrap: false,
+        transactionCommands: null,
+      },
+      dbType: "sqlserver",
+      executeStatement: async (sql, _options) => {
+        executedStatements.push(sql);
+        return {
+          success: true,
+          result: { columns: ["NodeId"], rows: [[1]], rowCount: 1 },
+        };
+      },
+    });
+
+    // SET statements should NOT be sent to backend
+    expect(executedStatements).toHaveLength(2);
+    expect(executedStatements[0]).toContain("SET SHOWPLAN_ALL ON");
+    expect(executedStatements[0]).toContain("SELECT * FROM orders");
+    expect(executedStatements[0]).toContain("SET SHOWPLAN_ALL OFF");
+    expect(executedStatements[1]).toContain("SELECT * FROM customers");
+
+    // All 4 statements should have results
+    expect(result.statementResults).toHaveLength(4);
+    expect(result.statementResults[0]!.presentation.isExplainLike).toBe(false);
+    expect(result.statementResults[1]!.presentation.isExplainLike).toBe(true);
+    expect(result.statementResults[2]!.presentation.isExplainLike).toBe(true);
+  });
+
+  it("does not intercept when dbType is not sqlserver", async () => {
+    const executedStatements: string[] = [];
+    await orchestrateRunAllExecution({
+      runPlan: {
+        statements: ["SET SHOWPLAN_ALL ON", "SELECT 1"],
+        hasManualTransaction: false,
+        shouldAutoWrap: false,
+        transactionCommands: null,
+      },
+      dbType: "postgresql",
+      executeStatement: async (sql, _options) => {
+        executedStatements.push(sql);
+        return {
+          success: true,
+          result: { columns: [], rows: [], rowCount: 0 },
+        };
+      },
+    });
+
+    expect(executedStatements).toHaveLength(2);
+    expect(executedStatements[0]).toBe("SET SHOWPLAN_ALL ON");
+  });
+
+  it("returns finalShowplanState when batch ends with SET ON", async () => {
+    const result = await orchestrateRunAllExecution({
+      runPlan: {
+        statements: ["SET SHOWPLAN_ALL ON", "SELECT 1"],
+        hasManualTransaction: false,
+        shouldAutoWrap: false,
+        transactionCommands: null,
+      },
+      dbType: "sqlserver",
+      executeStatement: async (_sql, _options) => ({
+        success: true,
+        result: { columns: [], rows: [], rowCount: 0 },
+      }),
+    });
+
+    expect(result.finalShowplanState).toBe("all");
+  });
+});
