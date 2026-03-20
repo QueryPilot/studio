@@ -67,6 +67,59 @@ describe("parseMySqlTraditionalExplain", () => {
     expect(parsed.nodes[1]?.ref).toBe("todoapp.reviews.customer_id");
   });
 
+  it("builds nested tree from subquery rows with different ids", () => {
+    const parsed = parseMySqlTraditionalExplain({
+      columns: [
+        "id",
+        "select_type",
+        "table",
+        "type",
+        "possible_keys",
+        "key",
+        "key_len",
+        "ref",
+        "rows",
+        "filtered",
+        "Extra",
+      ],
+      rows: [
+        [
+          "1",
+          "PRIMARY",
+          "orders",
+          "ALL",
+          "NULL",
+          "NULL",
+          "NULL",
+          "NULL",
+          "500",
+          "100.00",
+          "Using where",
+        ],
+        [
+          "2",
+          "SUBQUERY",
+          "products",
+          "index",
+          "PRIMARY",
+          "PRIMARY",
+          "4",
+          "NULL",
+          "100",
+          "50.00",
+          "Using index",
+        ],
+      ],
+    });
+
+    // id=1 row should be root, id=2 row should be child
+    expect(parsed.nodes).toHaveLength(1);
+    expect(parsed.nodes[0]?.relation).toBe("orders");
+    expect(parsed.nodes[0]?.children).toHaveLength(1);
+    expect(parsed.nodes[0]?.children?.[0]?.relation).toBe("products");
+    expect(parsed.nodes[0]?.children?.[0]?.selectType).toBe("SUBQUERY");
+  });
+
   it("returns empty nodes when not a traditional EXPLAIN shape", () => {
     const parsed = parseMySqlTraditionalExplain({
       columns: ["query_plan"],
