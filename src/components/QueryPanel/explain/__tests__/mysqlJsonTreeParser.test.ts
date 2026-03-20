@@ -235,4 +235,114 @@ describe("parseMySqlExplain JSON/TREE", () => {
     expect(tables[1]!.possibleKeys).toEqual(["PRIMARY"]);
     expect(tables[1]!.indexCond).toBe("id");
   });
+
+  it("parses MySQL JSON with ordering_operation → grouping_operation → buffer_result → nested_loop", () => {
+    const mysqlPlan = {
+      query_block: {
+        select_id: 1,
+        cost_info: { query_cost: "69.31" },
+        ordering_operation: {
+          using_filesort: true,
+          grouping_operation: {
+            using_temporary_table: true,
+            using_filesort: true,
+            buffer_result: {
+              using_temporary_table: true,
+              nested_loop: [
+                {
+                  table: {
+                    table_name: "o",
+                    access_type: "range",
+                    possible_keys: ["PRIMARY", "idx_customer", "idx_status"],
+                    key: "idx_status",
+                    used_key_parts: ["status"],
+                    key_length: "2",
+                    rows_examined_per_scan: 84,
+                    rows_produced_per_join: 27,
+                    filtered: "33.33",
+                    index_condition: "o.status in ('delivered','shipped')",
+                    cost_info: { read_cost: "35.51", eval_cost: "2.80", prefix_cost: "38.31" },
+                  },
+                },
+                {
+                  table: {
+                    table_name: "c",
+                    access_type: "eq_ref",
+                    possible_keys: ["PRIMARY"],
+                    key: "PRIMARY",
+                    used_key_parts: ["id"],
+                    ref: ["todoapp.o.customer_id"],
+                    rows_examined_per_scan: 1,
+                    filtered: "100.00",
+                    cost_info: { prefix_cost: "48.11" },
+                  },
+                },
+                {
+                  table: {
+                    table_name: "oi",
+                    access_type: "ref",
+                    key: "idx_order",
+                    used_key_parts: ["order_id"],
+                    ref: ["todoapp.o.id"],
+                    rows_examined_per_scan: 2,
+                    filtered: "100.00",
+                    cost_info: { prefix_cost: "69.31" },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    };
+    const parsed = parseMySqlExplain({
+      columns: ["EXPLAIN"],
+      rows: [[JSON.stringify(mysqlPlan)]],
+    });
+
+    const root = parsed.nodes[0]!;
+    expect(root.type).toBe("Query Block 1");
+    expect(root.cost).toEqual({ startup: 0, total: 69.31 });
+
+    // Query Block → Filesort (from ordering_operation)
+    const filesort = root.children?.[0];
+    expect(filesort).toBeDefined();
+    expect(filesort!.type).toBe("Filesort");
+
+    // Filesort → Group (Temp Table)
+    const group = filesort!.children?.[0];
+    expect(group).toBeDefined();
+    expect(group!.type).toBe("Group (Temp Table)");
+
+    // Group → Buffer (Temp Table)
+    const buffer = group!.children?.[0];
+    expect(buffer).toBeDefined();
+    expect(buffer!.type).toBe("Buffer (Temp Table)");
+
+    // Buffer → Nested Loop → 3 tables
+    const nestedLoop = buffer!.children?.[0];
+    expect(nestedLoop).toBeDefined();
+    expect(nestedLoop!.type).toBe("Nested Loop");
+
+    const tables = nestedLoop!.children ?? [];
+    expect(tables).toHaveLength(3);
+
+    // Table o: range scan on idx_status
+    expect(tables[0]!.relation).toBe("o");
+    expect(tables[0]!.type).toBe("range");
+    expect(tables[0]!.indexName).toBe("idx_status");
+    expect(tables[0]!.cost).toEqual({ startup: 0, total: 38.31 });
+    expect(tables[0]!.indexCond).toBe("o.status in ('delivered','shipped')");
+    expect(tables[0]!.rows).toBe(84);
+
+    // Table c: eq_ref on PRIMARY
+    expect(tables[1]!.relation).toBe("c");
+    expect(tables[1]!.type).toBe("eq_ref");
+    expect(tables[1]!.indexName).toBe("PRIMARY");
+
+    // Table oi: ref on idx_order
+    expect(tables[2]!.relation).toBe("oi");
+    expect(tables[2]!.type).toBe("ref");
+    expect(tables[2]!.indexName).toBe("idx_order");
+  });
 });
