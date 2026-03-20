@@ -1,4 +1,4 @@
-export type ShowplanFormat = "all" | "xml" | "text" | "statistics_profile";
+export type ShowplanFormat = "all" | "xml" | "text" | "statistics_profile" | "statistics_xml";
 
 export interface ShowplanSetResult {
   format: ShowplanFormat;
@@ -19,7 +19,7 @@ export interface ProcessStatementResult {
 }
 
 const SHOWPLAN_PATTERN =
-  /^\s*SET\s+(SHOWPLAN_ALL|SHOWPLAN_XML|SHOWPLAN_TEXT|STATISTICS\s+PROFILE)\s+(ON|OFF)\s*$/i;
+  /^\s*SET\s+(SHOWPLAN_ALL|SHOWPLAN_XML|SHOWPLAN_TEXT|STATISTICS\s+PROFILE|STATISTICS\s+XML)\s+(ON|OFF)\s*$/i;
 
 const FORMAT_MAP: Record<string, ShowplanFormat> = {
   SHOWPLAN_ALL: "all",
@@ -32,6 +32,7 @@ export const SET_COMMAND_MAP: Record<ShowplanFormat, string> = {
   xml: "SHOWPLAN_XML",
   text: "SHOWPLAN_TEXT",
   statistics_profile: "STATISTICS PROFILE",
+  statistics_xml: "STATISTICS XML",
 };
 
 export function parseShowplanSet(sql: string): ShowplanSetResult | null {
@@ -41,9 +42,14 @@ export function parseShowplanSet(sql: string): ShowplanSetResult | null {
   const rawFormat = match[1]!.toUpperCase();
   const enabled = match[2]!.toUpperCase() === "ON";
 
-  const format: ShowplanFormat = rawFormat.startsWith("STATISTICS")
-    ? "statistics_profile"
-    : (FORMAT_MAP[rawFormat] ?? "all");
+  let format: ShowplanFormat;
+  if (rawFormat.includes("PROFILE")) {
+    format = "statistics_profile";
+  } else if (rawFormat.includes("XML") && rawFormat.startsWith("STATISTICS")) {
+    format = "statistics_xml";
+  } else {
+    format = FORMAT_MAP[rawFormat] ?? "all";
+  }
 
   return { format, enabled };
 }
