@@ -641,10 +641,9 @@ export const ResultViewer = memo(function ResultViewer({
       result.message ??
       (result.affectedRows !== undefined
         ? `${result.affectedRows.toLocaleString()} row(s) affected`
-        : null);
+        : "Query executed successfully");
 
-    if (displayMessage || result.affectedRows !== undefined) {
-      return (
+    return (
         <div
           className={cn(
             "flex items-center justify-center bg-muted/10 h-full",
@@ -678,7 +677,6 @@ export const ResultViewer = memo(function ResultViewer({
           </div>
         </div>
       );
-    }
   }
 
   // For RETURNING clause queries: show banner with affected rows count above the data

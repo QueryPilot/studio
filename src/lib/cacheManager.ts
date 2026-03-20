@@ -8,7 +8,13 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
  * Detects if a SQL query is a mutation (INSERT/UPDATE/DELETE/TRUNCATE/DROP/ALTER/CREATE)
  */
 export function isMutationQuery(sql: string): boolean {
-  const trimmed = sql.trim().toLowerCase();
+  // Strip leading block/line comments
+  const stripped = sql
+    .trim()
+    .replace(/^\/\*[\s\S]*?\*\/\s*/g, "")
+    .replace(/^--[^\n]*\n\s*/g, "")
+    .toLowerCase();
+
   const mutationKeywords = [
     "insert",
     "update",
@@ -19,7 +25,18 @@ export function isMutationQuery(sql: string): boolean {
     "create",
   ];
 
-  return mutationKeywords.some((keyword) => trimmed.startsWith(keyword));
+  // Direct mutation: INSERT ..., UPDATE ..., etc.
+  if (mutationKeywords.some((keyword) => stripped.startsWith(keyword))) {
+    return true;
+  }
+
+  // CTE-wrapped mutation: WITH ... AS (...) INSERT/UPDATE/DELETE ...
+  if (/^with\s/.test(stripped)) {
+    const dmlKeywords = ["insert", "update", "delete"];
+    return dmlKeywords.some((kw) => new RegExp(`\\)\\s*${kw}\\s`, "i").test(stripped));
+  }
+
+  return false;
 }
 
 /**
