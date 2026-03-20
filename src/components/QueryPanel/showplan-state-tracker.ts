@@ -27,7 +27,7 @@ const FORMAT_MAP: Record<string, ShowplanFormat> = {
   SHOWPLAN_TEXT: "text",
 };
 
-const SET_COMMAND_MAP: Record<ShowplanFormat, string> = {
+export const SET_COMMAND_MAP: Record<ShowplanFormat, string> = {
   all: "SHOWPLAN_ALL",
   xml: "SHOWPLAN_XML",
   text: "SHOWPLAN_TEXT",

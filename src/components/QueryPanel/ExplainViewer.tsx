@@ -1733,7 +1733,7 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
     // MSSQL SHOWPLAN_TEXT: single "stmttext" column with indented plan text
     if (colName === "stmttext") {
       const firstRow = rows[0]?.[0];
-      if (typeof firstRow === "string" && firstRow.includes("--")) return true;
+      if (typeof firstRow === "string" && firstRow.includes("|--")) return true;
     }
 
     // MSSQL SHOWPLAN_XML or Postgres XML: starts with <

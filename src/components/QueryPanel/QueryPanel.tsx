@@ -50,7 +50,7 @@ import {
   createEmptyResultViewPresentation,
   type ResultViewPresentation,
 } from "./query-result-view";
-import { parseShowplanSet, type ShowplanFormat } from "./showplan-state-tracker";
+import { parseShowplanSet, SET_COMMAND_MAP, type ShowplanFormat } from "./showplan-state-tracker";
 
 interface QueryPanelProps {
   panelId: string;
@@ -348,13 +348,7 @@ export const QueryPanel = memo(function QueryPanel({
       let singleShowplanFormat: ShowplanFormat | null = null;
 
       if (showplanMode && dbType?.toLowerCase() === "sqlserver") {
-        const SET_COMMAND_MAP: Record<string, string> = {
-          all: "SHOWPLAN_ALL",
-          xml: "SHOWPLAN_XML",
-          text: "SHOWPLAN_TEXT",
-          statistics_profile: "STATISTICS PROFILE",
-        };
-        const setCommand = SET_COMMAND_MAP[showplanMode] ?? showplanMode;
+        const setCommand = SET_COMMAND_MAP[showplanMode as ShowplanFormat] ?? showplanMode;
         effectiveSql = `SET ${setCommand} ON\n${sql}\nSET ${setCommand} OFF`;
         singleShowplanFormat = showplanMode as ShowplanFormat;
       }
