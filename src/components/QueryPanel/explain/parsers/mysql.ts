@@ -171,6 +171,43 @@ export function parseMySqlTraditionalExplain(
       node.extra = record.extra;
     }
 
+    // MariaDB ANALYZE SELECT: extract actual execution stats
+    const row = input.rows[index];
+    if (row) {
+      const rRowsIndex = normalizedColumns.indexOf("r_rows");
+      if (rRowsIndex >= 0) {
+        const rRows = row[rRowsIndex];
+        if (rRows !== undefined && rRows !== null) {
+          const actualRows = parseNumber(rRows);
+          if (actualRows !== undefined) {
+            node.actualRows = actualRows;
+          }
+        }
+      }
+
+      const rFilteredIndex = normalizedColumns.indexOf("r_filtered");
+      if (rFilteredIndex >= 0) {
+        const rFiltered = row[rFilteredIndex];
+        if (rFiltered !== undefined && rFiltered !== null) {
+          const actualFiltered = parseNumber(rFiltered);
+          if (actualFiltered !== undefined) {
+            node.filtered = actualFiltered;
+          }
+        }
+      }
+
+      const rTotalTimeMsIndex = normalizedColumns.indexOf("r_total_time_ms");
+      if (rTotalTimeMsIndex >= 0) {
+        const rTotalTimeMs = row[rTotalTimeMsIndex];
+        if (rTotalTimeMs !== undefined && rTotalTimeMs !== null) {
+          const timeMs = parseNumber(rTotalTimeMs);
+          if (timeMs !== undefined) {
+            node.actualTime = { startup: 0, total: timeMs };
+          }
+        }
+      }
+    }
+
     return node;
   });
 
