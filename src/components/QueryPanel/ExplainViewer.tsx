@@ -1813,9 +1813,16 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
     }
 
     // MSSQL SHOWPLAN_XML / STATISTICS XML: check for ShowPlan namespace
+    // Postgres XML EXPLAIN: check for <explain or <Plan>
     if (typeof rows[0]?.[0] === "string") {
       const trimmed = rows[0][0].trim();
-      if (trimmed.startsWith("<") && trimmed.includes("ShowPlan")) return true;
+      if (
+        trimmed.startsWith("<") &&
+        (trimmed.includes("ShowPlan") ||
+          trimmed.includes("<explain") ||
+          trimmed.includes("<Plan>"))
+      )
+        return true;
     }
 
     // Postgres text/JSON EXPLAIN
@@ -1826,6 +1833,11 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
       const trimmed = firstRow.trim();
       if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
         return trimmed.includes('"Plan"') || trimmed.includes('"Node Type"');
+      }
+
+      // YAML format: starts with "- Plan:"
+      if (/^-\s+Plan:/.test(trimmed)) {
+        return true;
       }
 
       const explainKeywords = [
