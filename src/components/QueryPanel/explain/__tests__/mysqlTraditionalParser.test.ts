@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMySqlTraditionalExplain } from "../parsers/mysql";
+import { parseMySqlExplain, parseMySqlTraditionalExplain } from "../parsers/mysql";
 
 describe("parseMySqlTraditionalExplain", () => {
   it("parses tabular EXPLAIN output into nodes", () => {
@@ -118,6 +118,19 @@ describe("parseMySqlTraditionalExplain", () => {
     expect(parsed.nodes[0]?.children).toHaveLength(1);
     expect(parsed.nodes[0]?.children?.[0]?.relation).toBe("products");
     expect(parsed.nodes[0]?.children?.[0]?.selectType).toBe("SUBQUERY");
+  });
+
+  it("extracts MariaDB ANALYZE SELECT actual stats (r_rows, r_filtered, r_total_time_ms)", () => {
+    const parsed = parseMySqlExplain({
+      columns: ["id", "select_type", "table", "type", "possible_keys", "key", "key_len", "ref", "rows", "filtered", "Extra", "r_rows", "r_filtered", "r_total_time_ms"],
+      rows: [
+        [1, "SIMPLE", "customers", "ALL", null, null, null, null, 20, 100.0, "Using where", 20, 50.0, 0.123],
+      ],
+    });
+
+    expect(parsed.nodes).toHaveLength(1);
+    expect(parsed.nodes[0]!.actualRows).toBe(20);
+    expect(parsed.nodes[0]!.actualTime).toEqual({ startup: 0, total: 0.123 });
   });
 
   it("returns empty nodes when not a traditional EXPLAIN shape", () => {
