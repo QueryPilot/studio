@@ -24,7 +24,7 @@ export function createEmptyResultViewPresentation(): ResultViewPresentation {
 const LEADING_SQL_COMMENT = /^\s*(?:--[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*/;
 
 export function isExplainStatement(sql: string): boolean {
-  const withoutLeadingComments = sql.replace(LEADING_SQL_COMMENT, "");
+  const withoutLeadingComments = sql.replace(LEADING_SQL_COMMENT, "").trimStart();
   return /^EXPLAIN\b/i.test(withoutLeadingComments);
 }
 
