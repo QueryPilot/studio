@@ -53,8 +53,7 @@ export function parseExplain(input: ParseExplainInput): ParsedExplain {
 
   const looksLikeSqlServerText =
     normalizedColumns.length === 1 &&
-    normalizedColumns[0] === "stmttext" &&
-    !looksLikeSqlServerShowplan;
+    normalizedColumns[0] === "stmttext";
   if (looksLikeSqlServerText) {
     return parseSqlServerTextShowplan(input);
   }

@@ -1008,6 +1008,7 @@ function parsePostgresXmlExplain(raw: string): ParsedExplain {
     return Number.isFinite(num) ? num : undefined;
   }
 
+  const serializer = new XMLSerializer();
   let xmlNodeCounter = 0;
 
   function parsePlanElement(planEl: Element): ExplainNode {
@@ -1050,7 +1051,7 @@ function parsePostgresXmlExplain(raw: string): ParsedExplain {
       schema,
       rows: planRows,
       width: planWidth,
-      raw: new XMLSerializer().serializeToString(planEl),
+      raw: serializer.serializeToString(planEl),
     };
 
     if (startupCost !== undefined || totalCost !== undefined) {

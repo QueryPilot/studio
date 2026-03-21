@@ -1,4 +1,5 @@
 import type { ParsedExplain } from "../types";
+import { formatCell } from "./utils";
 
 interface ParseSqlServerTextInput {
   columns: string[];
@@ -11,12 +12,8 @@ export function parseSqlServerTextShowplan(
   const raw = input.rows
     .map((row) => {
       const value = row[0];
-      if (typeof value === "string") return value;
       if (value == null) return "";
-      if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-        return String(value);
-      }
-      return "";
+      return formatCell(value);
     })
     .join("\n");
 
