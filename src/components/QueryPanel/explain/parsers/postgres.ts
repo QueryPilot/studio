@@ -758,6 +758,24 @@ export function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
     }
   }
 
+  // XML format: starts with "<explain" or "<?xml" with PostgreSQL explain namespace
+  if (
+    trimmedRaw.startsWith("<") &&
+    (trimmedRaw.includes("<explain") || trimmedRaw.includes("<Plan>"))
+  ) {
+    return parsePostgresXmlExplain(raw);
+  }
+
+  // YAML format: starts with "- Plan:" — display as raw text
+  // YAML is human-readable and rarely used; raw view is sufficient
+  if (/^-\s+Plan:/.test(trimmedRaw)) {
+    return {
+      nodes: [],
+      totalCost: 0,
+      raw,
+    };
+  }
+
   let planningTime: number | undefined;
   let executionTime: number | undefined;
   const triggers: ParsedExplain["triggers"] = [];
@@ -954,6 +972,167 @@ export function parsePostgresExplain(rows: unknown[][]): ParsedExplain {
     queryIdentifier,
     jit,
     planningBuffers,
+  };
+}
+
+// ============================================================================
+// PARSING - XML FORMAT
+// ============================================================================
+
+function parsePostgresXmlExplain(raw: string): ParsedExplain {
+  if (typeof DOMParser === "undefined") {
+    return { nodes: [], totalCost: 0, raw };
+  }
+
+  const doc = new DOMParser().parseFromString(raw, "text/xml");
+  const parserErrors = doc.getElementsByTagName("parsererror");
+  if (parserErrors.length > 0) {
+    return { nodes: [], totalCost: 0, raw };
+  }
+
+  function getTextContent(
+    element: Element,
+    tagName: string,
+  ): string | undefined {
+    for (const child of Array.from(element.children)) {
+      if (child.localName === tagName) {
+        return child.textContent?.trim() || undefined;
+      }
+    }
+    return undefined;
+  }
+
+  function parseNum(value: string | undefined): number | undefined {
+    if (!value) return undefined;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : undefined;
+  }
+
+  let xmlNodeCounter = 0;
+
+  function parsePlanElement(planEl: Element): ExplainNode {
+    const nodeType = getTextContent(planEl, "Node-Type") || "Unknown";
+    const relation = getTextContent(planEl, "Relation-Name");
+    const alias = getTextContent(planEl, "Alias");
+    const schema = getTextContent(planEl, "Schema");
+    const startupCost = parseNum(getTextContent(planEl, "Startup-Cost"));
+    const totalCost = parseNum(getTextContent(planEl, "Total-Cost"));
+    const planRows = parseNum(getTextContent(planEl, "Plan-Rows"));
+    const planWidth = parseNum(getTextContent(planEl, "Plan-Width"));
+    const actualStartup = parseNum(
+      getTextContent(planEl, "Actual-Startup-Time"),
+    );
+    const actualTotal = parseNum(getTextContent(planEl, "Actual-Total-Time"));
+    const actualRows = parseNum(getTextContent(planEl, "Actual-Rows"));
+    const actualLoops = parseNum(getTextContent(planEl, "Actual-Loops"));
+    const indexName = getTextContent(planEl, "Index-Name");
+    const filter = getTextContent(planEl, "Filter");
+    const indexCond = getTextContent(planEl, "Index-Cond");
+    const hashCond = getTextContent(planEl, "Hash-Cond");
+    const joinFilter = getTextContent(planEl, "Join-Filter");
+    const sortKeyEl = Array.from(planEl.children).find(
+      (c) => c.localName === "Sort-Key",
+    );
+    const sortKey = sortKeyEl
+      ? Array.from(sortKeyEl.children)
+          .filter((c) => c.localName === "Item")
+          .map((c) => c.textContent?.trim() || "")
+          .filter(Boolean)
+      : undefined;
+    const scanDirection = getTextContent(planEl, "Scan-Direction");
+    const joinType = getTextContent(planEl, "Join-Type");
+
+    const node: ExplainNode = {
+      id: `pg-xml-${xmlNodeCounter++}`,
+      type: nodeType,
+      relation,
+      alias,
+      schema,
+      rows: planRows,
+      width: planWidth,
+      raw: new XMLSerializer().serializeToString(planEl),
+    };
+
+    if (startupCost !== undefined || totalCost !== undefined) {
+      node.cost = { startup: startupCost ?? 0, total: totalCost ?? 0 };
+    }
+    if (actualStartup !== undefined || actualTotal !== undefined) {
+      node.actualTime = {
+        startup: actualStartup ?? 0,
+        total: actualTotal ?? 0,
+      };
+    }
+    if (actualRows !== undefined) node.actualRows = actualRows;
+    if (actualLoops !== undefined) node.loops = actualLoops;
+    if (indexName) node.indexName = indexName;
+    if (filter) node.filter = filter;
+    if (indexCond) node.indexCond = indexCond;
+    if (hashCond) node.hashCond = hashCond;
+    if (joinFilter) node.joinFilter = joinFilter;
+    if (sortKey && sortKey.length > 0) node.sortKey = sortKey;
+    if (scanDirection) node.scanDirection = scanDirection;
+    if (joinType) node.joinType = joinType;
+
+    // Recurse into child Plans
+    const plansEl = Array.from(planEl.children).find(
+      (c) => c.localName === "Plans",
+    );
+    if (plansEl) {
+      const childPlans = Array.from(plansEl.children).filter(
+        (c) => c.localName === "Plan",
+      );
+      if (childPlans.length > 0) {
+        node.children = childPlans.map(parsePlanElement);
+      }
+    }
+
+    return node;
+  }
+
+  // Find the root Plan element(s) under Query elements
+  const roots: ExplainNode[] = [];
+  let planningTime: number | undefined;
+  let executionTime: number | undefined;
+
+  const queries = doc.getElementsByTagNameNS("*", "Query");
+  for (const query of Array.from(queries)) {
+    const planEl = Array.from(query.children).find(
+      (c) => c.localName === "Plan",
+    );
+    if (planEl) {
+      roots.push(parsePlanElement(planEl));
+    }
+    planningTime =
+      parseNum(getTextContent(query, "Planning-Time")) ?? planningTime;
+    executionTime =
+      parseNum(getTextContent(query, "Execution-Time")) ?? executionTime;
+  }
+
+  // Fallback: look for Plan directly (without Query wrapper)
+  if (roots.length === 0) {
+    const planEls = doc.getElementsByTagNameNS("*", "Plan");
+    for (const planEl of Array.from(planEls)) {
+      // Only take root-level Plans (not nested ones)
+      if (planEl.parentElement?.localName !== "Plans") {
+        roots.push(parsePlanElement(planEl));
+      }
+    }
+  }
+
+  const rootTotalCost =
+    roots.length > 0 ? (roots[0]?.cost?.total ?? 0) : 0;
+  const totalActualTime =
+    roots.length > 0 && roots[0]?.actualTime
+      ? roots[0].actualTime.total * (roots[0].loops || 1)
+      : undefined;
+
+  return {
+    nodes: roots,
+    totalCost: rootTotalCost,
+    totalActualTime,
+    planningTime,
+    executionTime,
+    raw,
   };
 }
 
