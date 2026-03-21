@@ -1,4 +1,5 @@
 import type { ExplainNode, ParsedExplain } from "../types";
+import { parseNumber } from "./utils";
 
 interface ParseSQLiteInput {
   columns: string[];
@@ -9,17 +10,6 @@ interface SqlitePlanRow {
   id: number;
   parent: number;
   detail: string;
-}
-
-function toNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
 }
 
 function parseTypeAndRelation(detail: string): {
@@ -184,15 +174,15 @@ export function parseSQLiteExplainQueryPlan(
 
   const parsedRows: SqlitePlanRow[] = input.rows
     .map((row) => {
-      const id = toNumber(row[idIndex]);
-      const parent = toNumber(row[parentIndex]);
+      const id = parseNumber(row[idIndex]);
+      const parent = parseNumber(row[parentIndex]);
       const detail = row[detailIndex];
-      if (id === null || parent === null || typeof detail !== "string") {
-        return null;
+      if (id === undefined || parent === undefined || typeof detail !== "string") {
+        return undefined;
       }
       return { id, parent, detail };
     })
-    .filter((row): row is SqlitePlanRow => row !== null);
+    .filter((row): row is SqlitePlanRow => row !== undefined);
 
   if (parsedRows.length === 0) {
     return { nodes: [], totalCost: 0, raw };

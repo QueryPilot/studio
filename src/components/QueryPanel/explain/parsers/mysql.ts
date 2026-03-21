@@ -1,4 +1,5 @@
 import type { ExplainNode, ParsedExplain } from "../types";
+import { formatCell, parseNumber } from "./utils";
 
 interface ParseMySqlInput {
   columns: string[];
@@ -18,52 +19,6 @@ interface MySqlRowRecord {
   filtered?: number;
   extra?: string;
   raw: string;
-}
-
-function formatCell(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "NULL";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
-  ) {
-    return String(value);
-  }
-  if (typeof value === "symbol") {
-    return value.description ? `Symbol(${value.description})` : "Symbol()";
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => formatCell(item)).join(", ");
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "[Object]";
-    }
-  }
-  return "[Unsupported]";
-}
-
-function parseNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return undefined;
 }
 
 function toOptionalText(value: unknown): string | undefined {
@@ -104,6 +59,10 @@ export function parseMySqlTraditionalExplain(
   if (tableIndex < 0 || typeIndex < 0) {
     return { nodes: [], totalCost: 0, raw };
   }
+
+  const rRowsIndex = normalizedColumns.indexOf("r_rows");
+  const rFilteredIndex = normalizedColumns.indexOf("r_filtered");
+  const rTotalTimeMsIndex = normalizedColumns.indexOf("r_total_time_ms");
 
   const records: MySqlRowRecord[] = input.rows.map((row) => {
     const possibleKeysRaw =
@@ -174,7 +133,6 @@ export function parseMySqlTraditionalExplain(
     // MariaDB ANALYZE SELECT: extract actual execution stats
     const row = input.rows[index];
     if (row) {
-      const rRowsIndex = normalizedColumns.indexOf("r_rows");
       if (rRowsIndex >= 0) {
         const rRows = row[rRowsIndex];
         if (rRows !== undefined && rRows !== null) {
@@ -185,7 +143,6 @@ export function parseMySqlTraditionalExplain(
         }
       }
 
-      const rFilteredIndex = normalizedColumns.indexOf("r_filtered");
       if (rFilteredIndex >= 0) {
         const rFiltered = row[rFilteredIndex];
         if (rFiltered !== undefined && rFiltered !== null) {
@@ -196,7 +153,6 @@ export function parseMySqlTraditionalExplain(
         }
       }
 
-      const rTotalTimeMsIndex = normalizedColumns.indexOf("r_total_time_ms");
       if (rTotalTimeMsIndex >= 0) {
         const rTotalTimeMs = row[rTotalTimeMsIndex];
         if (rTotalTimeMs !== undefined && rTotalTimeMs !== null) {
@@ -254,6 +210,39 @@ export function parseMySqlTraditionalExplain(
   };
 }
 
+// Unwrap trivial Operation wrappers from recursive children
+function unwrapOperation(node: ExplainNode | null): ExplainNode[] {
+  if (!node) return [];
+  if (node.type === "Operation" && !node.relation && node.children?.length) {
+    return node.children;
+  }
+  return [node];
+}
+
+function handleSubqueryArray(
+  record: Record<string, unknown>,
+  key: string,
+  getNodeType: (sub: Record<string, unknown>) => string,
+  nodeIndexRef: { current: number },
+  childNodes: ExplainNode[],
+): void {
+  const arr = record[key];
+  if (!Array.isArray(arr)) return;
+  for (const sub of arr) {
+    const subObj = sub as Record<string, unknown>;
+    const subNode: ExplainNode = {
+      id: `mysql-json-${nodeIndexRef.current++}`,
+      type: getNodeType(subObj),
+      raw: JSON.stringify(sub),
+    };
+    if (subObj.query_block && typeof subObj.query_block === "object") {
+      const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
+      subNode.children = unwrapOperation(inner);
+    }
+    childNodes.push(subNode);
+  }
+}
+
 function parseMySqlJsonNode(
   value: unknown,
   nodeIndexRef: { current: number },
@@ -287,15 +276,7 @@ function parseMySqlJsonNode(
       if (parsedChild) {
         // Unwrap trivial Operation wrappers from nested_loop items
         // (e.g., {table: {table_name: "p", ...}} creates Operation → table node)
-        if (
-          parsedChild.type === "Operation" &&
-          parsedChild.children?.length === 1 &&
-          !parsedChild.relation
-        ) {
-          childNodes.push(parsedChild.children[0]!);
-        } else {
-          childNodes.push(parsedChild);
-        }
+        childNodes.push(...unwrapOperation(parsedChild));
       }
     }
   }
@@ -363,15 +344,6 @@ function parseMySqlJsonNode(
       tmpNode.children = tmpChild.children;
     }
     childNodes.push(tmpNode);
-  }
-
-  // Helper: unwrap trivial Operation wrappers from recursive children
-  function unwrapOperation(node: ExplainNode | null): ExplainNode[] {
-    if (!node) return [];
-    if (node.type === "Operation" && !node.relation && node.children?.length) {
-      return node.children;
-    }
-    return [node];
   }
 
   // Handle ordering_operation (MySQL: wraps sorted results)
@@ -462,56 +434,13 @@ function parseMySqlJsonNode(
   }
 
   // Handle attached_subqueries (correlated/uncorrelated subqueries in WHERE/SELECT)
-  if (Array.isArray(record.attached_subqueries)) {
-    for (const sub of record.attached_subqueries) {
-      const subObj = sub as Record<string, unknown>;
-      const subNode: ExplainNode = {
-        id: `mysql-json-${nodeIndexRef.current++}`,
-        type: subObj.dependent ? "Dependent Subquery" : "Subquery",
-        raw: JSON.stringify(sub),
-      };
-      // attached_subquery contains a query_block
-      if (subObj.query_block && typeof subObj.query_block === "object") {
-        const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
-        subNode.children = unwrapOperation(inner);
-      }
-      childNodes.push(subNode);
-    }
-  }
+  handleSubqueryArray(record, "attached_subqueries", (sub) => sub.dependent ? "Dependent Subquery" : "Subquery", nodeIndexRef, childNodes);
 
   // Handle having_subqueries (subqueries in HAVING clause)
-  if (Array.isArray(record.having_subqueries)) {
-    for (const sub of record.having_subqueries) {
-      const subObj = sub as Record<string, unknown>;
-      const subNode: ExplainNode = {
-        id: `mysql-json-${nodeIndexRef.current++}`,
-        type: "HAVING Subquery",
-        raw: JSON.stringify(sub),
-      };
-      if (subObj.query_block && typeof subObj.query_block === "object") {
-        const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
-        subNode.children = unwrapOperation(inner);
-      }
-      childNodes.push(subNode);
-    }
-  }
+  handleSubqueryArray(record, "having_subqueries", () => "HAVING Subquery", nodeIndexRef, childNodes);
 
   // Handle optimized_away_subqueries (constant-folded, executed once)
-  if (Array.isArray(record.optimized_away_subqueries)) {
-    for (const sub of record.optimized_away_subqueries) {
-      const subObj = sub as Record<string, unknown>;
-      const subNode: ExplainNode = {
-        id: `mysql-json-${nodeIndexRef.current++}`,
-        type: "Optimized Away Subquery",
-        raw: JSON.stringify(sub),
-      };
-      if (subObj.query_block && typeof subObj.query_block === "object") {
-        const inner = parseMySqlJsonNode(subObj.query_block, nodeIndexRef);
-        subNode.children = unwrapOperation(inner);
-      }
-      childNodes.push(subNode);
-    }
-  }
+  handleSubqueryArray(record, "optimized_away_subqueries", () => "Optimized Away Subquery", nodeIndexRef, childNodes);
 
   // Handle materialized_from_subquery (subquery materialized into temp table)
   if (record.materialized_from_subquery && typeof record.materialized_from_subquery === "object") {

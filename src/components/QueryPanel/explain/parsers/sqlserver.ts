@@ -1,4 +1,5 @@
 import type { ExplainNode, ParsedExplain } from "../types";
+import { formatCell, parseNumber } from "./utils";
 
 interface ParseSqlServerInput {
   columns: string[];
@@ -7,50 +8,6 @@ interface ParseSqlServerInput {
 
 function cleanIdentifier(identifier: string): string {
   return identifier.replace(/[[\]"]/g, "").trim();
-}
-
-function formatCell(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "NULL";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (
-    typeof value === "number" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint"
-  ) {
-    return String(value);
-  }
-  if (typeof value === "symbol") {
-    return value.description ? `Symbol(${value.description})` : "Symbol()";
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => formatCell(item)).join(", ");
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "[Object]";
-    }
-  }
-  return "[Unsupported]";
-}
-
-function parseNumber(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
 }
 
 function unwrapBalancedParentheses(value: string): string {
@@ -83,15 +40,19 @@ function isLikelyIndexName(identifier: string): boolean {
   return /^(?:pk|ix|idx|uk|ak|key|index|nc|cl)/i.test(identifier);
 }
 
+const SEEK_REGEX = /SEEK\s*:/i;
+const WHERE_REGEX = /WHERE\s*:/i;
+const PREDICATE_REGEX = /PREDICATE\s*:/i;
+const OBJECT_REGEX = /OBJECT\s*:/i;
+
 function extractArgumentSegment(
   argument: string | undefined,
-  label: string,
+  labelRegex: RegExp,
 ): string | undefined {
   if (!argument) {
     return undefined;
   }
 
-  const labelRegex = new RegExp(`${label}\\s*:`, "i");
   const match = labelRegex.exec(argument);
   if (!match) {
     return undefined;
@@ -139,7 +100,7 @@ function extractArgumentSegment(
 function extractObjectInfo(
   argument: string | undefined,
 ): { relation?: string; indexName?: string } {
-  const objectSegment = extractArgumentSegment(argument, "OBJECT");
+  const objectSegment = extractArgumentSegment(argument, OBJECT_REGEX);
   if (!objectSegment) {
     return {};
   }
@@ -258,10 +219,10 @@ export function parseSqlServerShowplanAll(
     const argument = argumentText && argumentText !== "NULL" ? argumentText : undefined;
     const objectInfo = extractObjectInfo(argument);
     const relation = objectInfo.relation ?? extractRelationFromArgument(argument);
-    const seekValue = normalizeArgumentValue(extractArgumentSegment(argument, "SEEK"));
-    const whereValue = normalizeArgumentValue(extractArgumentSegment(argument, "WHERE"));
+    const seekValue = normalizeArgumentValue(extractArgumentSegment(argument, SEEK_REGEX));
+    const whereValue = normalizeArgumentValue(extractArgumentSegment(argument, WHERE_REGEX));
     const predicateValue = normalizeArgumentValue(
-      extractArgumentSegment(argument, "PREDICATE"),
+      extractArgumentSegment(argument, PREDICATE_REGEX),
     );
 
     // Determine node type: prefer PhysicalOp, then LogicalOp, then Type column
@@ -475,6 +436,7 @@ export function parseSqlServerXmlShowplan(
     return scalarStrings;
   };
 
+  const serializer = new XMLSerializer();
   let nodeCounter = 0;
   const parseRelOpElement = (relOp: Element): ExplainNode => {
     const physicalOp = relOp.getAttribute("PhysicalOp");
@@ -500,7 +462,7 @@ export function parseSqlServerXmlShowplan(
       type: physicalOp || logicalOp || "Operation",
       relation,
       rows: estimateRows,
-      raw: new XMLSerializer().serializeToString(relOp),
+      raw: serializer.serializeToString(relOp),
     };
     if (indexName) {
       node.indexName = cleanIdentifier(indexName);
