@@ -52,7 +52,7 @@ interface ExplainViewerProps {
 
 function getNodeColor(type: string): string {
   const t = type.toLowerCase();
-  if (t.includes("seq scan") || t.includes("parallel seq")) return "#f97316"; // orange - expensive
+  if (t.includes("seq scan") || t.includes("parallel seq") || t === "all" || t === "table scan") return "#f97316"; // orange - expensive
   if (t.includes("bitmap heap")) return "#84cc16"; // lime
   if (t.includes("bitmap") || t.includes("index")) return "#22c55e"; // green - efficient
   if (t.includes("sort") || t.includes("incremental sort")) return "#3b82f6"; // blue
@@ -69,7 +69,7 @@ function getNodeColor(type: string): string {
 
 function getNodeIcon(type: string) {
   const t = type.toLowerCase();
-  if (t.includes("seq scan") || t.includes("parallel seq")) return IconTable;
+  if (t.includes("seq scan") || t.includes("parallel seq") || t === "all" || t === "table scan" || t === "scan" || t === "search") return IconTable;
   if (t.includes("index")) return IconDatabase;
   if (t.includes("filter") || t.includes("bitmap")) return IconFilter;
   if (t.includes("sort")) return IconArrowsSort;
@@ -949,10 +949,23 @@ const PHYSICAL_TABLE_SCANS = new Set([
   "Nonclustered Index Seek",
   "RID Lookup",
   "Key Lookup",
-  // MySQL
+  // MySQL traditional access types
+  "ALL",
+  "index",
+  "range",
+  "ref",
+  "eq_ref",
+  "const",
+  "system",
+  // MySQL TREE format
   "Index Lookup",
   "Index Range Scan",
   "Full Index Scan",
+  "Table scan",
+  "Covering index scan",
+  // SQLite
+  "SCAN",
+  "SEARCH",
 ]);
 
 function collectStats(
@@ -1105,7 +1118,8 @@ const StatsView = memo(function StatsView({
 
   const formatPercent = (pct: number) => `${pct.toFixed(1)} %`;
 
-  const metricLabel = hasActualTime ? "sum of times" : "estimated cost";
+  const hasActualRows = nodes.some((n) => n.actualRows !== undefined);
+  const metricLabel = hasActualTime ? "sum of times" : hasActualRows ? "operator cost" : "estimated cost";
   const tableMetricLabel = hasActualTime ? "Total time" : "Est. cost";
   const tableScanMetricLabel = hasActualTime ? "sum of times" : "est. cost";
 
