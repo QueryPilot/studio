@@ -35,7 +35,7 @@ describe("parseCommands", () => {
     "operation": "insert",
     "document": { "name": "Alice" }
   },
-  "approval": "approve"
+  "approval": "auto"
 }`)}`;
 
     const commands = parseCommands(text);

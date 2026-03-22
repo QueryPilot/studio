@@ -34,25 +34,13 @@ describe("aiCommandPermissionStore", () => {
     expect(getCommandState("cmd-1")).toBe("rejected");
   });
 
-  it("auto-approves when allowAllThisConversation is true", () => {
-    const { setAllowAll, shouldAutoApprove } = useAiCommandPermissionStore.getState();
-    setAllowAll(true);
-    // crud.stage is approve-level, so it auto-approves with allowAll
-    expect(shouldAutoApprove("crud.stage")).toBe(true);
-  });
-
   it("auto-approves auto-level commands", () => {
     const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
-    // These are auto-approve level
+    // All commands including crud.stage are auto-approve level
     expect(shouldAutoApprove("tab.updateContent")).toBe(true);
     expect(shouldAutoApprove("tab.create")).toBe(true);
     expect(shouldAutoApprove("editor.insert")).toBe(true);
-  });
-
-  it("does not auto-approve approve-level commands without allowAll", () => {
-    const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
-    // crud.stage is approve-level, needs explicit approval
-    expect(shouldAutoApprove("crud.stage")).toBe(false);
+    expect(shouldAutoApprove("crud.stage")).toBe(true);
   });
 
   it("resets on new conversation", () => {
@@ -108,16 +96,10 @@ describe("aiCommandPermissionStore", () => {
       expect(shouldAutoApprove("unknown.command")).toBe(false);
     });
 
-    it("returns false for approve-level commands without allowAll", () => {
+    it("returns true for all known commands (all are auto-level)", () => {
       const { shouldAutoApprove } = useAiCommandPermissionStore.getState();
-      // crud.stage is the only approve-level command remaining
-      expect(shouldAutoApprove("crud.stage")).toBe(false);
-    });
-
-    it("returns true for approve-level commands with allowAll", () => {
-      const { setAllowAll, shouldAutoApprove } = useAiCommandPermissionStore.getState();
-      setAllowAll(true);
       expect(shouldAutoApprove("crud.stage")).toBe(true);
+      expect(shouldAutoApprove("query.run")).toBe(true);
     });
   });
 });
