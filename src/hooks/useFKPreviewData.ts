@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { BackendAPI, type CellValue, type QueryColumnMeta } from "@/services/backend";
+import {
+  BackendAPI,
+  type QueryColumnMeta,
+  type RawCellValue,
+} from "@/services/backend";
 import { logger } from "@/lib/logger";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { formatTableName, quoteIdentifier, formatValue } from "@/adapters/formatting";
@@ -18,7 +22,7 @@ interface FKPreviewDataParams {
 }
 
 interface FKPreviewDataResult {
-  data: Record<string, CellValue> | null;
+  data: Record<string, RawCellValue> | null;
   columns: QueryColumnMeta[];
   isLoading: boolean;
   error: string | null;
@@ -62,7 +66,10 @@ class LRUCache<K, V> {
   }
 }
 
-const fkPreviewCache = new LRUCache<string, { data: Record<string, CellValue>; columns: QueryColumnMeta[] }>(50);
+const fkPreviewCache = new LRUCache<
+  string,
+  { data: Record<string, RawCellValue>; columns: QueryColumnMeta[] }
+>(50);
 
 function buildCacheKey(
   connectionId: string,
@@ -125,7 +132,7 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
     embeddedFKs,
   } = params;
 
-  const [data, setData] = useState<Record<string, CellValue> | null>(null);
+  const [data, setData] = useState<Record<string, RawCellValue> | null>(null);
   const [columns, setColumns] = useState<QueryColumnMeta[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +213,7 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
           return;
         }
 
-        const rowData: Record<string, CellValue> = {};
+        const rowData: Record<string, RawCellValue> = {};
         result.columns.forEach((col, index) => {
           rowData[col.name] = row[index] ?? null;
         });

@@ -468,7 +468,7 @@ export class BackendAPI {
    * const adapter = await getAdapterForConnection(connectionId);
    * const sql = adapter.getColumnsQuery(schema, table);
    * const result = await BackendAPI.query(connectionId, sql);
-   * // result.columns: QueryColumnMeta[], result.rows: QueryColumnMeta[][]
+   * // result.columns: QueryColumnMeta[], result.rows: RawCellValue[][]
    * ```
    */
   static async query(
@@ -497,7 +497,7 @@ export class BackendAPI {
  */
 export interface RawQueryResult {
   columns: QueryColumnMeta[];
-  rows: QueryColumnMeta[][];
+  rows: RawCellValue[][];
 }
 
 // Alias for convenience (matches naming convention in other parts of codebase)

@@ -163,7 +163,6 @@ export function parseSqlServerShowplanAll(
     column.toLowerCase().trim(),
   );
 
-  const stmtTextIndex = normalizedColumns.indexOf("stmttext");
   const stmtIdIndex = normalizedColumns.indexOf("stmtid");
   const nodeIdIndex = normalizedColumns.indexOf("nodeid");
   const parentIndex = normalizedColumns.indexOf("parent");
@@ -214,7 +213,6 @@ export function parseSqlServerShowplanAll(
     const physicalOp =
       physicalOpIndex >= 0 ? formatCell(row[physicalOpIndex]) : undefined;
     const logicalOp = logicalOpIndex >= 0 ? formatCell(row[logicalOpIndex]) : undefined;
-    const stmtText = stmtTextIndex >= 0 ? formatCell(row[stmtTextIndex]) : undefined;
     const argumentText = argumentIndex >= 0 ? formatCell(row[argumentIndex]) : undefined;
     const argument = argumentText && argumentText !== "NULL" ? argumentText : undefined;
     const objectInfo = extractObjectInfo(argument);

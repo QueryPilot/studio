@@ -1,9 +1,9 @@
 import { logger } from "@/lib/logger";
 import type { ColumnMeta } from "@/types/database";
 import type { TableDataRow } from "./tableDataTypes";
-import type { CellValue as BackendCellValue } from "./backend";
+import type { RawCellValue } from "./backend";
 
-type DecodeResult = BackendCellValue[][];
+type DecodeResult = RawCellValue[][];
 
 interface StreamWorkerDecoded {
   id: number;
@@ -131,7 +131,8 @@ class StreamDecodeWorkerManager {
     payload: Record<string, unknown> & { type: string },
   ): Promise<T> {
     this.ensureWorker();
-    if (!this.worker) {
+    const worker = this.worker;
+    if (!worker) {
       return Promise.reject(new Error("Stream decode worker not initialized"));
     }
 
@@ -151,7 +152,7 @@ class StreamDecodeWorkerManager {
         transfers.push(payload.buffer);
       }
 
-      this.worker!.postMessage({ ...payload, id }, transfers);
+      worker.postMessage({ ...payload, id }, transfers);
       // Schedule teardown after current work completes
       this.scheduleIdleTeardown();
     });
@@ -162,7 +163,7 @@ class StreamDecodeWorkerManager {
   }
 
   mapRows(
-    rows: BackendCellValue[][],
+    rows: RawCellValue[][],
     columns: ColumnMeta[],
   ): Promise<TableDataRow[]> {
     return this.send<TableDataRow[]>({
@@ -173,7 +174,7 @@ class StreamDecodeWorkerManager {
   }
 
   mapRowsNormalized(
-    rows: BackendCellValue[][],
+    rows: RawCellValue[][],
     columns: ColumnMeta[],
   ): Promise<TableDataRow[]> {
     return this.send<TableDataRow[]>({

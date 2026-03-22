@@ -7,19 +7,18 @@
  * - Shows query performance metrics
  * - Client-side filtering only
  */
-
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { BaseDataGrid } from '../base/BaseDataGrid';
 import type { GridColumnV2, GridRowModel } from '../types';
 import { computeBaseWidth } from './columnUtils';
 import { DataGridErrorState } from '../components/DataGridStates';
 import { DataGridSkeleton } from '../components/DataGridSkeleton';
-import type { ColumnMeta } from '@/types';
+import type { ColumnMeta } from '@/types/database';
 import {
   deriveValueType,
 } from '@/services/tableDataTransform';
-import type { CellValue as BackendCellValue } from '@/services/backend';
+import type { RawCellValue } from '@/services/backend';
 
 export interface QueryResultGridProps {
   gridId: string;
@@ -47,6 +46,13 @@ export interface QueryResultGridProps {
   className?: string;
 }
 
+type TransformedRowsCacheEntry = {
+  transformed: GridRowModel[];
+  transformedCount: number;
+};
+
+const transformedRowsCache = new WeakMap<readonly unknown[], TransformedRowsCacheEntry>();
+
 export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultGridProps) {
   const {
     gridId,
@@ -65,25 +71,20 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     className,
   } = props;
 
-  // Transform raw CellValue[][] to GridRowModel[] with incremental caching
-  const transformedRowsCacheRef = useRef<{
-    sourceRows: unknown[] | null;
-    transformed: GridRowModel[];
-    transformedCount: number;
-  }>({ sourceRows: null, transformed: [], transformedCount: 0 });
-
   const rows = useMemo((): GridRowModel[] => {
     if (!data?.rows) {
-      transformedRowsCacheRef.current = { sourceRows: null, transformed: [], transformedCount: 0 };
       return [];
     }
 
     const columnMeta = data.columnMeta;
     const columnNames = data.columns;
-    if (!columnMeta && !columnNames) return [];
 
     const rawRows = data.rows;
-    const cache = transformedRowsCacheRef.current;
+    let cache = transformedRowsCache.get(rawRows);
+    if (!cache || rawRows.length < cache.transformedCount) {
+      cache = { transformed: [], transformedCount: 0 };
+      transformedRowsCache.set(rawRows, cache);
+    }
 
     // Check if already transformed (first row is object, not array)
     const firstRow = rawRows[0];
@@ -91,26 +92,14 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       return rawRows as unknown as GridRowModel[];
     }
 
-    // Check if source changed (new query) - reset cache
-    const sourceChanged = cache.sourceRows !== rawRows && (
-      rawRows.length < cache.transformedCount ||
-      cache.transformedCount === 0
-    );
-
-    if (sourceChanged) {
-      cache.sourceRows = rawRows;
-      cache.transformed = [];
-      cache.transformedCount = 0;
-    }
-
     if (cache.transformedCount >= rawRows.length) {
       return cache.transformed;
     }
 
     // Incremental transformation - only transform NEW rows
-    const numColumns = columnMeta?.length ?? columnNames?.length ?? 0;
+    const numColumns = columnMeta?.length ?? columnNames.length;
     const startIndex = cache.transformedCount;
-    const newRows = (rawRows as BackendCellValue[][]).slice(startIndex);
+    const newRows = (rawRows as RawCellValue[][]).slice(startIndex);
 
     const newTransformed = newRows.map((row) => {
       const tableRow: GridRowModel = {};
@@ -132,21 +121,17 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     // Mutate in place to avoid O(n) copy on each progressive render
     cache.transformed.push(...newTransformed);
     cache.transformedCount = rawRows.length;
-    cache.sourceRows = rawRows;
 
     return cache.transformed;
-    // data?.rowCount is critical: accumulatedRows is mutated in place during
-    // streaming (.push()), so data?.rows reference never changes. rowCount
-    // tracks the actual length so this memo re-runs for each progressive batch.
-  }, [data?.rows, data?.rowCount, data?.columnMeta, data?.columns]);
+  }, [data]);
 
   // Build columns from metadata
   const columns = useMemo<GridColumnV2[]>(() => {
     const columnMeta = data?.columnMeta;
     const columnNames = data?.columns;
-    if (!columnMeta && !columnNames) return [];
+    if (!columnNames) return [];
 
-    const metaList = columnMeta ?? columnNames?.map((name, idx): ColumnMeta => ({
+    const metaList = columnMeta ?? columnNames.map((name, idx): ColumnMeta => ({
       name,
       db_type: 'text',
       nullable: true,
@@ -154,7 +139,7 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       ordinal: idx,
       is_pk: false,
       is_fk: false,
-    })) ?? [];
+    }));
 
     return metaList.map((meta, index) => ({
       id: `col_${index}`,

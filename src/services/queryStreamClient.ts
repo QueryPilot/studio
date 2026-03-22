@@ -5,7 +5,11 @@ import {
   SERIALIZE_TO_IPC_FN,
   transformCallback,
 } from "@tauri-apps/api/core";
-import type { ColumnMeta, CellValue, StreamMessage } from "./backend";
+import type {
+  QueryColumnMeta,
+  RawCellValue,
+  StreamMessage,
+} from "./backend";
 import { isTauri } from "../utils/tauri";
 import { getStreamDecodeWorker, prewarmStreamDecodeWorker } from "./streamDecodeWorkerClient";
 
@@ -19,12 +23,12 @@ export interface QueryStreamParams {
 }
 
 export interface StreamBatch {
-  rows: CellValue[][];
+  rows: RawCellValue[][];
   rowOffset: number;
 }
 
 export interface StreamResult {
-  columns: ColumnMeta[];
+  columns: QueryColumnMeta[];
   totalRows: number;
   executionTimeMs: number;
   cursorSetupMs?: number;
@@ -81,7 +85,7 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
 }
 
 export class QueryStreamClient {
-  private columns?: ColumnMeta[];
+  private columns?: QueryColumnMeta[];
   private estimatedRows?: number;
 
   /**
@@ -168,7 +172,10 @@ export class QueryStreamClient {
   async streamWithCallbacks(
     params: QueryStreamParams,
     callbacks: {
-      onStarted?: (columns: ColumnMeta[], estimatedRows?: number) => void;
+      onStarted?: (
+        columns: QueryColumnMeta[],
+        estimatedRows?: number,
+      ) => void;
       onBatch?: (batch: StreamBatch, totalSoFar: number) => void;
       onSuccess?: (result: StreamResult) => void;
       onError?: (error: Error) => void;
@@ -192,7 +199,7 @@ export class QueryStreamClient {
       this.estimatedRows = undefined;
       let totalRows = 0;
       let settled = false;
-      let pendingDecode = Promise.resolve<void>(undefined);
+      let pendingDecode = Promise.resolve();
       let invokeCompleted = false;
       let successResult: StreamResult | null = null;
       let finalizingSuccess = false;
@@ -211,9 +218,9 @@ export class QueryStreamClient {
       ) => {
         const deadline = Date.now() + 2000;
 
-        while (true) {
+        for (;;) {
           const snapshot = pendingDecode;
-          await snapshot.catch((error) => {
+          await snapshot.catch((error: unknown) => {
             logger.error(
               "query-stream",
               "Pending decode error while draining stream",
@@ -256,7 +263,7 @@ export class QueryStreamClient {
         const result = successResult;
 
         void drainPendingDecode(result.totalRows, result.fetchCount)
-          .catch((error) => {
+          .catch((error: unknown) => {
             logger.error(
               "query-stream",
               "Failed while waiting for trailing batches",
@@ -308,7 +315,7 @@ export class QueryStreamClient {
 
             const decoded = await decodeWorker.decode(buffer);
 
-            if (!decoded || decoded.length === 0) {
+            if (decoded.length === 0) {
               return;
             }
 
@@ -320,7 +327,7 @@ export class QueryStreamClient {
             batchCount++;
             callbacks.onBatch?.(batch, totalRows);
           })
-          .catch((err) => {
+          .catch((err: unknown) => {
             logger.error("query-stream", "Failed to decode batch", err);
           });
       });
@@ -461,7 +468,7 @@ export class QueryStreamClient {
   /**
    * Get cached column metadata from last stream
    */
-  getColumns(): ColumnMeta[] | undefined {
+  getColumns(): QueryColumnMeta[] | undefined {
     return this.columns;
   }
 

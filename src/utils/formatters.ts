@@ -1,5 +1,5 @@
 import { logger } from "@/lib/logger";
-import type { ColumnMeta } from "../services/backend";
+import type { ColumnMeta } from "@/types/database";
 
 /**
  * Cell value types from backend (lightweight enum variants)
