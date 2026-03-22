@@ -36,6 +36,7 @@ interface RedisCliPanelProps {
   connectionId: string;
   database: number;
   className?: string;
+  isInteractive?: boolean;
 }
 
 interface HistoryItem {
@@ -405,6 +406,7 @@ export const RedisCliPanel = ({
   connectionId,
   database,
   className,
+  isInteractive = true,
 }: RedisCliPanelProps) => {
   void _panelId;
   void _tabId;
@@ -429,6 +431,16 @@ export const RedisCliPanel = ({
   } | null>(null);
 
   const adapterRef = useRef<RedisAdapter | null>(null);
+  const interactiveRef = useRef(isInteractive);
+
+  const focusInput = useCallback(() => {
+    if (!interactiveRef.current) return;
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    interactiveRef.current = isInteractive;
+  }, [isInteractive]);
 
   useEffect(() => {
     adapterRef.current = new RedisAdapter(connectionId);
@@ -446,8 +458,8 @@ export const RedisCliPanel = ({
   }, [history]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    focusInput();
+  }, [focusInput, isInteractive]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -536,9 +548,9 @@ export const RedisCliPanel = ({
       );
     } finally {
       setIsExecuting(false);
-      setTimeout(() => inputRef.current?.focus(), 10);
+      setTimeout(focusInput, 10);
     }
-  }, []);
+  }, [focusInput]);
 
   const handleExecute = useCallback(async () => {
     if (!input.trim()) return;
@@ -630,7 +642,7 @@ export const RedisCliPanel = ({
       setInput(cmd.name + " " + args);
     }
     setShowAutocomplete(false);
-    inputRef.current?.focus();
+    focusInput();
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -654,7 +666,7 @@ export const RedisCliPanel = ({
   const clearHistory = () => {
     setHistory([]);
     setHistoryIndex(-1);
-    inputRef.current?.focus();
+    focusInput();
   };
 
   const copyToClipboard = async (text: string, id: string) => {
@@ -672,7 +684,7 @@ export const RedisCliPanel = ({
 
   const insertQuickCommand = (command: string) => {
     setInput(command);
-    inputRef.current?.focus();
+    focusInput();
   };
 
   const quickCommands = [

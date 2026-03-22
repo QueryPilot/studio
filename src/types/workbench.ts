@@ -48,6 +48,12 @@ export interface PanelContent {
   metadata?: Record<string, TabMetadata | undefined>;
 }
 
+export interface TabRenderState {
+  isActiveTab: boolean;
+  isPanelFocused: boolean;
+  isInteractive: boolean;
+}
+
 export interface SplitAction {
   targetPanelId: string;
   direction: Direction;
@@ -62,13 +68,6 @@ export interface WorkbenchConstraints {
   MIN_PANEL_HEIGHT: number;
   MIN_SPLIT_RATIO: number;
   MAX_SPLIT_RATIO: number;
-}
-
-export interface DragDropContext {
-  draggedTab: { id: string; panelId: string } | null;
-  draggedPanel: string | null;
-  dropTarget: { panelId: string } | null;
-  dropPosition: DropPosition | null;
 }
 
 export interface ResizeContext {

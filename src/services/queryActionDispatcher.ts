@@ -1,4 +1,5 @@
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import useWorkbenchStore from "@/stores/workbenchStore";
 
 export type QueryAction =
   | "execute"
@@ -20,14 +21,24 @@ export interface QueryActionHandlers {
 }
 
 class QueryActionDispatcher {
-  private handlers = new Map<string, QueryActionHandlers>();
+  private handlers = new Map<string, Map<string, QueryActionHandlers>>();
 
-  register(panelId: string, handlers: QueryActionHandlers): void {
-    this.handlers.set(panelId, handlers);
+  register(panelId: string, tabId: string, handlers: QueryActionHandlers): void {
+    const panelHandlers = this.handlers.get(panelId) ?? new Map<string, QueryActionHandlers>();
+    panelHandlers.set(tabId, handlers);
+    this.handlers.set(panelId, panelHandlers);
   }
 
-  unregister(panelId: string): void {
-    this.handlers.delete(panelId);
+  unregister(panelId: string, tabId: string): void {
+    const panelHandlers = this.handlers.get(panelId);
+    if (!panelHandlers) {
+      return;
+    }
+
+    panelHandlers.delete(tabId);
+    if (panelHandlers.size === 0) {
+      this.handlers.delete(panelId);
+    }
   }
 
   async dispatch(action: QueryAction): Promise<boolean> {
@@ -36,7 +47,13 @@ class QueryActionDispatcher {
       return false;
     }
 
-    const handler = this.handlers.get(focusedPanelId)?.[action];
+    const activeTabId =
+      useWorkbenchStore.getState().panelContents.get(focusedPanelId)?.activeTabId;
+    if (!activeTabId) {
+      return false;
+    }
+
+    const handler = this.handlers.get(focusedPanelId)?.get(activeTabId)?.[action];
     if (!handler) {
       return false;
     }
