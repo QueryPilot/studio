@@ -161,6 +161,10 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIMESTAMP_REGEX =
   /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
 const TIME_REGEX = /^([01]?\d|2[0-3]):([0-5]\d)(:([0-5]\d))?(\.\d+)?$/;
+const INTERVAL_KEYWORD_REGEX = /\d+\s*(year|month|day|hour|minute|second|week)/i;
+const INTERVAL_NUMERIC_REGEX = /^(\d+:)?\d{2}:\d{2}(:\d{2})?$/;
+const POINT_REGEX = /^\(?\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*\)?$/;
+const BOX_REGEX = /^\(?\s*\(?\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*\)?\s*,\s*\(?\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*\)?\s*\)?$/;
 
 function validateDate(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
@@ -189,8 +193,8 @@ function validateTime(v: unknown): ValidationResult {
 function validateInterval(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
   const str = String(v).toLowerCase();
-  const hasValidPart = /\d+\s*(year|month|day|hour|minute|second|week)/i.test(str) ||
-    /^(\d+:)?\d{2}:\d{2}(:\d{2})?$/.test(str);
+  const hasValidPart = INTERVAL_KEYWORD_REGEX.test(str) ||
+    INTERVAL_NUMERIC_REGEX.test(str);
   return hasValidPart
     ? VALID
     : { valid: false, error: "Invalid interval format" };
@@ -210,8 +214,7 @@ function validateBytea(v: unknown): ValidationResult {
 
 function validatePoint(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
-  const pointRegex = /^\(?\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*\)?$/;
-  return pointRegex.test(String(v))
+  return POINT_REGEX.test(String(v))
     ? VALID
     : { valid: false, error: "Invalid point format (expected: (x,y))" };
 }
@@ -219,8 +222,7 @@ function validatePoint(v: unknown): ValidationResult {
 function validateBox(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
   const str = String(v);
-  const boxRegex = /^\(?\s*\(?\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*\)?\s*,\s*\(?\s*-?\d+\.?\d*\s*,\s*-?\d+\.?\d*\s*\)?\s*\)?$/;
-  return boxRegex.test(str)
+  return BOX_REGEX.test(str)
     ? VALID
     : { valid: false, error: "Invalid box format (expected: ((x1,y1),(x2,y2)))" };
 }

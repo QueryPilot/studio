@@ -60,8 +60,7 @@ function createParsedCommand(
   params: Record<string, unknown>,
   options?: Partial<ParsedCommand>
 ): ParsedCommand {
-  const approval =
-    name === "crud.stage" ? "approve" : "auto";
+  const approval = "auto";
   return {
     id: options?.id ?? `cmd-${Date.now()}`,
     name,
@@ -465,7 +464,7 @@ describe("End-to-End: Parse -> Render -> Execute", () => {
     "operation": "insert",
     "document": { "name": "Alice", "email": "alice@example.com" }
   },
-  "approval": "approve"
+  "approval": "auto"
 }
 \`\`\`
 
@@ -500,13 +499,13 @@ This will stage the insert for review.`;
     const aiResponse = `Let me stage these changes:
 
 \`\`\`qp-action
-{"id":"a1","name":"crud.stage","params":{"connectionId":"c1","table":"users","operation":"insert","document":{"name":"A"}},"approval":"approve"}
+{"id":"a1","name":"crud.stage","params":{"connectionId":"c1","table":"users","operation":"insert","document":{"name":"A"}},"approval":"auto"}
 \`\`\`
 
 And also:
 
 \`\`\`qp-action
-{"id":"a2","name":"crud.stage","params":{"connectionId":"c1","table":"users","operation":"insert","document":{"name":"B"}},"approval":"approve"}
+{"id":"a2","name":"crud.stage","params":{"connectionId":"c1","table":"users","operation":"insert","document":{"name":"B"}},"approval":"auto"}
 \`\`\``;
 
     const commands = parseCommands(aiResponse);
@@ -544,7 +543,7 @@ describe("Permission Store Integration", () => {
       render(<CommandCard command={command} onResult={onResult} />);
     });
 
-    // Should auto-execute since allowAll is true and crud.stage is approve-level
+    // Should auto-execute since crud.stage is auto-level
     await waitFor(
       () => {
         expect(onResult).toHaveBeenCalled();

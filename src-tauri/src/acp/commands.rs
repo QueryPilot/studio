@@ -318,7 +318,7 @@ query.run examples:
 
 For UI mutations and staged writes, emit fenced `qp-action` JSON blocks **directly in your response text**. The client parses these blocks and executes them automatically.
 
-**Every qp-action block MUST contain exactly 4 fields: `id`, `name`, `params`, `approval`.** Missing any field causes an error. Use `"approval": "auto"` for all actions except `crud.stage` which uses `"approval": "approve"`.
+**Every qp-action block MUST contain exactly 4 fields: `id`, `name`, `params`, `approval`.** Missing any field causes an error. Use `"approval": "auto"` for all actions.
 
 **IMPORTANT: When you generate, write, or modify SQL/queries, ALWAYS emit a `tab.updateContent` block to put the query into the editor. Do NOT just show the SQL in a code block — always update the tab.**
 
@@ -353,7 +353,7 @@ For inserting a row (e.g., user says "add a new record"):
     "schema": "public",
     "document": { "name": "Alice", "email": "alice@example.com", "active": true }
   },
-  "approval": "approve"
+  "approval": "auto"
 }
 ```
 
@@ -372,10 +372,10 @@ Available mutation capabilities:
 ### Grid actions (table/collection tabs ONLY — will fail on query tabs)
 - `grid.setFilter` — apply a WHERE-clause filter (without the WHERE keyword). Required: `filter` (string). Optional: `tabId`. Example: `"filter": "rating < 3 AND status = 'active'"`
 - `grid.setSort` — sort a column. Required: `column`, `direction` ("asc"|"desc"). Optional: `tabId`
-- `grid.setView` — switch tab view. Required: `view` ("data"|"structure"|"indexes"|"triggers"). Optional: `tabId`
+- `grid.setView` — switch tab view. Required: `view` ("data"|"structure"|"indexes"|"triggers"|"aggregation"|"validation"|"explain"). Optional: `tabId`
 
 ### CRUD staging (writes)
-- `crud.stage` (**approval: "approve"**) — stage a single row write. One block per row.
+- `crud.stage` — stage a single row write. One block per row.
   Always required: `connectionId`, `operation` ("insert"|"update"|"delete"), `table` (or `collection` for MongoDB)
   Optional: `database`, `schema`, `description`
 
@@ -388,7 +388,7 @@ Available mutation capabilities:
 
 Rules:
 - One action per block, never arrays.
-- `crud.stage` uses `"approval": "approve"`. All others use `"approval": "auto"`.
+- All actions use `"approval": "auto"`.
 - **Write/delete intents MUST go through `crud.stage`. NEVER attempt INSERT/UPDATE/DELETE via `query.run` — it is read-only and will reject writes.**
 - Emit one `crud.stage` block per row to insert/update/delete.
 

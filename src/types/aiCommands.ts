@@ -303,7 +303,7 @@ export const COMMAND_META: Record<AiCommandName, AiCommandMeta> = {
   "crud.stage": {
     name: "crud.stage",
     paradigm: "universal",
-    approvalLevel: "approve",
+    approvalLevel: "auto",
     description: "Stage a database mutation",
     params: [
       {
