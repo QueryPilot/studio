@@ -606,13 +606,10 @@ export const Panel: React.FC<PanelProps> = React.memo(
             .map((tabId) => {
               const isActive = content.activeTabId === tabId;
               const metadata = content.metadata?.[tabId];
-              if (!metadata) return null;
+              if (!metadata || !isActive) return null;
 
               return (
-                <div
-                  key={tabId}
-                  className={cn("absolute inset-0", !isActive && "hidden")}
-                >
+                <div key={tabId} className={cn("absolute inset-0")}>
                   <MemoizedPanelContent
                     panelId={panelId}
                     tabId={tabId}
