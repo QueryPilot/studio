@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { IconLink, IconLock } from "@tabler/icons-react";
+import { useState, useMemo } from "react";
+import { IconLink, IconLock, IconLayout2 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,7 +9,15 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import {
   parseConnectionUri,
   parseConnectionEnv,
@@ -139,7 +147,16 @@ export function QuickConnectDialog({
   const [uri, setUri] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [parsedInfo, setParsedInfo] = useState<ParsedInfo | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
   const saveConnection = useConnectionStore((s) => s.saveConnection);
+  const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
+  const addConnectionToSavedWorkspace = useWorkspaceBundleStore(
+    (s) => s.addConnectionToSavedWorkspace,
+  );
+  const userWorkspaces = useMemo(
+    () => savedWorkspaces.filter((ws) => !ws.autoCreated),
+    [savedWorkspaces],
+  );
 
   const handleUriChange = (value: string) => {
     setUri(value);
@@ -215,13 +232,19 @@ export function QuickConnectDialog({
         }
       }
 
-      await saveConnection(profile, []);
+      const connectionId = await saveConnection(profile, []);
+
+      if (selectedWorkspaceId && connectionId) {
+        await addConnectionToSavedWorkspace(selectedWorkspaceId, connectionId);
+      }
+
       toast.success("Connection created", {
         description: `${profile.name} has been added`,
       });
       onOpenChange(false);
       setUri("");
       setParsedInfo(null);
+      setSelectedWorkspaceId("");
     } catch (error) {
       toast.error("Failed to create connection", {
         description: error instanceof Error ? error.message : "Invalid format",
@@ -256,6 +279,37 @@ export function QuickConnectDialog({
 
         {parsedInfo && <ConnectionSummary info={parsedInfo} />}
 
+        {userWorkspaces.length > 0 && (() => {
+          const selectedWs = userWorkspaces.find((w) => w.id === selectedWorkspaceId);
+          const wsLabel = (ws: { icon?: string; name: string }) =>
+            ws.icon ? `${ws.icon} ${ws.name}` : ws.name;
+          return (
+            <div>
+              <Label className="flex items-center gap-1.5 text-xs">
+                <IconLayout2 className="h-3 w-3 text-muted-foreground" />
+                Workspace
+              </Label>
+              <Select
+                value={selectedWorkspaceId || undefined}
+                onValueChange={(val) => { setSelectedWorkspaceId(val ?? ""); }}
+              >
+                <SelectTrigger className="mt-1 h-8 text-xs">
+                  <span className={selectedWs ? "truncate" : "text-muted-foreground truncate"}>
+                    {selectedWs ? wsLabel(selectedWs) : "No workspace"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent>
+                  {userWorkspaces.map((ws) => (
+                    <SelectItem key={ws.id} value={ws.id} className="text-xs">
+                      {wsLabel(ws)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          );
+        })()}
+
         <div className="flex justify-end gap-2">
           <Button
             variant="ghost"
@@ -263,6 +317,7 @@ export function QuickConnectDialog({
               onOpenChange(false);
               setUri("");
               setParsedInfo(null);
+              setSelectedWorkspaceId("");
             }}
           >
             Cancel
