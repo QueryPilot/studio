@@ -1,3 +1,4 @@
+import { validate as uuidValidate } from "uuid";
 import type { GridColumnV2 } from "../types";
 
 export interface ValidationResult {
@@ -11,10 +12,6 @@ export type Validator = (
 ) => ValidationResult;
 
 const VALID: ValidationResult = { valid: true };
-
-// UUID: 8-4-4-4-12 hex format
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // IPv4 with optional CIDR
 const IPV4_REGEX =
@@ -40,7 +37,7 @@ const INT8_MAX = BigInt("9223372036854775807");
 
 function validateUuid(v: unknown): ValidationResult {
   if (v == null || v === "") return VALID;
-  return UUID_REGEX.test(String(v))
+  return uuidValidate(String(v))
     ? VALID
     : { valid: false, error: "Invalid UUID format (expected: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)" };
 }

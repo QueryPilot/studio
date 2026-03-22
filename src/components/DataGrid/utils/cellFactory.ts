@@ -7,7 +7,7 @@ import { base64ToBytes, parseHstoreFromBytes, formatHstore, isValidBase64 } from
 import {
   cacheAndReturn as sharedCacheAndReturn,
   tryGetCachedCell,
-  UUID_REGEX,
+  isValidUuidString,
   getCellFactoryStats,
   resetCellFactoryStats,
 } from "./cellFactoryShared";
@@ -458,7 +458,7 @@ const buildTimeCell: CellBuilder = (rawValue, value, column, _meta, readOnly) =>
 
 const buildUuidCell: CellBuilder = (rawValue, value, column, _meta, readOnly) => {
   const uuidString = rawValue == null ? null : String(rawValue);
-  const isValid = uuidString ? UUID_REGEX.test(uuidString) : true;
+  const isValid = uuidString ? isValidUuidString(uuidString) : true;
 
   return cacheAndReturn(value, column.id, readOnly, {
     kind: GridCellKind.Custom,
