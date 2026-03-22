@@ -2,13 +2,20 @@
 //!
 //! These commands expose ACP functionality to the frontend.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use agent_client_protocol::{ContentBlock, ImageContent, SessionUpdate, TextContent};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
+use tokio::sync::{oneshot, Mutex};
 
 use super::discovery::AgentInfo;
 use super::manager::AcpManager;
+
+/// Shared state for pending permission requests awaiting user response.
+/// Maps request_id -> oneshot sender for the chosen option_id.
+pub type PendingPermissions = Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>;
 
 /// List all discovered AI agents
 #[tauri::command]
@@ -76,7 +83,11 @@ pub async fn acp_start_agent(
     // Take the notification receiver and set up forwarding for this agent instance
     let mut notification_rx = manager.take_notification_receiver(&instance_id).await?;
 
+    // Take the permission receiver for forwarding permission requests to frontend
+    let mut permission_rx = manager.take_permission_receiver(&instance_id).await?;
+
     // Spawn task to forward all notifications to frontend via Tauri events
+    let app_handle_notifications = app_handle.clone();
     tokio::spawn(async move {
         tracing::info!("Notification forwarding task started for instance");
         while let Some(notification) = notification_rx.recv().await {
@@ -88,12 +99,59 @@ pub async fn acp_start_agent(
                 "update": serialize_session_update(&notification.update),
             });
 
-            if app_handle.emit(&event_name, payload).is_err() {
+            if app_handle_notifications.emit(&event_name, payload).is_err() {
                 tracing::warn!("Failed to emit event - frontend disconnected");
                 break;
             }
         }
         tracing::info!("Notification forwarding task ended");
+    });
+
+    // Spawn task to forward permission requests to frontend and store pending senders
+    let pending_clone: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>> =
+        app_handle.state::<PendingPermissions>().inner().clone();
+    let app_handle_permissions = app_handle.clone();
+    tokio::spawn(async move {
+        tracing::info!("Permission forwarding task started");
+        while let Some((payload, response_tx)) = permission_rx.recv().await {
+            let request_id = payload.request_id.clone();
+            tracing::info!("Forwarding permission request {} to frontend", request_id);
+
+            // Store the response sender
+            {
+                let mut map: tokio::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<String>>> =
+                    pending_clone.lock().await;
+                map.insert(request_id.clone(), response_tx);
+            }
+
+            // Spawn cleanup task to remove timed-out entries (65s > 60s backend timeout)
+            {
+                let cleanup_pending = pending_clone.clone();
+                let cleanup_id = request_id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(65)).await;
+                    let mut map: tokio::sync::MutexGuard<
+                        '_,
+                        HashMap<String, oneshot::Sender<String>>,
+                    > = cleanup_pending.lock().await;
+                    if map.remove(&cleanup_id).is_some() {
+                        tracing::debug!("Cleaned up timed-out permission request: {}", cleanup_id);
+                    }
+                });
+            }
+
+            // Emit event to frontend
+            if app_handle_permissions
+                .emit("acp-permission-request", &payload)
+                .is_err()
+            {
+                tracing::warn!("Failed to emit permission request - frontend disconnected");
+                let mut map: tokio::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<String>>> =
+                    pending_clone.lock().await;
+                map.remove(&request_id);
+            }
+        }
+        tracing::info!("Permission forwarding task ended");
     });
 
     Ok(instance_id)
@@ -532,6 +590,34 @@ fn serialize_session_update(update: &SessionUpdate) -> serde_json::Value {
         _ => serde_json::json!({
             "type": "Unknown",
         }),
+    }
+}
+
+/// Respond to a pending permission request from the frontend
+#[tauri::command]
+pub async fn acp_respond_permission(
+    request_id: String,
+    option_id: String,
+    pending: State<'_, PendingPermissions>,
+) -> Result<(), String> {
+    tracing::info!(
+        "Permission response: request={}, option={}",
+        request_id,
+        option_id
+    );
+
+    let sender = pending.lock().await.remove(&request_id);
+
+    match sender {
+        Some(tx) => {
+            tx.send(option_id).map_err(|_| {
+                "Permission request expired (agent no longer waiting)".to_string()
+            })
+        }
+        None => Err(format!(
+            "No pending permission request with id: {}",
+            request_id
+        )),
     }
 }
 

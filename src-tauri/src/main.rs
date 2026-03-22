@@ -69,6 +69,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .manage(manager)
         .manage(acp_manager)
+        .manage(acp::commands::PendingPermissions::default())
         .manage(app_state)
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
@@ -187,6 +188,7 @@ fn main() {
             acp::commands::acp_set_session_model,
             acp::commands::acp_get_session_id,
             acp::commands::acp_send_prompt,
+            acp::commands::acp_respond_permission,
             acp::commands::acp_cancel_session,
             acp::commands::acp_install_package,
             acp::commands::acp_check_package_updates,

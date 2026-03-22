@@ -25,6 +25,33 @@ use agent_client_protocol::{
 };
 use serde_json::Value;
 
+/// Payload sent to the frontend when a permission request needs user approval.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequestPayload {
+    pub request_id: String,
+    pub session_id: String,
+    pub tool_call_id: String,
+    pub title: String,
+    pub kind: String,
+    pub raw_input: Option<Value>,
+    pub options: Vec<PermissionOptionPayload>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionOptionPayload {
+    pub option_id: String,
+    pub name: String,
+    pub kind: String,
+}
+
+/// A permission request sent from the ACP worker thread to the Tauri layer,
+/// paired with a oneshot sender for the user's chosen option_id.
+pub type PermissionRequestEntry = (PermissionRequestPayload, oneshot::Sender<String>);
+pub type PermissionSender = mpsc::UnboundedSender<PermissionRequestEntry>;
+pub type PermissionReceiver = mpsc::UnboundedReceiver<PermissionRequestEntry>;
+
 use super::discovery::AgentInfo;
 
 /// A channel sender for forwarding session notifications to Tauri
@@ -78,18 +105,28 @@ enum AcpCommand {
         agent_id: String,
         response_tx: oneshot::Sender<Result<NotificationReceiver, String>>,
     },
+    TakePermissionReceiver {
+        agent_id: String,
+        response_tx: oneshot::Sender<Result<PermissionReceiver, String>>,
+    },
 }
 
 /// Client implementation that forwards notifications via a channel
 struct QueryPilotClient {
     notification_tx: NotificationSender,
+    permission_tx: PermissionSender,
     is_cancelled: Arc<AtomicBool>,
 }
 
 impl QueryPilotClient {
-    fn new(notification_tx: NotificationSender, is_cancelled: Arc<AtomicBool>) -> Self {
+    fn new(
+        notification_tx: NotificationSender,
+        permission_tx: PermissionSender,
+        is_cancelled: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             notification_tx,
+            permission_tx,
             is_cancelled,
         }
     }
@@ -118,7 +155,13 @@ fn extract_shell_command_candidate(tool_title: &str, raw_input: Option<&Value>) 
 
     let title_lower = tool_title.to_ascii_lowercase();
     if title_lower.contains("querypilot") {
-        Some(tool_title.to_string())
+        // Some agents prefix tool titles with "Run " (e.g. Codex: "Run echo '...' | querypilot ...").
+        // Strip common verb prefixes so the command candidate starts with the actual shell command.
+        let candidate = tool_title
+            .strip_prefix("Run ")
+            .or_else(|| tool_title.strip_prefix("Execute "))
+            .unwrap_or(tool_title);
+        Some(candidate.to_string())
     } else {
         None
     }
@@ -320,16 +363,68 @@ impl Client for QueryPilotClient {
                 RequestPermissionOutcome::Cancelled,
             ))
         } else {
-            // Dangerous operations - deny by default
-            // TODO: Wire to UI for user approval
-            tracing::warn!(
-                "Denying {:?} operation: {} (dangerous tool)",
+            // Dangerous operations - forward to UI for user approval
+            tracing::info!(
+                "Requesting user permission for {:?} operation: {}",
                 tool_kind,
                 tool_title
             );
-            Ok(RequestPermissionResponse::new(
-                RequestPermissionOutcome::Cancelled,
-            ))
+
+            let request_id = uuid::Uuid::new_v4().to_string();
+            let payload = PermissionRequestPayload {
+                request_id: request_id.clone(),
+                session_id: args.session_id.to_string(),
+                tool_call_id: args.tool_call.tool_call_id.to_string(),
+                title: tool_title.to_string(),
+                kind: format!("{:?}", tool_kind).to_ascii_lowercase(),
+                raw_input: args.tool_call.fields.raw_input.clone(),
+                options: args
+                    .options
+                    .iter()
+                    .map(|opt| PermissionOptionPayload {
+                        option_id: opt.option_id.to_string(),
+                        name: opt.name.clone(),
+                        kind: format!("{:?}", opt.kind).to_ascii_lowercase(),
+                    })
+                    .collect(),
+            };
+
+            let (response_tx, response_rx) = oneshot::channel();
+
+            if self.permission_tx.send((payload, response_tx)).is_err() {
+                tracing::warn!("Permission channel closed, denying operation");
+                return Ok(RequestPermissionResponse::new(
+                    RequestPermissionOutcome::Cancelled,
+                ));
+            }
+
+            // Wait for user response with a 60-second timeout
+            match tokio::time::timeout(Duration::from_secs(60), response_rx).await {
+                Ok(Ok(option_id)) => {
+                    tracing::info!(
+                        "User responded to permission request {}: {}",
+                        request_id,
+                        option_id
+                    );
+                    Ok(RequestPermissionResponse::new(
+                        RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                            option_id,
+                        )),
+                    ))
+                }
+                Ok(Err(_)) => {
+                    tracing::warn!("Permission response channel dropped, cancelling");
+                    Ok(RequestPermissionResponse::new(
+                        RequestPermissionOutcome::Cancelled,
+                    ))
+                }
+                Err(_) => {
+                    tracing::warn!("Permission request {} timed out after 60s", request_id);
+                    Ok(RequestPermissionResponse::new(
+                        RequestPermissionOutcome::Cancelled,
+                    ))
+                }
+            }
         }
     }
 
@@ -354,6 +449,7 @@ struct AgentProcess {
     connection: ClientSideConnection,
     session_id: Option<SessionId>,
     notification_rx: Option<NotificationReceiver>,
+    permission_rx: Option<PermissionReceiver>,
     /// The binary name of this agent (e.g., "gemini", "claude-code-acp")
     binary_name: String,
     /// Set to true when cancel is requested, checked by permission handler
@@ -419,11 +515,14 @@ impl AcpWorker {
         // Create notification channel
         let (notification_tx, notification_rx) = mpsc::unbounded_channel();
 
+        // Create permission request channel
+        let (permission_tx, permission_rx) = mpsc::unbounded_channel();
+
         let is_cancelled = Arc::new(AtomicBool::new(false));
 
         // Create ACP connection over the piper pipes
         let (connection, io_task) = ClientSideConnection::new(
-            QueryPilotClient::new(notification_tx, is_cancelled.clone()),
+            QueryPilotClient::new(notification_tx, permission_tx, is_cancelled.clone()),
             to_agent_tx,   // outgoing bytes (to agent)
             from_agent_rx, // incoming bytes (from agent)
             |fut| {
@@ -515,6 +614,7 @@ impl AcpWorker {
                 connection,
                 session_id: None,
                 notification_rx: Some(notification_rx),
+                permission_rx: Some(permission_rx),
                 binary_name: agent_info.id.clone(),
                 is_cancelled,
             },
@@ -668,6 +768,17 @@ impl AcpWorker {
             .take()
             .ok_or_else(|| "Notification receiver already taken".to_string())
     }
+
+    fn take_permission_receiver(
+        &mut self,
+        agent_id: &str,
+    ) -> Result<PermissionReceiver, String> {
+        let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
+        process
+            .permission_rx
+            .take()
+            .ok_or_else(|| "Permission receiver already taken".to_string())
+    }
 }
 
 /// Manages active agent processes and their ACP connections
@@ -757,6 +868,13 @@ impl AcpManager {
                             response_tx,
                         } => {
                             let result = worker.take_notification_receiver(&agent_id);
+                            let _ = response_tx.send(result);
+                        }
+                        AcpCommand::TakePermissionReceiver {
+                            agent_id,
+                            response_tx,
+                        } => {
+                            let result = worker.take_permission_receiver(&agent_id);
                             let _ = response_tx.send(result);
                         }
                     }
@@ -867,6 +985,21 @@ impl AcpManager {
         let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(AcpCommand::Shutdown { response_tx })
+            .map_err(|_| "ACP worker shutdown")?;
+        response_rx.await.map_err(|_| "ACP worker shutdown")?
+    }
+
+    /// Take the permission receiver for an agent (can only be done once)
+    pub async fn take_permission_receiver(
+        &self,
+        agent_id: &str,
+    ) -> Result<PermissionReceiver, String> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx
+            .send(AcpCommand::TakePermissionReceiver {
+                agent_id: agent_id.to_string(),
+                response_tx,
+            })
             .map_err(|_| "ACP worker shutdown")?;
         response_rx.await.map_err(|_| "ACP worker shutdown")?
     }
