@@ -5,6 +5,32 @@
 <!-- The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), -->
 <!-- and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). -->
 
+## [2026.1.0-beta.13] - 2026-03-23
+
+### New Features
+- Redesigned the MongoDB collection workbench with dedicated Data, Structure, Indexes, Aggregation, Validation, and Explain tabs. You can now inspect collections in table, tree, or raw JSON views and work with large datasets more comfortably.
+- Added a visual MongoDB aggregation builder with draggable stages, per-stage previews, and a code view. Complex pipelines are easier to build, understand, and debug without leaving the workbench.
+- Expanded execution plan support across PostgreSQL, MySQL/MariaDB, SQL Server, and SQLite. You can now view more EXPLAIN and SHOWPLAN formats directly in Query Pilot, including SQL Server statistics plans and PostgreSQL XML/YAML output.
+- Added in-app approval prompts for AI actions that need permission. Prompts now show clearer connection context so you can review sensitive actions before they run.
+
+### Improvements
+- Made SQL linting much smarter across dialects. Query Pilot now catches more real issues in INSERT/UPDATE/DELETE targets, aliases, joins, and schema references while cutting down on false positives.
+- Improved query feedback in the editor. DDL statements, CTE-wrapped mutations, and per-tab SHOWPLAN state now surface clearer success states and more useful result presentation.
+- Made tabs and heavy panels feel faster with better rendering behavior and visible loading indicators. Switching between complex views is smoother, especially in busy workspaces.
+- Refined editing across grids and document views with better paste handling, editor resizing, UUID validation, and more reliable inline editing in tree and JSON modes.
+- Improved AI-assisted filtering for SQL and MongoDB with cleaner generated filters and richer schema context, making natural-language filtering more dependable.
+
+### Bug Fixes
+- Fixed multiple execution-plan parsing edge cases so EXPLAIN and SHOWPLAN output render more accurately across MySQL, MariaDB, PostgreSQL, SQL Server, and SQLite.
+- Fixed MongoDB staged edits, inserts, deletes, and index actions so changes stay in sync across table, tree, and JSON views.
+- Fixed Redis element deletion so removing an item from a list or sorted set no longer removes the entire key.
+- Fixed several workbench UI regressions, including layout shifts on tab focus, SQL infinite-scroll loops, and focus issues in editor overlays and the Redis CLI.
+- Fixed date formatting and editing issues that could shift values unexpectedly across time zones, helping preserve the local date users intended.
+
+### Security
+- Hardened SQL Server rename workflows against unsafe input.
+- Improved local vault/keychain handling and permission approval flows, giving safer credential retrieval and clearer prompts for sensitive actions.
+
 ## [2026.1.0-beta.12] - 2026-03-13
 
 ### New Features
