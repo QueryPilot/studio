@@ -413,17 +413,47 @@ export const ConnectionSection = forwardRef<
   });
   // Read stagedCommands imperatively only when the scoped version changes
 
-  const stagedCommands = useMemo(
-    () => useCrudStore.getState().stagedCommands,
-    [connectionCommandsVersion],
-  );
+  const stagedCommands = useMemo(() => {
+    void connectionCommandsVersion;
+    return useCrudStore.getState().stagedCommands;
+  }, [connectionCommandsVersion]);
   const stageBatchWithSingleHistoryEntry = useCrudStore(
     (s) => s.stageBatchWithSingleHistoryEntry,
   );
-  const panelContents = useWorkbenchStore((s) => s.panelContents);
   const setActiveTab = useWorkbenchStore((s) => s.setActiveTab);
   const focusWorkbenchPanel = useWorkbenchStore((s) => s.focusPanel);
   const focusedPanelId = usePanelFocusStore((s) => s.focusedPanelId);
+  const focusedActiveTabSnapshot = useWorkbenchStore(
+    useShallow(
+      useCallback(
+        (state) => {
+          if (!focusedPanelId) {
+            return null;
+          }
+
+          const focusedPanel = state.panelContents.get(focusedPanelId);
+          const activeTabId = focusedPanel?.activeTabId;
+          const metadata = activeTabId
+            ? focusedPanel.metadata?.[activeTabId]
+            : undefined;
+
+          return {
+            activeTabId: activeTabId ?? null,
+            type: metadata?.type ?? null,
+            connectionId: metadata?.connectionId ?? null,
+            database: metadata?.database ?? null,
+            schema: metadata?.schema ?? null,
+            table: metadata?.table ?? null,
+            functionName:
+              typeof metadata?.functionName === "string"
+                ? metadata.functionName
+                : null,
+          };
+        },
+        [focusedPanelId],
+      ),
+    ),
+  );
 
   // Pre-compute lookup maps for O(1) access
   const tablesByKey = useMemo(() => {
@@ -604,21 +634,25 @@ export const ConnectionSection = forwardRef<
 
   // Auto-expand the section containing the focused panel's active object.
   useEffect(() => {
-    if (!focusedPanelId) return;
-    const focusedPanel = panelContents.get(focusedPanelId);
-    if (!focusedPanel?.activeTabId) return;
-
-    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
-    if (!metadata || metadata.connectionId !== connectionId) return;
+    if (
+      !focusedActiveTabSnapshot?.activeTabId ||
+      focusedActiveTabSnapshot.connectionId !== connectionId
+    ) {
+      return;
+    }
 
     let sectionKey: string | null = null;
     let starredKey: string | null = null;
 
-    if (metadata.type === "table") {
+    if (focusedActiveTabSnapshot.type === "table") {
       const tableName =
-        typeof metadata.table === "string" ? metadata.table : "";
+        typeof focusedActiveTabSnapshot.table === "string"
+          ? focusedActiveTabSnapshot.table
+          : "";
       const schemaName =
-        typeof metadata.schema === "string" ? metadata.schema : "";
+        typeof focusedActiveTabSnapshot.schema === "string"
+          ? focusedActiveTabSnapshot.schema
+          : "";
       const isView =
         !!tableName &&
         !!schemaName &&
@@ -628,16 +662,20 @@ export const ConnectionSection = forwardRef<
       if (tableName && schemaName) {
         starredKey = `${isView ? "view" : "table"}:${schemaName}.${tableName}`;
       }
-    } else if (metadata.type === "function") {
+    } else if (focusedActiveTabSnapshot.type === "function") {
       const functionName =
-        typeof metadata.functionName === "string" ? metadata.functionName : "";
+        typeof focusedActiveTabSnapshot.functionName === "string"
+          ? focusedActiveTabSnapshot.functionName
+          : "";
       const schemaName =
-        typeof metadata.schema === "string" ? metadata.schema : "";
+        typeof focusedActiveTabSnapshot.schema === "string"
+          ? focusedActiveTabSnapshot.schema
+          : "";
       sectionKey = "functions";
       if (functionName && schemaName) {
         starredKey = `function:${schemaName}.${functionName}`;
       }
-    } else if (metadata.type === "mongo-collection") {
+    } else if (focusedActiveTabSnapshot.type === "mongo-collection") {
       sectionKey = "collections";
     }
 
@@ -664,7 +702,7 @@ export const ConnectionSection = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [focusedPanelId, panelContents, connectionId, views, starredSet]);
+  }, [focusedActiveTabSnapshot, connectionId, views, starredSet]);
 
   // Auto-expand sections when data is loaded
   useEffect(() => {
@@ -743,15 +781,11 @@ export const ConnectionSection = forwardRef<
 
   // Check if table/view is active
   const isTableActive = (tableName: string, tableSchema: string): boolean => {
-    if (!focusedPanelId) return false;
-    const focusedPanel = panelContents.get(focusedPanelId);
-    if (!focusedPanel || !focusedPanel.activeTabId) return false;
-    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
     return (
-      metadata?.type === "table" &&
-      metadata.table === tableName &&
-      metadata.schema === tableSchema &&
-      metadata.connectionId === connectionId
+      focusedActiveTabSnapshot?.type === "table" &&
+      focusedActiveTabSnapshot.table === tableName &&
+      focusedActiveTabSnapshot.schema === tableSchema &&
+      focusedActiveTabSnapshot.connectionId === connectionId
     );
   };
 
@@ -759,29 +793,21 @@ export const ConnectionSection = forwardRef<
     functionName: string,
     functionSchema: string,
   ): boolean => {
-    if (!focusedPanelId) return false;
-    const focusedPanel = panelContents.get(focusedPanelId);
-    if (!focusedPanel || !focusedPanel.activeTabId) return false;
-    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId];
     return (
-      metadata?.type === "function" &&
-      metadata.schema === functionSchema &&
-      metadata.functionName === functionName &&
-      metadata.connectionId === connectionId
+      focusedActiveTabSnapshot?.type === "function" &&
+      focusedActiveTabSnapshot.schema === functionSchema &&
+      focusedActiveTabSnapshot.functionName === functionName &&
+      focusedActiveTabSnapshot.connectionId === connectionId
     );
   };
 
   const isMongoCollectionActive = (collectionName: string): boolean => {
-    if (!database || !focusedPanelId) return false;
-    const focusedPanel = panelContents.get(focusedPanelId);
-    const focusedTabId = focusedPanel?.activeTabId;
-    if (!focusedPanel || !focusedTabId) return false;
-    const metadata = focusedPanel.metadata?.[focusedTabId];
+    if (!database) return false;
     return (
-      metadata?.type === "mongo-collection" &&
-      metadata.connectionId === connectionId &&
-      metadata.database === database &&
-      metadata.table === collectionName
+      focusedActiveTabSnapshot?.type === "mongo-collection" &&
+      focusedActiveTabSnapshot.connectionId === connectionId &&
+      focusedActiveTabSnapshot.database === database &&
+      focusedActiveTabSnapshot.table === collectionName
     );
   };
 
@@ -870,15 +896,10 @@ export const ConnectionSection = forwardRef<
   };
 
   const isRedisDatabaseActive = (dbIndex: number): boolean => {
-    if (!focusedPanelId) return false;
-    const focusedPanel = panelContents.get(focusedPanelId);
-    const focusedTabId = focusedPanel?.activeTabId;
-    if (!focusedPanel || !focusedTabId) return false;
-    const metadata = focusedPanel.metadata?.[focusedTabId];
     return (
-      metadata?.type === "redis-key" &&
-      metadata.connectionId === connectionId &&
-      metadata.database === String(dbIndex)
+      focusedActiveTabSnapshot?.type === "redis-key" &&
+      focusedActiveTabSnapshot.connectionId === connectionId &&
+      focusedActiveTabSnapshot.database === String(dbIndex)
     );
   };
 
@@ -1182,22 +1203,15 @@ export const ConnectionSection = forwardRef<
   };
 
   const getCurrentRedisDatabaseIndex = (): number | null => {
-    if (focusedPanelId) {
-      const focusedPanel = panelContents.get(focusedPanelId);
-      const activeTabId = focusedPanel?.activeTabId;
-      const metadata = activeTabId
-        ? focusedPanel.metadata?.[activeTabId]
-        : undefined;
-      if (
-        metadata?.type === "redis-key" &&
-        metadata.connectionId === connectionId &&
-        typeof metadata.database === "string"
-      ) {
-        const activeDb = Number.parseInt(metadata.database, 10);
+    if (
+      focusedActiveTabSnapshot?.type === "redis-key" &&
+      focusedActiveTabSnapshot.connectionId === connectionId &&
+      typeof focusedActiveTabSnapshot.database === "string"
+    ) {
+      const activeDb = Number.parseInt(focusedActiveTabSnapshot.database, 10);
         if (!Number.isNaN(activeDb)) {
           return activeDb;
         }
-      }
     }
 
     if (!database) return null;
@@ -2182,8 +2196,7 @@ export const ConnectionSection = forwardRef<
                       draft.panelId &&
                       draft.tabId &&
                       focusedPanelId === draft.panelId &&
-                      panelContents.get(draft.panelId)?.activeTabId ===
-                        draft.tabId,
+                      focusedActiveTabSnapshot?.activeTabId === draft.tabId,
                     );
                     return (
                       <SidebarItem

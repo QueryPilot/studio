@@ -1,9 +1,10 @@
 import { logger } from "@/lib/logger";
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { type Direction, type TabMetadata } from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
+import { useDragStore } from "@/stores/dragStore";
 import {
   DndContext,
   PointerSensor,
@@ -66,15 +67,10 @@ type ActiveDragInfo = TabDragInfo | SidebarDragInfo;
 export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
   children,
 }) => {
-  const [activeId, setActiveId] = useState<string | null>(null);
   const [activeDragInfo, setActiveDragInfo] = useState<ActiveDragInfo | null>(
     null,
   );
-  // Track current pointer position for custom drag overlay
-  const [pointerPosition, setPointerPosition] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -84,16 +80,36 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
     }),
   );
 
+  const updateOverlayPosition = useCallback((x: number, y: number) => {
+    if (!overlayRef.current) {
+      return;
+    }
+
+    overlayRef.current.style.left = `${x}px`;
+    overlayRef.current.style.top = `${y}px`;
+  }, []);
+
+  const showOverlay = useCallback(() => {
+    if (overlayRef.current) {
+      overlayRef.current.style.display = "block";
+    }
+  }, []);
+
+  const hideOverlay = useCallback(() => {
+    if (overlayRef.current) {
+      overlayRef.current.style.display = "none";
+    }
+  }, []);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const { active, activatorEvent } = event;
-    setActiveId(active.id as string);
 
-    // Set initial pointer position from the activator event
     if ("clientX" in activatorEvent && "clientY" in activatorEvent) {
-      setPointerPosition({
-        x: activatorEvent.clientX as number,
-        y: activatorEvent.clientY as number,
-      });
+      updateOverlayPosition(
+        activatorEvent.clientX as number,
+        activatorEvent.clientY as number,
+      );
+      showOverlay();
     }
 
     if (!active.data.current) return;
@@ -104,13 +120,9 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
       // ---- Sidebar item drag ----
       const sidebarData = data as unknown as SidebarItemDragData;
       setActiveDragInfo({ source: "sidebar", data: sidebarData });
-
-      // Set drag context so drop zones become visible.
-      // We use a synthetic "tab" identifier so the panel drop zones show.
-      const state = useWorkbenchStore.getState();
-      state.setDragContext({
-        draggedTab: { id: `sidebar-${sidebarData.name}`, panelId: "__sidebar__" },
-      });
+      useDragStore
+        .getState()
+        .setDrag(`sidebar-${sidebarData.name}`, "__sidebar__", "sidebar");
     } else {
       // ---- Tab drag (existing behaviour) ----
       const tabInfo = data as {
@@ -125,35 +137,28 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
         source: "tab",
         ...tabInfo,
       });
-
-      const state = useWorkbenchStore.getState();
-      state.setDragContext({
-        draggedTab: { id: tabInfo.tabId, panelId: tabInfo.panelId },
-      });
+      useDragStore
+        .getState()
+        .setDrag(tabInfo.tabId, tabInfo.panelId, "tab");
     }
-  }, []);
+  }, [showOverlay, updateOverlayPosition]);
 
   const handleDragMove = useCallback((event: DragMoveEvent) => {
-    // Update pointer position during drag for custom overlay
     if ("clientX" in event.activatorEvent) {
       const activatorEvent = event.activatorEvent as PointerEvent;
-      setPointerPosition({
-        x: activatorEvent.clientX + event.delta.x,
-        y: activatorEvent.clientY + event.delta.y,
-      });
+      updateOverlayPosition(
+        activatorEvent.clientX + event.delta.x,
+        activatorEvent.clientY + event.delta.y,
+      );
     }
-  }, []);
+  }, [updateOverlayPosition]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
 
-    setActiveId(null);
     setActiveDragInfo(null);
-    setPointerPosition(null);
-
-    // Clear the global drag context
-    const state = useWorkbenchStore.getState();
-    state.clearDragContext();
+    hideOverlay();
+    useDragStore.getState().clearDrag();
 
     if (!over || !active.data.current || !over.data.current) return;
 
@@ -440,19 +445,17 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
         updatedState.setActiveTab(newPanelId, tabId);
       }, 50);
     }
-  }, []);
+  }, [hideOverlay]);
 
   // -----------------------------------------------------------------------
   // Drag overlay rendering
   // -----------------------------------------------------------------------
   const renderOverlay = () => {
-    if (!activeId || !activeDragInfo || !pointerPosition) return null;
-
     let Icon = IconTable;
     let iconClass = "h-3.5 w-3.5 text-primary";
-    let label: string;
+    let label = "";
 
-    if (activeDragInfo.source === "sidebar") {
+    if (activeDragInfo?.source === "sidebar") {
       // --- Sidebar item overlay ---
       const { data } = activeDragInfo;
       label = data.name;
@@ -489,7 +492,7 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
         Icon = IconTable;
         iconClass = "h-3.5 w-3.5 text-primary";
       }
-    } else {
+    } else if (activeDragInfo?.source === "tab") {
       // --- Tab overlay (existing) ---
       const { tabType, isView, kind } = activeDragInfo;
       label =
@@ -513,10 +516,12 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
 
     return createPortal(
       <div
+        ref={overlayRef}
         className="fixed pointer-events-none z-[9999]"
         style={{
-          left: pointerPosition.x,
-          top: pointerPosition.y,
+          display: "none",
+          left: 0,
+          top: 0,
           transform: "translate(-50%, -50%)",
         }}
       >
@@ -539,7 +544,6 @@ export const WorkbenchDndProvider: React.FC<WorkbenchDndProviderProps> = ({
     >
       {children}
 
-      {/* Custom drag overlay that follows the cursor exactly using a portal */}
       {renderOverlay()}
     </DndContext>
   );

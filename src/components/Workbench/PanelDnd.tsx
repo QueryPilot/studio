@@ -7,10 +7,13 @@ import React, {
   useTransition,
 } from "react";
 import { cn } from "@/lib/utils";
-import { type DropPosition, type TabMetadata } from "@/types/workbench";
+import {
+  type DropPosition,
+  type TabMetadata,
+  type TabRenderState,
+} from "@/types/workbench";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
-import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import {
   IconX,
   IconLayoutGrid,
@@ -29,7 +32,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { PanelContentRenderer } from "./PanelContentRenderer";
 import { useDroppable } from "@dnd-kit/core";
@@ -38,6 +40,8 @@ import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import type { DbType } from "@/types/connection";
 import { usePanelContent } from "@/hooks/usePanelContent";
+import { getMountedTabs, recordVisit } from "./heavyTabMountPolicy";
+import { useDragStore } from "@/stores/dragStore";
 
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
 import { commandService } from "@/services/commandService";
@@ -49,66 +53,59 @@ const EMPTY_PANEL_SHORTCUTS: Array<{ label: string; binding: string }> = [
   { label: "Split panel", binding: "cmd+\\" },
 ];
 
-// Keep last N tabs mounted for instant switching
-// Increased from 3 to preserve more tab state during typical usage
-const MAX_MOUNTED_TABS = 20;
-
-/**
- * Hook to track recently accessed tabs and keep the last N mounted.
- * Uses React 19's startTransition for non-cached tabs to keep old UI visible
- * while new content loads.
- */
-function useRecentTabs(activeTabId: string | null, allTabIds: string[]) {
-  // Track order of recently accessed tabs (most recent first)
+function useMountedTabs(
+  activeTabId: string | null,
+  allTabIds: string[],
+  metadataByTab?: Record<string, TabMetadata | undefined>,
+) {
   const [recentOrder, setRecentOrder] = useState<string[]>(() =>
     activeTabId ? [activeTabId] : [],
   );
-
-  // React 19 transition - keeps old UI visible while new tab loads
   const [isPending, startTransition] = useTransition();
-
-  // Use ref to check cache status without triggering re-renders
   const recentOrderRef = useRef(recentOrder);
-  recentOrderRef.current = recentOrder;
+  const tabIdsRef = useRef(allTabIds);
+  const metadataByTabRef = useRef(metadataByTab);
 
-  // Update recent order when active tab changes
+  useEffect(() => {
+    recentOrderRef.current = recentOrder;
+  }, [recentOrder]);
+
+  useEffect(() => {
+    tabIdsRef.current = allTabIds;
+    metadataByTabRef.current = metadataByTab;
+  }, [allTabIds, metadataByTab]);
+
   useEffect(() => {
     if (!activeTabId) return;
 
-    // Check if tab is already in cache using ref (avoids dependency loop)
-    const isAlreadyCached = recentOrderRef.current.includes(activeTabId);
-
     const updateOrder = () => {
-      setRecentOrder((prev) => {
-        // Skip if already at front
-        if (prev[0] === activeTabId) return prev;
-        // Remove from current position and add to front
-        const filtered = prev.filter((id) => id !== activeTabId);
-        return [activeTabId, ...filtered].slice(0, MAX_MOUNTED_TABS);
-      });
+      setRecentOrder((prev) => recordVisit(prev, activeTabId));
     };
 
-    if (isAlreadyCached) {
-      // Cached tab - update immediately for instant switch
+    const isAlreadyMounted = getMountedTabs({
+      activeTabId,
+      tabIds: tabIdsRef.current,
+      metadataByTab: metadataByTabRef.current,
+      recentOrder: recentOrderRef.current,
+    }).has(activeTabId);
+
+    if (isAlreadyMounted) {
       updateOrder();
     } else {
-      // Non-cached tab - use transition to keep old UI visible while loading
       startTransition(updateOrder);
     }
-  }, [activeTabId]); // Only depend on activeTabId
+  }, [activeTabId, startTransition]);
 
-  // Clean up tabs that no longer exist
-  useEffect(() => {
-    const validTabIds = new Set(allTabIds);
-    setRecentOrder((prev) => {
-      const filtered = prev.filter((id) => validTabIds.has(id));
-      // Only update if something was removed
-      return filtered.length === prev.length ? prev : filtered;
-    });
-  }, [allTabIds]);
-
-  // Return set of tabs that should remain mounted + pending state
-  const mountedTabs = useMemo(() => new Set(recentOrder), [recentOrder]);
+  const mountedTabs = useMemo(
+    () =>
+      getMountedTabs({
+        activeTabId,
+        tabIds: allTabIds,
+        metadataByTab,
+        recentOrder,
+      }),
+    [activeTabId, allTabIds, metadataByTab, recentOrder],
+  );
 
   return { mountedTabs, isPending };
 }
@@ -148,21 +145,17 @@ function ShortcutKeys({
 interface DroppableZoneProps {
   panelId: string;
   position: DropPosition;
-  isVisible: boolean;
 }
 
 const DroppableZone: React.FC<DroppableZoneProps> = ({
   panelId,
   position,
-  isVisible,
 }) => {
   const droppableId = `drop-${panelId}-${position}`;
   const { isOver, setNodeRef } = useDroppable({
     id: droppableId,
     data: { panelId, position },
   });
-
-  if (!isVisible) return null;
 
   const positionStyles: Record<DropPosition, string> = {
     top: "absolute top-1 left-1 right-1 h-1/5",
@@ -199,44 +192,35 @@ const DroppableZone: React.FC<DroppableZoneProps> = ({
   );
 };
 
-const MemoizedPanelContent = React.memo(function MemoizedPanelContent({
-  panelId,
-  tabId,
-  metadata,
-}: {
-  panelId: string;
-  tabId: string;
-  metadata: TabMetadata;
-}) {
-  const stableMetadata = useMemo(
-    () => metadata,
-    [
-      metadata?.type,
-      metadata?.connectionId,
-      metadata?.database,
-      metadata?.schema,
-      metadata?.table,
-      metadata?.title,
-      metadata?.kind,
-      metadata?.isView,
-      metadata?.viewType,
-      metadata?.sql,
-      (metadata as Record<string, unknown>)?.initialFilter,
-      (metadata as Record<string, unknown>)?.functionName,
-      (metadata as Record<string, unknown>)?.returnType,
-      (metadata as Record<string, unknown>)?.objectType,
-      metadata?.syncSort,
-    ],
-  );
-
-  return (
-    <PanelContentRenderer
-      panelId={panelId}
-      tabId={tabId}
-      metadata={stableMetadata}
-    />
-  );
-});
+const MemoizedPanelContent = React.memo(
+  function MemoizedPanelContent({
+    panelId,
+    tabId,
+    metadata,
+    renderState,
+  }: {
+    panelId: string;
+    tabId: string;
+    metadata: TabMetadata;
+    renderState: TabRenderState;
+  }) {
+    return (
+      <PanelContentRenderer
+        panelId={panelId}
+        tabId={tabId}
+        metadata={metadata}
+        renderState={renderState}
+      />
+    );
+  },
+  (prevProps, nextProps) =>
+    prevProps.panelId === nextProps.panelId &&
+    prevProps.tabId === nextProps.tabId &&
+    prevProps.metadata === nextProps.metadata &&
+    prevProps.renderState.isActiveTab === nextProps.renderState.isActiveTab &&
+    prevProps.renderState.isInteractive ===
+      nextProps.renderState.isInteractive,
+);
 
 interface PanelProps {
   panelId: string;
@@ -263,21 +247,10 @@ export const Panel: React.FC<PanelProps> = React.memo(
     const splitPanelAction = useWorkbenchStore(
       (state) => state.splitPanelAction,
     );
-    const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
-    const removeTab = useWorkbenchStore((state) => state.removeTab);
-    const updateTabMetadata = useWorkbenchStore(
-      (state) => state.updateTabMetadata,
-    );
-
-    const loadingTabs = useTabLoadingStore((state) => state.loadingTabs);
 
     const panelRef = useRef<HTMLDivElement>(null);
     const tabsContainerRef = useRef<HTMLDivElement>(null);
 
-    // Subscribe to drag state
-    const draggedTab = useWorkbenchStore(
-      (state) => state.dragDropContext.draggedTab,
-    );
     const isOnlyPanel = useWorkbenchStore(
       useCallback(
         (state: { panelContents: Map<string, unknown> }) =>
@@ -285,14 +258,13 @@ export const Panel: React.FC<PanelProps> = React.memo(
         [],
       ),
     );
-    const isDragActive = useWorkbenchStore(
-      (state) => state.dragDropContext.draggedTab !== null,
+    const isDragActive = useDragStore((state) => state.isDragActive);
+    const isSourcePanel = useDragStore(
+      useCallback(
+        (state) => state.sourcePanelId === panelId,
+        [panelId],
+      ),
     );
-    const isSourcePanel = draggedTab?.panelId === panelId;
-    // Show split zones (top/bottom/left/right) on ALL panels when dragging
-    const showSplitZones = isDragActive;
-    // Show center zone only on non-source panels (dropping on source center is a no-op)
-    // Exception: show center on source if it's the only panel (for consistency)
     const showCenterZone = isDragActive && (!isSourcePanel || isOnlyPanel);
 
     // Get workspace connection IDs for tab color grouping
@@ -300,19 +272,10 @@ export const Panel: React.FC<PanelProps> = React.memo(
       (state) => state.activeWorkspace?.config.connectionIds ?? [],
     );
 
-    // Get focused connection management for tab-sidebar sync
-    const focusedConnectionId = useWorkspaceBundleStore(
-      (state) => state.activeWorkspace?.focusedConnectionId,
-    );
-    const setFocusedConnection = useWorkspaceBundleStore(
-      (state) => state.setFocusedConnection,
-    );
-
-    // Track recently accessed tabs - keeps last N tabs mounted for instant switching
-    // isPending is true while a non-cached tab is loading (React 19 transition)
-    const { mountedTabs, isPending } = useRecentTabs(
+    const { mountedTabs, isPending } = useMountedTabs(
       content?.activeTabId ?? null,
       content?.tabIds ?? [],
+      content?.metadata,
     );
 
     // Memoize connection lookups to avoid O(n*m) connection searches during render
@@ -410,11 +373,6 @@ export const Panel: React.FC<PanelProps> = React.memo(
                   ? content.activeTabId === nextTabId
                   : false;
 
-                const hasDataGrid =
-                  metadata?.type === "table" ||
-                  metadata?.type === "mongo-collection" ||
-                  metadata?.type === "redis-key";
-
                 // Use memoized connection info lookup
                 const connInfo = metadata?.connectionId
                   ? connectionInfoByConnectionId.get(metadata.connectionId)
@@ -428,7 +386,6 @@ export const Panel: React.FC<PanelProps> = React.memo(
                     displayName={displayName}
                     isActive={content.activeTabId === tabId}
                     isFocused={isFocused}
-                    isLoading={loadingTabs.has(tabId)}
                     isLast={index === content.tabIds.length - 1}
                     tabType={metadata?.type || "table"}
                     isView={metadata?.isView}
@@ -450,60 +407,12 @@ export const Panel: React.FC<PanelProps> = React.memo(
                     isOnlyTab={content.tabIds.length === 1}
                     tabIndex={index}
                     totalTabs={content.tabIds.length}
-                    onActivate={() => {
-                      setActiveTab(panelId, tabId);
-                      focusPanel(panelId);
-
-                      // If this tab belongs to a different connection, update focused connection
-                      const tabConnectionId = metadata?.connectionId;
-                      if (
-                        tabConnectionId &&
-                        tabConnectionId !== focusedConnectionId
-                      ) {
-                        setFocusedConnection(tabConnectionId);
-                      }
-                    }}
-                    onClose={() => {
-                      removeTab(panelId, tabId);
-                    }}
-                    onCloseOthers={() => {
-                      // Close all tabs except this one
-                      content.tabIds.forEach((tid) => {
-                        if (tid !== tabId) {
-                          removeTab(panelId, tid);
-                        }
-                      });
-                    }}
-                    onCloseToRight={() => {
-                      // Close all tabs to the right of this one
-                      const tabsToClose = content.tabIds.slice(index + 1);
-                      tabsToClose.forEach((tid) => {
-                        removeTab(panelId, tid);
-                      });
-                    }}
-                    onCloseAll={() => {
-                      // Close all tabs
-                      content.tabIds.forEach((tid) => {
-                        removeTab(panelId, tid);
-                      });
-                    }}
-                    onCopyName={() => {
-                      navigator.clipboard.writeText(displayName);
-                      toast.success("Copied to clipboard", {
-                        description: displayName,
-                      });
-                    }}
                     syncSort={
-                      hasDataGrid ? metadata?.syncSort !== false : undefined
-                    }
-                    onToggleSyncSort={
-                      hasDataGrid
-                        ? () => {
-                            updateTabMetadata(panelId, tabId, {
-                              syncSort:
-                                metadata?.syncSort === false ? true : false,
-                            });
-                          }
+                      metadata &&
+                      (metadata.type === "table" ||
+                        metadata.type === "mongo-collection" ||
+                        metadata.type === "redis-key")
+                        ? metadata.syncSort !== false
                         : undefined
                     }
                   />
@@ -606,14 +515,25 @@ export const Panel: React.FC<PanelProps> = React.memo(
             .map((tabId) => {
               const isActive = content.activeTabId === tabId;
               const metadata = content.metadata?.[tabId];
-              if (!metadata || !isActive) return null;
+              if (!metadata) return null;
+
+              const renderState: TabRenderState = {
+                isActiveTab: isActive,
+                isPanelFocused: isFocused,
+                isInteractive: isFocused && isActive,
+              };
 
               return (
-                <div key={tabId} className={cn("absolute inset-0")}>
+                <div
+                  key={tabId}
+                  className={cn("absolute inset-0")}
+                  style={{ display: isActive ? "block" : "none" }}
+                >
                   <MemoizedPanelContent
                     panelId={panelId}
                     tabId={tabId}
                     metadata={metadata}
+                    renderState={renderState}
                   />
                 </div>
               );
@@ -640,31 +560,17 @@ export const Panel: React.FC<PanelProps> = React.memo(
           )}
 
           {/* Drop Zones */}
-          <DroppableZone
-            panelId={panelId}
-            position="top"
-            isVisible={showSplitZones}
-          />
-          <DroppableZone
-            panelId={panelId}
-            position="bottom"
-            isVisible={showSplitZones}
-          />
-          <DroppableZone
-            panelId={panelId}
-            position="left"
-            isVisible={showSplitZones}
-          />
-          <DroppableZone
-            panelId={panelId}
-            position="right"
-            isVisible={showSplitZones}
-          />
-          <DroppableZone
-            panelId={panelId}
-            position="center"
-            isVisible={showCenterZone}
-          />
+          {isDragActive && (
+            <>
+              <DroppableZone panelId={panelId} position="top" />
+              <DroppableZone panelId={panelId} position="bottom" />
+              <DroppableZone panelId={panelId} position="left" />
+              <DroppableZone panelId={panelId} position="right" />
+              {showCenterZone && (
+                <DroppableZone panelId={panelId} position="center" />
+              )}
+            </>
+          )}
         </div>
       </div>
     );

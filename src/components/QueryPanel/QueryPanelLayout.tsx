@@ -65,6 +65,7 @@ interface QueryPanelLayoutProps {
   refreshNotice?: string;
   onRefreshResults?: () => void;
   showplanMode?: string | null;
+  resultTabGroupId?: string;
 }
 
 function getStatementKeyword(statement: string): string {
@@ -125,6 +126,7 @@ export function QueryPanelLayout({
   refreshNotice,
   onRefreshResults,
   showplanMode,
+  resultTabGroupId = "query-result-view-mode",
 }: QueryPanelLayoutProps) {
   const hasModeTabs = activeSupportedModes.length > 0;
   const showResultHeader = batchResults.length > 0 || hasModeTabs;
@@ -326,7 +328,7 @@ export function QueryPanelLayout({
                                   onModeChange(value as ViewMode);
                                 }}
                                 enableShortcuts={true}
-                                tabGroupId="query-result-view-mode"
+                                tabGroupId={resultTabGroupId}
                                 focused={focused}
                                 enableGlobalShortcuts={false}
                               >

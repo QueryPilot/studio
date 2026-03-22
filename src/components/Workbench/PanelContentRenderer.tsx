@@ -33,7 +33,7 @@ import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { isMySQLCompatible, DbType, getDefaultSchema } from "@/types/connection";
 import { Skeleton } from "../ui/skeleton";
-import { type TabMetadata } from "@/types/workbench";
+import { type TabMetadata, type TabRenderState } from "@/types/workbench";
 import { ERDPanel } from "@/components/Erd";
 import { TableDesigner } from "@/components/TableDesigner";
 import { CollectionDesigner } from "@/components/CollectionDesigner";
@@ -49,6 +49,7 @@ interface PanelContentRendererProps {
   panelId: string;
   tabId: string;
   metadata?: TabMetadata;
+  renderState?: TabRenderState;
 }
 
 /** Per-tab grid preferences key. Returns undefined when sync is ON (default). */
@@ -71,7 +72,7 @@ const TabLoadingSkeleton = () => (
 );
 
 export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
-  ({ panelId, tabId, metadata }) => {
+  ({ panelId, tabId, metadata, renderState }) => {
     const activeConnectionId = useWorkspaceSelectionStore(
       (state) => state.connectionId,
     );
@@ -82,6 +83,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         [panelId],
       ),
     );
+    const effectiveRenderState = renderState ?? {
+      isActiveTab: true,
+      isPanelFocused,
+      isInteractive: isPanelFocused,
+    };
 
     // Visibility guard: defer heavy content rendering to allow instant tab switching
     const [contentReady, setContentReady] = useState(false);
@@ -250,6 +256,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             schema={metadata?.schema}
             dbType={dbType}
             className="h-full"
+            isInteractive={effectiveRenderState.isInteractive}
           />
         </FeatureErrorBoundary>
       );
@@ -283,6 +290,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             connectionId={metadata?.connectionId || activeConnectionId || ""}
             database={parseInt(metadata?.database || "0", 10)}
             className="h-full"
+            isInteractive={effectiveRenderState.isInteractive}
           />
         </FeatureErrorBoundary>
       );
@@ -295,7 +303,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             panelId={panelId}
             tabId={tabId}
             metadata={metadata}
-            focused={isPanelFocused}
+            focused={effectiveRenderState.isInteractive}
           />
         </FeatureErrorBoundary>
       );
@@ -312,7 +320,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
             database={parseInt(metadata.database || "0", 10)}
             initialKey={metadata.table}
             className="h-full"
-            focused={isPanelFocused}
+            focused={effectiveRenderState.isInteractive}
             sortGridId={perTabSortGridId(redisGridId, tabId, metadata.syncSort)}
           />
         </FeatureErrorBoundary>
@@ -443,7 +451,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                 onValueChange={setActiveView}
                 enableShortcuts={true}
                 tabGroupId={`table-views-${tabId}`}
-                focused={isPanelFocused}
+                focused={effectiveRenderState.isInteractive}
               >
                 <TabsList>
                   <TabsTrigger value="data" tabIndex={0}>
@@ -541,7 +549,7 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                       initialFilter={metadata.initialFilter as string | undefined}
                       panelId={panelId}
                       tabId={tabId}
-                      focused={isPanelFocused}
+                      focused={effectiveRenderState.isInteractive}
                       sortGridId={perTabSortGridId(
                         `${metadata.connectionId || activeConnectionId || ""}:${metadata.database || ""}:${metadata.schema}:${metadata.table || ""}`,
                         tabId,

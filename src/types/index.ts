@@ -132,7 +132,6 @@ export type {
   PanelContent,
   SplitAction,
   WorkbenchConstraints,
-  DragDropContext,
   ResizeContext,
 } from "./workbench";
 

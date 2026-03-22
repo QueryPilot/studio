@@ -13,10 +13,10 @@ import {
   useEffect,
   useRef,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useAcpStore } from "@/stores/acpStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import useWorkbenchStore from "@/stores/workbenchStore";
-import type { PanelContent } from "@/types/workbench";
 import {
   useAIContextWithSchema,
   serializeAIContext,
@@ -171,39 +171,50 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const aiContext = useAIContextWithSchema();
 
   // Get open tabs for @ mention autocomplete
-  const panelContents = useWorkbenchStore(
-    (s): Map<string, PanelContent> => s.panelContents,
+  const openTabFingerprints = useWorkbenchStore(
+    useShallow((state) => {
+      const fingerprints: string[] = [];
+      state.panelContents.forEach((panel, panelId) => {
+        panel.tabIds.forEach((tabId) => {
+          const metadata = panel.metadata?.[tabId];
+          fingerprints.push(
+            [
+              tabId,
+              metadata?.title ?? tabId,
+              metadata?.type ?? "unknown",
+              panelId,
+              metadata?.connectionId ?? "",
+            ].join("\u0000"),
+          );
+        });
+      });
+      return fingerprints;
+    }),
   );
   const connections = useConnectionStore((s) => s.connections);
   const openTabs = useMemo(() => {
-    const tabs: Array<{
-      id: string;
-      name: string;
-      type: string;
-      panelId: string;
-      connectionId?: string;
-      connectionName?: string;
-    }> = [];
-    panelContents.forEach((panel: PanelContent, panelId: string) => {
-      panel.tabIds.forEach((tabId: string) => {
-        const meta = panel.metadata?.[tabId];
-        const connId = meta?.connectionId;
-        const conn = connId
-          ? connections.find((c) => c.profile.id === connId)
-          : undefined;
-        tabs.push({
-          id: tabId,
-          name: meta?.title ?? tabId,
-          type: meta?.type ?? "unknown",
-          panelId,
-          connectionId: connId,
-          connectionName: conn?.profile.name,
-        });
-      });
-    });
-    return tabs;
-  }, [panelContents, connections]);
+    return openTabFingerprints.map((fingerprint) => {
+      const [
+        id = "",
+        name = "",
+        type = "unknown",
+        panelId = "",
+        connectionId = "",
+      ] = fingerprint.split("\u0000");
+      const connection = connectionId
+        ? connections.find((item) => item.profile.id === connectionId)
+        : undefined;
 
+      return {
+        id,
+        name,
+        type,
+        panelId,
+        connectionId: connectionId || undefined,
+        connectionName: connection?.profile.name,
+      };
+    });
+  }, [openTabFingerprints, connections]);
   const [inputValue, setInputValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [attachedContext, setAttachedContext] =

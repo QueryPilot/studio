@@ -28,12 +28,6 @@ describe("workbenchStore", () => {
       historyIndex: -1,
       preventAutoInit: false,
       activeConnectionId: null,
-      dragDropContext: {
-        draggedTab: null,
-        draggedPanel: null,
-        dropTarget: null,
-        dropPosition: null,
-      },
     });
 
     // Reset panel focus store
@@ -562,49 +556,6 @@ describe("workbenchStore", () => {
       store.focusAdjacentPanel("left");
 
       expect(usePanelFocusStore.getState().focusedPanelId).toBe(currentFocus);
-    });
-  });
-
-  describe("Drag/Drop Context", () => {
-    it("should set drag context", () => {
-      const store = useWorkbenchStore.getState();
-
-      store.setDragContext({
-        draggedTab: { id: "tab-1", panelId: "panel-1" },
-        draggedPanel: "panel-1",
-      });
-
-      const state = useWorkbenchStore.getState();
-      expect(state.dragDropContext.draggedTab?.id).toBe("tab-1");
-      expect(state.dragDropContext.draggedPanel).toBe("panel-1");
-    });
-
-    it("should merge drag context", () => {
-      const store = useWorkbenchStore.getState();
-
-      store.setDragContext({ draggedTab: { id: "tab-1", panelId: "panel-1" } });
-      store.setDragContext({ dropTarget: { panelId: "panel-2" } });
-
-      const state = useWorkbenchStore.getState();
-      expect(state.dragDropContext.draggedTab?.id).toBe("tab-1");
-      expect(state.dragDropContext.dropTarget?.panelId).toBe("panel-2");
-    });
-
-    it("should clear drag context", () => {
-      const store = useWorkbenchStore.getState();
-
-      store.setDragContext({
-        draggedTab: { id: "tab-1", panelId: "panel-1" },
-        draggedPanel: "panel-1",
-      });
-
-      store.clearDragContext();
-
-      const state = useWorkbenchStore.getState();
-      expect(state.dragDropContext.draggedTab).toBeNull();
-      expect(state.dragDropContext.draggedPanel).toBeNull();
-      expect(state.dragDropContext.dropTarget).toBeNull();
-      expect(state.dragDropContext.dropPosition).toBeNull();
     });
   });
 

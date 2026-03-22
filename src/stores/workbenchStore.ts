@@ -7,7 +7,6 @@ import {
   type TabMetadata,
   type SplitAction,
   type Direction,
-  type DragDropContext,
 } from "@/types/workbench";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
@@ -28,7 +27,6 @@ interface WorkbenchStore {
   panelContents: Map<string, PanelContent>;
   layoutHistory: GridNode[];
   historyIndex: number;
-  dragDropContext: DragDropContext;
   preventAutoInit: boolean;
   activeConnectionId: string | null;
 
@@ -44,9 +42,6 @@ interface WorkbenchStore {
   ) => void;
   focusPanel: (panelId: string) => void;
   focusAdjacentPanel: (direction: Direction) => void;
-
-  setDragContext: (context: Partial<DragDropContext>) => void;
-  clearDragContext: () => void;
 
   resetLayout: () => void;
 
@@ -81,12 +76,6 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     historyIndex: -1,
     preventAutoInit: false,
     activeConnectionId: null,
-    dragDropContext: {
-      draggedTab: null,
-      draggedPanel: null,
-      dropTarget: null,
-      dropPosition: null,
-    },
 
     setConnectionId: (connectionId) => {
       const oldConnectionId = get().activeConnectionId;
@@ -340,23 +329,6 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
       if (adjacentId && adjacentId !== focusedPanelId) {
         focusStore.focusPanel(adjacentId);
       }
-    },
-
-    setDragContext: (context) => {
-      set((state) => ({
-        dragDropContext: { ...state.dragDropContext, ...context },
-      }));
-    },
-
-    clearDragContext: () => {
-      set({
-        dragDropContext: {
-          draggedTab: null,
-          draggedPanel: null,
-          dropTarget: null,
-          dropPosition: null,
-        },
-      });
     },
 
     resetLayout: () => {

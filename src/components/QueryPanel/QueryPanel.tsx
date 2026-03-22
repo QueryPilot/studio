@@ -16,7 +16,6 @@ import { usePreferencesStore } from "@/stores/preferencesStore";
 import { type QueryResult } from "@/stores/tabStateStore";
 import type { ColumnMeta } from "@/types/database";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
-import { useKeyboardServicesOptional } from "@/components/KeyboardProvider";
 import {
   handleMutationCache,
   isMutationQuery,
@@ -61,6 +60,7 @@ interface QueryPanelProps {
   dbType?: string;
   className?: string;
   initialSql?: string;
+  isInteractive?: boolean;
 }
 
 interface ExecuteSingleStatementOptions {
@@ -115,11 +115,13 @@ export const QueryPanel = memo(function QueryPanel({
   dbType = "postgres",
   className,
   initialSql = "",
+  isInteractive: interactiveOverride,
 }: QueryPanelProps) {
   // Subscribe to boolean only — avoids re-rendering when another panel gets focused
   const isPanelFocused = usePanelFocusStore(
     (state) => state.focusedPanelId === panelId,
   );
+  const isInteractive = interactiveOverride ?? isPanelFocused;
   const {
     activeBatchResultIndex,
     batchResults,
@@ -209,12 +211,12 @@ export const QueryPanel = memo(function QueryPanel({
   // Update focused editor when panel focus changes
   useEffect(() => {
     const editorId = `${panelId}:${tabId}`;
-    if (isPanelFocused) {
+    if (isInteractive) {
       editorRegistry.setFocusedEditor(editorId);
     } else {
       editorRegistry.clearFocusedEditor(editorId);
     }
-  }, [isPanelFocused, panelId, tabId]);
+  }, [isInteractive, panelId, tabId]);
 
   // Ref to track if execution is in progress (prevents double-execution from duplicate events)
   const isExecutingRef = useRef(false);
@@ -314,7 +316,7 @@ export const QueryPanel = memo(function QueryPanel({
       }
 
       // Check if this is a SET SHOWPLAN command (single-statement mode)
-      if (dbType?.toLowerCase() === "sqlserver") {
+      if (dbType.toLowerCase() === "sqlserver") {
         const showplanSetResult = parseShowplanSet(sql);
         if (showplanSetResult) {
           setShowplanMode(showplanSetResult.enabled ? showplanSetResult.format : null);
@@ -347,8 +349,9 @@ export const QueryPanel = memo(function QueryPanel({
       let effectiveSql = sql;
       let singleShowplanFormat: ShowplanFormat | null = null;
 
-      if (showplanMode && dbType?.toLowerCase() === "sqlserver") {
-        const setCommand = SET_COMMAND_MAP[showplanMode as ShowplanFormat] ?? showplanMode;
+      if (showplanMode && dbType.toLowerCase() === "sqlserver") {
+        const setCommand =
+          SET_COMMAND_MAP[showplanMode as ShowplanFormat] || showplanMode;
         effectiveSql = `SET ${setCommand} ON;\n${sql};\nSET ${setCommand} OFF;`;
         singleShowplanFormat = showplanMode as ShowplanFormat;
       }
@@ -917,9 +920,7 @@ export const QueryPanel = memo(function QueryPanel({
           },
         });
 
-        if (orchestrationResult.finalShowplanState !== undefined) {
-          setShowplanMode(orchestrationResult.finalShowplanState);
-        }
+        setShowplanMode(orchestrationResult.finalShowplanState);
 
         const lastResult =
           orchestrationResult.statementResults[
@@ -1116,7 +1117,7 @@ export const QueryPanel = memo(function QueryPanel({
 
   // Subscribe to event bus for keyboard shortcuts
   useEffect(() => {
-    queryActionDispatcher.register(panelId, {
+    queryActionDispatcher.register(panelId, tabId, {
       format: handleBeautify,
       execute: () => handleExecute(),
       executeAll: () => handleExecuteAll(),
@@ -1127,7 +1128,7 @@ export const QueryPanel = memo(function QueryPanel({
     });
 
     return () => {
-      queryActionDispatcher.unregister(panelId);
+      queryActionDispatcher.unregister(panelId, tabId);
     };
   }, [
     handleBeautify,
@@ -1137,6 +1138,7 @@ export const QueryPanel = memo(function QueryPanel({
     handleCancel,
     handleSaveQuery,
     panelId,
+    tabId,
     toggleResults,
   ]);
 
@@ -1152,7 +1154,7 @@ export const QueryPanel = memo(function QueryPanel({
   // but NOT when focus is already within the panel (e.g., user clicked a search input in results)
   const panelContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (isPanelFocused) {
+    if (isInteractive) {
       requestAnimationFrame(() => {
         // Don't steal focus if something within this panel is already focused
         const activeEl = document.activeElement;
@@ -1166,7 +1168,7 @@ export const QueryPanel = memo(function QueryPanel({
         editorRef.current?.focus();
       });
     }
-  }, [isPanelFocused]);
+  }, [isInteractive]);
 
   const resolvedBatchResultIndex =
     activeBatchResultIndex < batchResults.length
@@ -1256,7 +1258,7 @@ export const QueryPanel = memo(function QueryPanel({
         hasQuery={hasQuery}
         showResults={showResults}
         showOutline={showOutline}
-        focused={isPanelFocused}
+        focused={isInteractive}
         detectedDialect={detectedDialect}
         runButtonLabel={runButtonLabel}
         onExecuteAll={() => {
@@ -1288,6 +1290,7 @@ export const QueryPanel = memo(function QueryPanel({
         }
         onRefreshResults={canRefreshResults ? handleRefreshResults : undefined}
         showplanMode={showplanMode}
+        resultTabGroupId={`query-result-view-mode:${tabId}`}
       />
       <SaveQueryDialog
         open={showSaveDialog}

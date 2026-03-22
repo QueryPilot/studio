@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   IconX,
@@ -18,15 +18,18 @@ import {
 } from "@/components/ui/tooltip";
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuCheckboxItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { shouldShowConnectionColors } from "@/utils/connectionColors";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import type { DbType } from "@/types/connection";
+import useWorkbenchStore from "@/stores/workbenchStore";
+import { useIsTabLoading } from "@/stores/tabLoadingStore";
+import { toast } from "sonner";
 
 interface DraggableTabProps {
   tabId: string;
@@ -34,8 +37,6 @@ interface DraggableTabProps {
   displayName: string;
   isActive: boolean;
   isFocused: boolean;
-  /** Whether this tab is loading data */
-  isLoading?: boolean;
   isLast: boolean;
   tabType?: string;
   isView?: boolean;
@@ -43,47 +44,24 @@ interface DraggableTabProps {
   returnType?: string;
   objectType?: "function" | "procedure";
   isNextActive?: boolean;
-  /** Connection ID this tab belongs to */
   connectionId?: string;
-  /** All connection IDs in the workspace (for color assignment) */
   workspaceConnectionIds?: string[];
-  /** Database name for tooltip display */
   databaseName?: string;
-  /** Database type for showing database logo */
   dbType?: DbType;
-  /** Connection display name for subtitle */
   connectionName?: string;
-  /** Schema name for subtitle */
   schemaName?: string;
-  /** Whether this is the only tab in the panel */
   isOnlyTab?: boolean;
-  /** Index of this tab in the panel */
   tabIndex?: number;
-  /** Total number of tabs in the panel */
   totalTabs?: number;
-  onActivate: () => void;
-  onClose: () => void;
-  /** Close all other tabs in the panel */
-  onCloseOthers?: () => void;
-  /** Close all tabs to the right of this tab */
-  onCloseToRight?: () => void;
-  /** Close all tabs in the panel */
-  onCloseAll?: () => void;
-  /** Copy the tab name to clipboard */
-  onCopyName?: () => void;
-  /** Whether sort is synced across tabs of the same table */
   syncSort?: boolean;
-  /** Toggle sort sync for this tab */
-  onToggleSyncSort?: () => void;
 }
 
-export const DraggableTab: React.FC<DraggableTabProps> = ({
+export const DraggableTab: React.FC<DraggableTabProps> = React.memo(({
   tabId,
   panelId,
   displayName,
   isActive,
   isFocused,
-  isLoading = false,
   isLast,
   tabType = "table",
   isView,
@@ -100,23 +78,20 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
   isOnlyTab = false,
   tabIndex = 0,
   totalTabs = 1,
-  onActivate,
-  onClose,
-  onCloseOthers,
-  onCloseToRight,
-  onCloseAll,
-  onCopyName,
   syncSort,
-  onToggleSyncSort,
 }) => {
+  const isLoading = useIsTabLoading(tabId);
+  const setActiveTab = useWorkbenchStore((state) => state.setActiveTab);
+  const focusPanel = useWorkbenchStore((state) => state.focusPanel);
+  const removeTab = useWorkbenchStore((state) => state.removeTab);
+  const updateTabMetadata = useWorkbenchStore((state) => state.updateTabMetadata);
+
   const draggableId = `tab-${panelId}-${tabId}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: draggableId,
     data: { tabId, panelId, displayName, tabType, isView, kind },
   });
 
-  // Don't apply transform here - DragOverlay handles the visual feedback
-  // Only reduce opacity to indicate the element is being dragged
   const style = {
     opacity: isDragging ? 0.4 : 1,
   };
@@ -142,7 +117,6 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     }
   }, [tabType, isView]);
 
-  // Determine icon color based on type
   const getIconClass = () => {
     if (tabType === "table" && isView) {
       if (kind === "MaterializedView") {
@@ -163,7 +137,6 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       );
     }
     if (tabType === "function") {
-      // Procedures return 'void', functions have a return type
       const isProcedure =
         objectType === "procedure" ||
         (objectType == null && returnType === "void");
@@ -187,17 +160,14 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     return "h-3.5 w-3.5";
   };
 
-  // Connection indicator - only shown when 2+ connections in workspace
   const showConnectionIndicator =
     connectionId &&
     workspaceConnectionIds.length > 0 &&
     shouldShowConnectionColors(workspaceConnectionIds.length);
 
-  // Get database logo path if dbType is provided
   const databaseLogoPath =
     showConnectionIndicator && dbType ? getDatabaseLogo(dbType) : null;
 
-  // Build subtitle for multi-connection context: "connectionName:schema"
   const subtitle = useMemo(() => {
     if (!showConnectionIndicator) return null;
     if (!connectionName && !schemaName) return null;
@@ -209,7 +179,58 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
 
   const hasTabsToRight = tabIndex < totalTabs - 1;
 
-  // Local rAF-driven progress animation (same approach as title bar commit progress)
+  const handleActivate = useCallback(() => {
+    setActiveTab(panelId, tabId);
+    focusPanel(panelId);
+  }, [focusPanel, panelId, setActiveTab, tabId]);
+
+  const handleClose = useCallback(() => {
+    removeTab(panelId, tabId);
+  }, [panelId, removeTab, tabId]);
+
+  const handleCloseOthers = useCallback(() => {
+    const panel = useWorkbenchStore.getState().panelContents.get(panelId);
+    panel?.tabIds.forEach((existingTabId) => {
+      if (existingTabId !== tabId) {
+        removeTab(panelId, existingTabId);
+      }
+    });
+  }, [panelId, removeTab, tabId]);
+
+  const handleCloseToRight = useCallback(() => {
+    const panel = useWorkbenchStore.getState().panelContents.get(panelId);
+    if (!panel) {
+      return;
+    }
+
+    const tabPosition = panel.tabIds.indexOf(tabId);
+    panel.tabIds.slice(tabPosition + 1).forEach((existingTabId) => {
+      removeTab(panelId, existingTabId);
+    });
+  }, [panelId, removeTab, tabId]);
+
+  const handleCloseAll = useCallback(() => {
+    const panel = useWorkbenchStore.getState().panelContents.get(panelId);
+    panel?.tabIds.forEach((existingTabId) => {
+      removeTab(panelId, existingTabId);
+    });
+  }, [panelId, removeTab]);
+
+  const handleCopyName = useCallback(() => {
+    void navigator.clipboard.writeText(displayName);
+    toast.success("Copied to clipboard", {
+      description: displayName,
+    });
+  }, [displayName]);
+
+  const handleToggleSyncSort = useCallback(() => {
+    const metadata =
+      useWorkbenchStore.getState().panelContents.get(panelId)?.metadata?.[tabId];
+    updateTabMetadata(panelId, tabId, {
+      syncSort: metadata?.syncSort === false ? true : false,
+    });
+  }, [panelId, tabId, updateTabMetadata]);
+
   const [loadProgress, setLoadProgress] = useState(0);
   const loadProgressRaf = useRef<number | null>(null);
 
@@ -238,7 +259,6 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         cancelAnimationFrame(loadProgressRaf.current);
         loadProgressRaf.current = null;
       }
-      // Brief flash to 100% then hide, matching nprogress behavior
       if (loadProgress > 0) {
         setLoadProgress(100);
         const timer = setTimeout(() => {
@@ -282,10 +302,9 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
               )}
               onClick={(e) => {
                 e.stopPropagation();
-                onActivate();
+                handleActivate();
               }}
             >
-              {/* Database logo indicator */}
               {databaseLogoPath && (
                 <Tooltip>
                   <TooltipTrigger className="flex items-center">
@@ -304,7 +323,6 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                 </Tooltip>
               )}
               <div className="h-5 w-5 relative shrink-0">
-                {/* Close button — fades in on hover, always interactive */}
                 <button
                   className="absolute inset-0 z-10 flex items-center justify-center hover:bg-destructive/10 rounded transition-all duration-100 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100"
                   onPointerDown={(e) => {
@@ -313,12 +331,11 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onClose();
+                    handleClose();
                   }}
                 >
                   <IconX className="h-3.5 w-3.5" />
                 </button>
-                {/* Type icon — fades out on hover */}
                 <div className="absolute inset-0 flex items-center justify-center transition-opacity duration-100 pointer-events-none group-hover:opacity-0 group-focus-within:opacity-0">
                   <Icon className={getIconClass()} />
                 </div>
@@ -331,7 +348,6 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                   </span>
                 )}
               </span>
-              {/* Loading progress bar — nprogress-style at tab bottom */}
               {loadProgress > 0 && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 z-20">
                   <div className="absolute inset-0 bg-primary/20" />
@@ -345,34 +361,34 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
           }
         />
         <ContextMenuContent>
-          <ContextMenuItem onClick={onClose}>
+          <ContextMenuItem onClick={handleClose}>
             <IconX className="h-4 w-4 mr-2" />
             Close
           </ContextMenuItem>
-          <ContextMenuItem onClick={onCloseOthers} disabled={isOnlyTab}>
+          <ContextMenuItem onClick={handleCloseOthers} disabled={isOnlyTab}>
             <span className="h-4 w-4 mr-2" />
             Close Others
           </ContextMenuItem>
-          <ContextMenuItem onClick={onCloseToRight} disabled={!hasTabsToRight}>
+          <ContextMenuItem onClick={handleCloseToRight} disabled={!hasTabsToRight}>
             <IconArrowRight className="h-4 w-4 mr-2" />
             Close to the Right
           </ContextMenuItem>
-          <ContextMenuItem onClick={onCloseAll}>
+          <ContextMenuItem onClick={handleCloseAll}>
             <span className="h-4 w-4 mr-2" />
             Close All
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={onCopyName}>
+          <ContextMenuItem onClick={handleCopyName}>
             <IconCopy className="h-4 w-4 mr-2" />
             Copy Name
           </ContextMenuItem>
-          {onToggleSyncSort && (
+          {syncSort !== undefined && (
             <>
               <ContextMenuSeparator />
               <ContextMenuCheckboxItem
-                checked={!!syncSort}
+                checked={syncSort}
                 onCheckedChange={() => {
-                  onToggleSyncSort();
+                  handleToggleSyncSort();
                 }}
               >
                 Sync Grid State Across Tabs
@@ -396,4 +412,4 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       </div>
     </>
   );
-};
+});

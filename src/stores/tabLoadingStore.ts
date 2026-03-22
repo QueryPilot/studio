@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { create } from "zustand";
 
 interface TabLoadingState {
@@ -22,3 +23,9 @@ export const useTabLoadingStore = create<TabLoadingState>((set, get) => ({
     }
   },
 }));
+
+export function useIsTabLoading(tabId: string): boolean {
+  return useTabLoadingStore(
+    useCallback((state: TabLoadingState) => state.loadingTabs.has(tabId), [tabId]),
+  );
+}

@@ -251,12 +251,44 @@ vi.mock("sonner", () => ({
 }));
 
 import { QueryPanel } from "../QueryPanel";
+import { editorRegistry } from "@/services/editorRegistry";
 
 describe("QueryPanel execution state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isMutationQueryMock.mockReset();
     isMutationQueryMock.mockReturnValue(false);
+  });
+
+  it("does not claim focused editor ownership when the mounted tab is not interactive", async () => {
+    render(
+      <QueryPanel
+        {...({
+          panelId: "panel-1",
+          tabId: "tab-1",
+          connectionId: "conn-1",
+          database: "app",
+          initialSql: "SELECT 1",
+          isInteractive: false,
+        } as React.ComponentProps<typeof QueryPanel>)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        (
+          editorRegistry.register as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls,
+      ).toHaveLength(1);
+    });
+
+    expect(
+      (
+        editorRegistry.setFocusedEditor as unknown as {
+          mock: { calls: unknown[][] };
+        }
+      ).mock.calls,
+    ).toHaveLength(0);
   });
 
   it("surfaces a durable cancelled status after cancelling an in-flight query", async () => {
