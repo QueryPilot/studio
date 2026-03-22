@@ -261,7 +261,7 @@ export interface ColumnTypeHint {
 }
 
 const numericPattern = /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { validate as uuidValidate } from "uuid";
 
 /**
  * Coerce value based on target column type
@@ -318,7 +318,7 @@ export function coerceToColumnType(
 
   // UUID - validate format
   if (dbType === "uuid") {
-    if (UUID_REGEX.test(str)) return str.toLowerCase();
+    if (uuidValidate(str)) return str.toLowerCase();
     // Try to format as UUID if it's 32 hex chars
     const hex = str.replace(/[^0-9a-f]/gi, "");
     if (hex.length === 32) {
@@ -482,7 +482,7 @@ export function validatePasteData(
         // UUID validation
         if (dbType === "uuid") {
           const str = String(value);
-          if (!UUID_REGEX.test(str)) {
+          if (!uuidValidate(str)) {
             errors.push({
               row: rowIndex,
               column: colIndex,
