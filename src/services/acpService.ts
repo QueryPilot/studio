@@ -337,6 +337,15 @@ export const AcpService = {
   },
 
   /**
+   * Respond to a pending permission request
+   * @param requestId The permission request ID
+   * @param optionId The chosen option ID (e.g., "allow-once", "reject-once")
+   */
+  async respondPermission(requestId: string, optionId: string): Promise<void> {
+    return invoke("acp_respond_permission", { requestId, optionId });
+  },
+
+  /**
    * Cancel an active session/prompt
    */
   async cancelSession(instanceId: string): Promise<void> {

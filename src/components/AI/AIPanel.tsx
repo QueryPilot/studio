@@ -2122,6 +2122,7 @@ function parseQueryPilotShellCall(input: Record<string, unknown>): {
 
 function InlineToolCallEvent({ call }: { call: ToolCallType }) {
   const [expanded, setExpanded] = useState(false);
+  const connections = useConnectionStore((s) => s.connections);
   const lowerName = call.name.toLowerCase();
   const isFilesystemTool =
     lowerName === "read" ||
@@ -2267,19 +2268,36 @@ function InlineToolCallEvent({ call }: { call: ToolCallType }) {
             {/* Meta params as inline badges */}
             {metaParams.length > 0 && (
               <div className="mt-1 flex flex-wrap gap-1">
-                {metaParams.map(([key, value]) => (
-                  <span
-                    key={key}
-                    className="inline-flex items-center gap-1 rounded border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground"
-                  >
-                    <span className="font-medium">{key}:</span>
-                    <span className="max-w-[180px] truncate">
-                      {typeof value === "string"
-                        ? value
-                        : JSON.stringify(value)}
+                {metaParams.map(([key, value]) => {
+                  let displayValue =
+                    typeof value === "string"
+                      ? value
+                      : JSON.stringify(value);
+
+                  // Resolve connectionId to human-readable connection name
+                  if (key === "connectionId" && typeof value === "string") {
+                    const conn = connections.find(
+                      (c) => c.profile.id === value,
+                    );
+                    if (conn) {
+                      displayValue = conn.profile.name;
+                    }
+                  }
+
+                  return (
+                    <span
+                      key={key}
+                      className="inline-flex items-center gap-1 rounded border border-border/50 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground"
+                    >
+                      <span className="font-medium">
+                        {key === "connectionId" ? "connection" : key}:
+                      </span>
+                      <span className="max-w-[180px] truncate">
+                        {displayValue}
+                      </span>
                     </span>
-                  </span>
-                ))}
+                  );
+                })}
               </div>
             )}
 

@@ -252,6 +252,29 @@ export interface ModeData {
   mode: string;
 }
 
+// ============ Permission Request Types ============
+
+/**
+ * Permission request from agent requiring user approval.
+ * Emitted via `acp-permission-request` Tauri event.
+ */
+export interface AcpPermissionRequest {
+  requestId: string;
+  sessionId: string;
+  toolCallId: string;
+  title: string;
+  kind: string;
+  rawInput?: Record<string, unknown>;
+  options: AcpPermissionOption[];
+}
+
+export interface AcpPermissionOption {
+  optionId: string;
+  name: string;
+  /** e.g. "allowonce", "allowalways", "rejectonce", "rejectalways" */
+  kind: string;
+}
+
 // ============ Commands Types ============
 
 /**

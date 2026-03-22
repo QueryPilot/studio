@@ -18,6 +18,7 @@ import { CommandPalette } from "./components/CommandPalette/CommandPalette";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp/KeyboardShortcutsHelp";
 import { GlobalConfirmDialog } from "./components/GlobalConfirmDialog";
+import { initAcpPermissionListener } from "./stores/acpPermissionStore";
 import { initializeSentry } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
@@ -39,6 +40,11 @@ void useTabStateStore.getState().initialize();
 // to the new consolidated session database. Fire-and-forget — never blocks startup.
 runSessionMigration().catch((error) => {
   console.error("[main] Session migration failed:", error);
+});
+
+// Initialize ACP permission request listener (fire-and-forget)
+initAcpPermissionListener().catch((error) => {
+  console.error("[main] ACP permission listener init failed:", error);
 });
 
 // Suppress external script errors in development
