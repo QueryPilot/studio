@@ -26,12 +26,15 @@ const mocks = vi.hoisted(() => ({
 // Mock dependencies
 vi.mock("@/adapters/mongodb/MongoDBAdapter");
 vi.mock("@/stores/crudStore", () => ({
-  useCrudStore: (
-    selector?: (state: { stageCommand: typeof mocks.stageCommand }) => unknown,
-  ) => {
-    const state = { stageCommand: mocks.stageCommand };
-    return selector ? selector(state) : state;
-  },
+  useCrudStore: Object.assign(
+    (
+      selector?: (state: { stageCommand: typeof mocks.stageCommand; stagedCommands: Map<string, unknown[]> }) => unknown,
+    ) => {
+      const state = { stageCommand: mocks.stageCommand, stagedCommands: new Map() };
+      return selector ? selector(state) : state;
+    },
+    { getState: () => ({ clearCommittedChanges: vi.fn() }) },
+  ),
 }));
 vi.mock("../../hooks/useDocumentData", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -113,6 +116,7 @@ describe("DocumentDataGrid Feature Parity", () => {
       createInsertCommand: vi.fn(),
       createDeleteCommand: vi.fn(),
       commandFactory: undefined,
+      rawDocuments: [],
     });
   });
 

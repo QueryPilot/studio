@@ -194,6 +194,7 @@ describe('DocumentOperationExecutor', () => {
           unique: false,
           defaultLanguage: 'english',
           languageOverride: 'language',
+          name: 'users_email_text',
         },
         'analytics',
       );

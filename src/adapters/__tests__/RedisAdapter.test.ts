@@ -133,7 +133,7 @@ describe('RedisAdapter', () => {
     });
 
     it('getKeyType calls keyvalue_execute with Type operation', async () => {
-      mockInvoke.mockResolvedValueOnce({ type: 'key_type', data: 'hash' });
+      mockInvoke.mockResolvedValueOnce({ type: 'keyType', data: 'hash' });
 
       const result = await adapter.getKeyType('mykey');
 
@@ -208,7 +208,7 @@ describe('RedisAdapter', () => {
 
     it('getServerInfo calls keyvalue_execute with ServerInfo operation', async () => {
       mockInvoke.mockResolvedValueOnce({
-        type: 'server_info',
+        type: 'serverInfo',
         data: { redis_version: '7.0.0', connected_clients: '5' },
       });
 

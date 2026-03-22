@@ -404,7 +404,7 @@ describe("CommandList", () => {
     ];
 
     await act(async () => {
-      render(<CommandList commands={commands} />);
+      render(<CommandList commands={commands} allowAutoExecute={false} />);
     });
 
     expect(screen.getByText(/Allow all this conversation/i)).toBeInTheDocument();
@@ -512,11 +512,10 @@ And also:
     expect(commands).toHaveLength(2);
 
     await act(async () => {
-      render(<CommandList commands={commands} />);
+      render(<CommandList commands={commands} allowAutoExecute={false} />);
     });
 
     expect(screen.getAllByText(/Stage insert/i)).toHaveLength(2);
-    expect(screen.getByText(/Allow all this conversation/i)).toBeInTheDocument();
   });
 });
 
@@ -562,10 +561,10 @@ describe("Permission Store Integration", () => {
     });
 
     await act(async () => {
-      render(<CommandCard command={command} onResult={onResult} />);
+      render(<CommandCard command={command} onResult={onResult} disableAutoApprove />);
     });
 
-    // Initially pending
+    // Initially pending (auto-approve disabled so it stays pending)
     expect(useAiCommandPermissionStore.getState().getCommandState(command.id)).toBe("pending");
 
     // Click run

@@ -3,18 +3,22 @@ import { describe, it, expect, vi } from "vitest";
 import { useCrudOperations } from "../useCrudOperations";
 
 const mockStageCommand = vi.fn();
-const mockCommitAll = vi.fn();
-const mockDiscardAll = vi.fn();
+const mockCommitChanges = vi.fn();
+const mockDiscardChanges = vi.fn();
 const mockGetTableKey = vi.fn(() => "conn:db:table");
 
+const mockState = {
+  stageCommand: mockStageCommand,
+  commitChanges: mockCommitChanges,
+  discardChanges: mockDiscardChanges,
+  getTableKey: mockGetTableKey,
+  stagedCommands: new Map(),
+};
+
 vi.mock("@/stores/crudStore", () => ({
-  useCrudStore: vi.fn(() => ({
-    stageCommand: mockStageCommand,
-    commitAllForTable: mockCommitAll,
-    discardAllForTable: mockDiscardAll,
-    getTableKey: mockGetTableKey,
-    stagedCommands: new Map(),
-  })),
+  useCrudStore: vi.fn((selector?: (s: typeof mockState) => unknown) =>
+    selector ? selector(mockState) : mockState,
+  ),
 }));
 
 describe("useCrudOperations", () => {

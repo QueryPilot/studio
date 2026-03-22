@@ -83,6 +83,7 @@ describe("DocumentDataGrid result mode", () => {
       createInsertCommand: vi.fn(),
       createDeleteCommand: vi.fn(),
       commandFactory: undefined,
+      rawDocuments: [],
     });
   });
 
@@ -97,7 +98,8 @@ describe("DocumentDataGrid result mode", () => {
     );
 
     expect(mocks.useDocumentData).toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /nested/i })).toBeInTheDocument();
+    // Collection mode renders QuickFilter toolbar (not present in result mode)
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
   });
 
   it("renders supplied result documents without calling useDocumentData", () => {

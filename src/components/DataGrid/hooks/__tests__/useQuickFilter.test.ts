@@ -129,16 +129,16 @@ describe("useQuickFilter", () => {
       expect(result.current.mode).toBe("where");
     });
 
-    it("should auto-detect AI mode when value starts with #", () => {
+    it("should auto-detect AI mode when value starts with /", () => {
       const { result } = renderHook(() =>
         useQuickFilter({ columns: mockColumns })
       );
 
       act(() => {
-        result.current.setValue("#show active users");
+        result.current.setValue("/show active users");
       });
 
-      expect(result.current.value).toBe("#show active users");
+      expect(result.current.value).toBe("/show active users");
       expect(result.current.mode).toBe("ai");
     });
 
@@ -281,7 +281,7 @@ describe("useQuickFilter", () => {
       );
 
       act(() => {
-        result.current.setValue("#show active records");
+        result.current.setValue("/show active records");
       });
 
       await act(async () => {
@@ -311,7 +311,7 @@ describe("useQuickFilter", () => {
       );
 
       act(() => {
-        result.current.setValue("#something");
+        result.current.setValue("/something");
       });
 
       await act(async () => {
@@ -328,7 +328,7 @@ describe("useQuickFilter", () => {
       );
 
       act(() => {
-        result.current.setValue("#show active");
+        result.current.setValue("/show active");
       });
 
       await act(async () => {
