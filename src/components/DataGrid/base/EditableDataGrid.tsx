@@ -61,8 +61,7 @@ const isRowInsertEvent = (value: unknown): value is GridRowInsertEvent =>
   Array.isArray((value as GridRowInsertEvent).rows) &&
   typeof (value as GridRowInsertEvent).index === "number";
 
-const GRID_EDITOR_SELECTOR =
-  '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore';
+import { GRID_EDITOR_SELECTOR } from "./editorConstants";
 
 const isTextInputElement = (element: EventTarget | null): boolean => {
   if (!(element instanceof HTMLElement)) return false;
@@ -329,6 +328,33 @@ export const EditableDataGrid = forwardRef<
     },
     [columns, rows, getCellContent, onCellEditCommit, processResult],
   );
+
+  // Intercept paste events in capture phase so they reach the cell editor
+  // instead of being swallowed by Glide Data Grid's internal paste handler.
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+
+    const handlePasteCapture = (e: ClipboardEvent) => {
+      // If a cell editor is open, check whether the paste target is inside
+      // the editor overlay. If so, stop propagation so Glide never sees it
+      // and the editor input receives the native paste.
+      if (!editingCellRef.current) return;
+
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        target.closest(GRID_EDITOR_SELECTOR)
+      ) {
+        e.stopPropagation();
+      }
+    };
+
+    wrapper.addEventListener("paste", handlePasteCapture, true); // capture phase
+    return () => {
+      wrapper.removeEventListener("paste", handlePasteCapture, true);
+    };
+  }, []);
 
   // Document-level listener for cmd+delete row deletion
   // Uses gridSelection prop directly to avoid stale navigation store state

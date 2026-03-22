@@ -274,7 +274,7 @@ export function QueryPanelLayout({
                   <ResizablePanel id="qp-results" defaultSize="50" minSize="20">
                     <div className="flex flex-col h-full">
                       {showResultHeader && (
-                        <div className="shrink-0 px-2 pt-1">
+                        <div className="shrink-0 px-2 py-1 bg-muted/40">
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0 flex-1">
                               {batchResults.length > 0 && (
@@ -306,7 +306,8 @@ export function QueryPanelLayout({
                                       />
                                       <span>
                                         #{entry.statementIndex}{" "}
-                                        {entry.showplanLabel ?? getStatementKeyword(entry.statement)}
+                                        {entry.showplanLabel ??
+                                          getStatementKeyword(entry.statement)}
                                       </span>
                                     </button>
                                   ))}

@@ -241,8 +241,12 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       // Brief flash to 100% then hide, matching nprogress behavior
       if (loadProgress > 0) {
         setLoadProgress(100);
-        const timer = setTimeout(() => setLoadProgress(0), 200);
-        return () => clearTimeout(timer);
+        const timer = setTimeout(() => {
+          setLoadProgress(0);
+        }, 200);
+        return () => {
+          clearTimeout(timer);
+        };
       }
     }
     return () => {
@@ -251,7 +255,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
         loadProgressRaf.current = null;
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading]);
 
   return (
@@ -288,7 +292,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
                     <img
                       src={databaseLogoPath}
                       alt={dbType || "Database"}
-                      className="h-3.5 w-3.5 shrink-0"
+                      className="h-3.5 w-3.5 min-w-3.5 min-h-3.5 shrink-0"
                       onError={(e) => {
                         e.currentTarget.style.display = "none";
                       }}

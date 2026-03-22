@@ -118,8 +118,7 @@ const SELECTION_SUMMARY_THRESHOLD = 10_000;
 // enough data for practical use.
 const MAX_INSPECTOR_ROWS = 200;
 
-const GRID_EDITOR_SELECTOR =
-  '[data-slot="grid-editor"], .gdg-editor-shell, .click-outside-ignore';
+import { GRID_EDITOR_SELECTOR, isEditorOverlayElement } from "./editorConstants";
 
 const isTextInputElement = (element: EventTarget | null): boolean => {
   if (!(element instanceof HTMLElement)) return false;
@@ -129,11 +128,6 @@ const isTextInputElement = (element: EventTarget | null): boolean => {
     element.isContentEditable ||
     Boolean(element.closest(".cm-editor"))
   );
-};
-
-const isEditorOverlayElement = (element: EventTarget | null): boolean => {
-  if (!(element instanceof Element)) return false;
-  return Boolean(element.closest(GRID_EDITOR_SELECTOR));
 };
 
 // Stable theme objects to avoid allocating new objects per staged cell render
