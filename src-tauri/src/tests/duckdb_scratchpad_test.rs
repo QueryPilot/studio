@@ -2,6 +2,7 @@ use crate::adapters::duckdb::{
     DuckDbAdapter, DuckDbAddFileRequest, DuckDbColumnDefinition, DuckDbManagedObjectLineage,
     DuckDbReplaceManagedObjectRequest,
 };
+use crate::core::backup_capability::{BackupCapable, BackupConfig, BackupProgress};
 use crate::core::capabilities::{BaseCapability, SqlQueryable};
 use crate::types::{ConnectionProfile, DbType};
 use serde_json::json;
@@ -427,4 +428,74 @@ async fn duckdb_is_multi_statement_handles_edge_cases() {
     assert!(DuckDbAdapter::is_multi_statement_pub(
         "CREATE TABLE t(x INT); INSERT INTO t VALUES (1);"
     ));
+}
+
+#[tokio::test]
+async fn duckdb_backup_binary_creates_valid_copy() {
+    let (adapter, db_path) = connected_adapter().await;
+
+    // Create test data
+    adapter
+        .execute_query("CREATE TABLE test_backup(id INTEGER, name TEXT)")
+        .await
+        .expect("create table");
+    adapter
+        .execute_query("INSERT INTO test_backup VALUES (1, 'Alice'), (2, 'Bob')")
+        .await
+        .expect("insert data");
+
+    // Run binary backup
+    let backup_path = temp_path("backup.duckdb");
+    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+
+    adapter
+        .execute_backup(
+            BackupConfig {
+                destination_path: backup_path
+                    .to_str()
+                    .expect("backup path should be valid UTF-8")
+                    .to_string(),
+                format: "binary".to_string(),
+                selected_objects: None,
+                options: json!({}),
+            },
+            tx,
+        )
+        .await
+        .expect("binary backup");
+
+    // Verify we got progress messages including Completed
+    let mut got_completed = false;
+    while let Ok(msg) = rx.try_recv() {
+        if matches!(msg, BackupProgress::Completed { .. }) {
+            got_completed = true;
+        }
+    }
+    assert!(got_completed, "should receive Completed progress message");
+
+    // Open the backup file with a new adapter and verify data
+    let backup_adapter = DuckDbAdapter::new();
+    backup_adapter
+        .connect(&test_profile(
+            backup_path
+                .to_str()
+                .expect("backup path should be valid UTF-8"),
+        ))
+        .await
+        .expect("connect to backup");
+
+    let result = backup_adapter
+        .execute_query("SELECT id, name FROM test_backup ORDER BY id")
+        .await
+        .expect("query backup");
+    assert_eq!(result.rows.len(), 2);
+    assert_eq!(result.rows[0][0], json!(1));
+    assert_eq!(result.rows[0][1], json!("Alice"));
+    assert_eq!(result.rows[1][0], json!(2));
+    assert_eq!(result.rows[1][1], json!("Bob"));
+
+    backup_adapter.disconnect().await.expect("disconnect backup");
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(&db_path);
+    let _ = fs::remove_file(&backup_path);
 }

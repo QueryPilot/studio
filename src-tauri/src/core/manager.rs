@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Notify, RwLock};
 use tokio::task::JoinHandle;
 
+use crate::adapters::duckdb::DuckDbAdapter;
 use crate::adapters::mongodb::MongoDbAdapter;
 use crate::adapters::mssql::MssqlAdapter;
 use crate::adapters::mysql::MySqlAdapter;
@@ -52,6 +53,7 @@ pub struct UnifiedAdapter {
     mssql: Option<*const MssqlAdapter>,
     sqlite: Option<*const SqliteAdapter>,
     oracle: Option<*const OracleAdapter>,
+    duckdb: Option<*const DuckDbAdapter>,
     mongo: Option<*const MongoDbAdapter>,
     redis: Option<*const RedisAdapter>,
 
@@ -82,6 +84,7 @@ impl UnifiedAdapter {
             mssql: None,
             sqlite: None,
             oracle: None,
+            duckdb: None,
             mongo: None,
             redis: None,
             db_type: DbType::PostgreSQL,
@@ -105,6 +108,7 @@ impl UnifiedAdapter {
             mssql: None,
             sqlite: None,
             oracle: None,
+            duckdb: None,
             mongo: None,
             redis: None,
             db_type,
@@ -128,9 +132,33 @@ impl UnifiedAdapter {
             mssql: None,
             sqlite: Some(ptr),
             oracle: None,
+            duckdb: None,
             mongo: None,
             redis: None,
             db_type: DbType::SQLite,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for DuckDB
+    pub fn duckdb(adapter: DuckDbAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const DuckDbAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        let backup_ptr: *const dyn BackupCapable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: Some(backup_ptr),
+            postgres: None,
+            mysql: None,
+            mssql: None,
+            sqlite: None,
+            duckdb: Some(ptr),
+            mongo: None,
+            redis: None,
+            db_type: DbType::DuckDB,
         }
     }
 
@@ -151,6 +179,7 @@ impl UnifiedAdapter {
             mssql: Some(ptr),
             sqlite: None,
             oracle: None,
+            duckdb: None,
             mongo: None,
             redis: None,
             db_type: DbType::SQLServer,
@@ -196,6 +225,7 @@ impl UnifiedAdapter {
             mssql: None,
             sqlite: None,
             oracle: None,
+            duckdb: None,
             mongo: Some(ptr),
             redis: None,
             db_type: DbType::MongoDB,
@@ -219,6 +249,7 @@ impl UnifiedAdapter {
             mssql: None,
             sqlite: None,
             oracle: None,
+            duckdb: None,
             mongo: None,
             redis: Some(ptr),
             db_type: DbType::Redis,
@@ -289,6 +320,8 @@ impl UnifiedAdapter {
 
     pub fn as_oracle(&self) -> Option<&OracleAdapter> {
         self.oracle.map(|p| unsafe { &*p })
+    pub fn as_duckdb(&self) -> Option<&DuckDbAdapter> {
+        self.duckdb.map(|p| unsafe { &*p })
     }
 
     pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
@@ -995,6 +1028,7 @@ impl ConnectionManager {
                 Ok(UnifiedAdapter::mysql(MySqlAdapter::new(), profile.db_type))
             }
             DbType::SQLite => Ok(UnifiedAdapter::sqlite(SqliteAdapter::new())),
+            DbType::DuckDB => Ok(UnifiedAdapter::duckdb(DuckDbAdapter::new())),
             DbType::SQLServer => Ok(UnifiedAdapter::mssql(MssqlAdapter::new())),
             DbType::Oracle => Ok(UnifiedAdapter::oracle(OracleAdapter::new())),
             DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),

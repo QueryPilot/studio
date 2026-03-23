@@ -106,8 +106,8 @@ struct ManagedObjectTarget<'a> {
 }
 
 pub struct DuckDbAdapter {
-    connection: Arc<Mutex<Option<Connection>>>,
-    db_path: Arc<Mutex<Option<PathBuf>>>,
+    pub(crate) connection: Arc<Mutex<Option<Connection>>>,
+    pub(crate) db_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl DuckDbAdapter {
@@ -122,7 +122,7 @@ impl DuckDbAdapter {
         self.connection.lock().await.is_some()
     }
 
-    async fn execute_blocking<F, T>(&self, f: F) -> Result<T>
+    pub(crate) async fn execute_blocking<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&Connection) -> Result<T> + Send + 'static,
         T: Send + 'static,
@@ -140,7 +140,7 @@ impl DuckDbAdapter {
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))?
     }
 
-    fn bootstrap_connection(conn: &Connection) -> Result<()> {
+    pub(crate) fn bootstrap_connection(conn: &Connection) -> Result<()> {
         for stmt in ["LOAD json", "LOAD parquet"] {
             if let Err(error) = conn.execute_batch(stmt) {
                 tracing::warn!("DuckDB bootstrap skipped `{}`: {}", stmt, error);
@@ -1448,7 +1448,10 @@ impl BaseCapability for DuckDbAdapter {
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
-        vec![AdapterCapability::SqlQueryable]
+        vec![
+            AdapterCapability::SqlQueryable,
+            AdapterCapability::BackupCapable,
+        ]
     }
 }
 
