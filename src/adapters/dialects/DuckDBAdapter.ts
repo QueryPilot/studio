@@ -255,15 +255,21 @@ ORDER BY kcu.table_name, kcu.column_name`;
   ): string {
     if (objectType === "view" || objectType === "materialized_view") {
       return `
-SELECT
-  view_definition AS definition
+SELECT view_definition AS definition
 FROM information_schema.views
 WHERE table_schema = '${this.escapeString(schema)}'
   AND table_name = '${this.escapeString(name)}'`;
     }
 
+    if (objectType === "table") {
+      return `
+SELECT sql AS definition
+FROM duckdb_tables()
+WHERE schema_name = '${this.escapeString(schema)}'
+  AND table_name = '${this.escapeString(name)}'`;
+    }
+
     return `
-SELECT
-  'Definition is unavailable for this DuckDB object type in Query Pilot v1.' AS definition`;
+SELECT 'Definition is unavailable for this DuckDB object type in Query Pilot.' AS definition`;
   }
 }
