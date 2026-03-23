@@ -312,7 +312,11 @@ impl DuckDbAdapter {
         progress: &ProgressSender,
     ) -> Result<(), AppError> {
         // Send started
-        let _ = progress.send(BackupProgress::Started { total_steps: Some(2) }).await;
+        let _ = progress
+            .send(BackupProgress::Started {
+                total_steps: Some(2),
+            })
+            .await;
 
         // Step 1: CHECKPOINT to flush WAL
         let _ = progress
@@ -366,13 +370,15 @@ impl DuckDbAdapter {
         config: &BackupConfig,
         progress: &ProgressSender,
     ) -> Result<(), AppError> {
-        let _ = progress.send(BackupProgress::Started { total_steps: Some(3) }).await;
+        let _ = progress
+            .send(BackupProgress::Started {
+                total_steps: Some(3),
+            })
+            .await;
 
         // Step 1: Create temp directory for EXPORT DATABASE
-        let export_dir = std::env::temp_dir().join(format!(
-            "qp-duckdb-export-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let export_dir =
+            std::env::temp_dir().join(format!("qp-duckdb-export-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&export_dir)
             .map_err(|e| AppError::Io(format!("Failed to create temp directory: {}", e)))?;
         let export_dir_str = export_dir.to_string_lossy().to_string();
@@ -455,7 +461,11 @@ impl DuckDbAdapter {
         config: &RestoreConfig,
         progress: &ProgressSender,
     ) -> Result<(), AppError> {
-        let _ = progress.send(BackupProgress::Started { total_steps: Some(3) }).await;
+        let _ = progress
+            .send(BackupProgress::Started {
+                total_steps: Some(3),
+            })
+            .await;
 
         let db_path = {
             let guard = self.db_path.lock().await;
@@ -515,7 +525,11 @@ impl DuckDbAdapter {
         config: &RestoreConfig,
         progress: &ProgressSender,
     ) -> Result<(), AppError> {
-        let _ = progress.send(BackupProgress::Started { total_steps: Some(2) }).await;
+        let _ = progress
+            .send(BackupProgress::Started {
+                total_steps: Some(2),
+            })
+            .await;
 
         let _ = progress
             .send(BackupProgress::Progress {
@@ -593,10 +607,7 @@ fn parse_binary_preview(path: &Path) -> Result<Vec<BackupPreviewObject>, AppErro
 
         let row_count: Option<u64> = conn
             .query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM \"{}\"",
-                    name.replace('"', "\"\"")
-                ),
+                &format!("SELECT COUNT(*) FROM \"{}\"", name.replace('"', "\"\"")),
                 [],
                 |r| r.get(0),
             )

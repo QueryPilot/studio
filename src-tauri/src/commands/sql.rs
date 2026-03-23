@@ -561,8 +561,8 @@ async fn execute_duckdb_stream(
         if chunk.is_empty() {
             continue;
         }
-        let msgpack_data = rmp_serde::to_vec(chunk)
-            .map_err(|e| format!("Failed to encode chunk: {}", e))?;
+        let msgpack_data =
+            rmp_serde::to_vec(chunk).map_err(|e| format!("Failed to encode chunk: {}", e))?;
         if data_channel
             .send(tauri::ipc::Response::new(msgpack_data))
             .is_err()

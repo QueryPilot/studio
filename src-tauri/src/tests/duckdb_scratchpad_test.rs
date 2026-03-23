@@ -3,8 +3,8 @@ use crate::adapters::duckdb::{
     DuckDbReplaceManagedObjectRequest,
 };
 use crate::core::backup_capability::{BackupCapable, BackupConfig, BackupProgress};
-use crate::error::AppError;
 use crate::core::capabilities::{BaseCapability, SqlQueryable};
+use crate::error::AppError;
 use crate::types::{ConnectionProfile, DbType};
 use serde_json::json;
 use std::collections::HashMap;
@@ -495,7 +495,10 @@ async fn duckdb_backup_binary_creates_valid_copy() {
     assert_eq!(result.rows[1][0], json!(2));
     assert_eq!(result.rows[1][1], json!("Bob"));
 
-    backup_adapter.disconnect().await.expect("disconnect backup");
+    backup_adapter
+        .disconnect()
+        .await
+        .expect("disconnect backup");
     adapter.disconnect().await.expect("disconnect duckdb");
     let _ = fs::remove_file(&db_path);
     let _ = fs::remove_file(&backup_path);
@@ -510,10 +513,8 @@ async fn duckdb_execute_query_chunked_returns_batches() {
 
     adapter
         .execute_blocking(|conn| {
-            conn.execute_batch(
-                "CREATE TABLE chunk_test AS SELECT range AS id FROM range(100)",
-            )
-            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            conn.execute_batch("CREATE TABLE chunk_test AS SELECT range AS id FROM range(100)")
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
             Ok(())
         })
         .await
@@ -667,9 +668,7 @@ async fn duckdb_execute_statement_returns_affected_rows() {
 async fn duckdb_execute_query_reports_meaningful_error_on_bad_sql() {
     let (adapter, db_path) = connected_adapter().await;
 
-    let result = adapter
-        .execute_query("SELECTT * FROMM nonexistent")
-        .await;
+    let result = adapter.execute_query("SELECTT * FROMM nonexistent").await;
 
     assert!(result.is_err(), "malformed SQL should return an error");
     let err_msg = result.unwrap_err().to_string();
@@ -687,14 +686,17 @@ async fn duckdb_execute_query_reports_meaningful_error_on_bad_sql() {
 async fn duckdb_list_extensions_returns_core_extensions() {
     let (adapter, db_path) = connected_adapter().await;
 
-    let extensions = adapter
-        .list_extensions()
-        .await
-        .expect("list extensions");
+    let extensions = adapter.list_extensions().await.expect("list extensions");
 
-    assert!(!extensions.is_empty(), "extensions list should not be empty");
+    assert!(
+        !extensions.is_empty(),
+        "extensions list should not be empty"
+    );
 
-    let ext_names: Vec<&str> = extensions.iter().map(|e| e.extension_name.as_str()).collect();
+    let ext_names: Vec<&str> = extensions
+        .iter()
+        .map(|e| e.extension_name.as_str())
+        .collect();
     assert!(
         ext_names.contains(&"json"),
         "json extension should be present, found: {:?}",

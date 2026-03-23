@@ -1135,15 +1135,19 @@ impl DuckDbAdapter {
     pub async fn install_extension(&self, name: &str) -> Result<()> {
         if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(AppError::InvalidInput(format!(
-                "Invalid extension name: {}. Only alphanumeric characters and underscores allowed.", name
+                "Invalid extension name: {}. Only alphanumeric characters and underscores allowed.",
+                name
             )));
         }
         let name = name.to_string();
         self.execute_blocking(move |conn| {
             conn.execute_batch(&format!("INSTALL '{}'; LOAD '{}';", name, name))
-                .map_err(|e| AppError::DatabaseError(format!("Failed to install extension: {}", e)))?;
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to install extension: {}", e))
+                })?;
             Ok(())
-        }).await
+        })
+        .await
     }
 
     fn is_multi_statement(sql: &str) -> bool {
@@ -1349,15 +1353,11 @@ impl DuckDbAdapter {
                 .unwrap_or(JsonValue::Null),
             DuckValue::HugeInt(v) => JsonValue::String(v.to_string()),
             DuckValue::Decimal(v) => JsonValue::String(v.to_string()),
-            DuckValue::Timestamp(unit, v) => {
-                JsonValue::Number(JsonNumber::from(unit.to_micros(v)))
-            }
+            DuckValue::Timestamp(unit, v) => JsonValue::Number(JsonNumber::from(unit.to_micros(v))),
             DuckValue::Text(v) => JsonValue::String(v),
             DuckValue::Blob(v) => JsonValue::String(BASE64_STANDARD.encode(v)),
             DuckValue::Date32(v) => JsonValue::Number(JsonNumber::from(v)),
-            DuckValue::Time64(unit, v) => {
-                JsonValue::Number(JsonNumber::from(unit.to_micros(v)))
-            }
+            DuckValue::Time64(unit, v) => JsonValue::Number(JsonNumber::from(unit.to_micros(v))),
             DuckValue::Interval {
                 months,
                 days,
@@ -1528,9 +1528,9 @@ impl DuckDbAdapter {
             let mut result_rows = stmt
                 .query([])
                 .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-            let stmt_ref = result_rows.as_ref().ok_or_else(|| {
-                AppError::DatabaseError("No statement handle".to_string())
-            })?;
+            let stmt_ref = result_rows
+                .as_ref()
+                .ok_or_else(|| AppError::DatabaseError("No statement handle".to_string()))?;
             let column_count = stmt_ref.column_count();
             let columns: Vec<CapabilityColumnMeta> = (0..column_count)
                 .map(|i| CapabilityColumnMeta {
