@@ -1660,12 +1660,7 @@ impl SqlQueryable for DuckDbAdapter {
     }
 }
 
-#[cfg(test)]
 impl DuckDbAdapter {
-    pub fn is_multi_statement_pub(sql: &str) -> bool {
-        Self::is_multi_statement(sql)
-    }
-
     /// Perform a lightweight health check on the DuckDB connection.
     pub async fn ping(&self) -> bool {
         self.execute_blocking(|conn| {
@@ -1675,5 +1670,12 @@ impl DuckDbAdapter {
         })
         .await
         .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+impl DuckDbAdapter {
+    pub fn is_multi_statement_pub(sql: &str) -> bool {
+        Self::is_multi_statement(sql)
     }
 }

@@ -318,28 +318,13 @@ impl DuckDbAdapter {
             })
             .await;
 
-        // Step 1: CHECKPOINT to flush WAL
+        // Step 1: CHECKPOINT to flush WAL, then copy while holding the connection lock
+        // to prevent concurrent queries from dirtying the file between CHECKPOINT and copy.
         let _ = progress
             .send(BackupProgress::Progress {
                 current: 1,
                 total: 2,
                 message: "Flushing WAL with CHECKPOINT...".to_string(),
-            })
-            .await;
-
-        self.execute_blocking(|conn| {
-            conn.execute_batch("CHECKPOINT")
-                .map_err(|e| AppError::DatabaseError(format!("CHECKPOINT failed: {}", e)))?;
-            Ok(())
-        })
-        .await?;
-
-        // Step 2: Copy the database file
-        let _ = progress
-            .send(BackupProgress::Progress {
-                current: 2,
-                total: 2,
-                message: "Copying database file...".to_string(),
             })
             .await;
 
@@ -351,10 +336,29 @@ impl DuckDbAdapter {
                 .clone()
         };
 
-        let destination = config.destination_path.clone();
-        tokio::fs::copy(&db_path, &destination)
-            .await
-            .map_err(|e| AppError::Io(format!("Failed to copy database file: {}", e)))?;
+        let destination = std::path::PathBuf::from(&config.destination_path);
+        let source = db_path.clone();
+
+        // Hold the connection lock for both CHECKPOINT and file copy to ensure consistency
+        self.execute_blocking(move |conn| {
+            conn.execute_batch("CHECKPOINT")
+                .map_err(|e| AppError::DatabaseError(format!("CHECKPOINT failed: {}", e)))?;
+
+            // Synchronous file copy while connection is locked
+            std::fs::copy(&source, &destination)
+                .map_err(|e| AppError::Internal(format!("Failed to copy database file: {}", e)))?;
+
+            Ok(())
+        })
+        .await?;
+
+        let _ = progress
+            .send(BackupProgress::Progress {
+                current: 2,
+                total: 2,
+                message: "Database file copied.".to_string(),
+            })
+            .await;
 
         let _ = progress
             .send(BackupProgress::Completed {
