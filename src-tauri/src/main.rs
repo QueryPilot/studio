@@ -86,7 +86,10 @@ fn main() {
             // Start agent socket server for CLI communication
             let socket_srv = socket_server_for_setup;
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = socket_srv.start(ai_context_for_socket, manager_for_socket).await {
+                if let Err(e) = socket_srv
+                    .start(ai_context_for_socket, manager_for_socket)
+                    .await
+                {
                     tracing::error!("Failed to start agent socket server: {}", e);
                 }
             });
@@ -98,7 +101,12 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 use window_vibrancy::apply_vibrancy;
-                let _ = apply_vibrancy(&window, NSVisualEffectMaterial::UnderWindowBackground, None, None);
+                let _ = apply_vibrancy(
+                    &window,
+                    NSVisualEffectMaterial::UnderWindowBackground,
+                    None,
+                    None,
+                );
             }
             #[cfg(target_os = "windows")]
             {
@@ -117,6 +125,12 @@ fn main() {
             commands::test_connection,
             commands::test_ssh_connection,
             commands::update_safe_mode,
+            commands::duckdb_add_file,
+            commands::duckdb_replace_managed_object,
+            commands::duckdb_list_managed_objects,
+            commands::duckdb_get_object_lineage,
+            commands::duckdb_list_extensions,
+            commands::duckdb_install_extension,
             // Query execution
             commands::query,
             commands::execute_query,

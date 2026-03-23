@@ -9,6 +9,7 @@ export enum DbType {
   MySQL = "MySQL",
   MariaDB = "MariaDB",
   SQLite = "SQLite",
+  DuckDB = "DuckDB",
   SQLServer = "SQLServer",
   Oracle = "Oracle",
   // New paradigms
@@ -49,6 +50,65 @@ export interface ConnectionHealth {
   healthy: boolean;
   rtt_ms?: number;
   error?: string;
+}
+
+export interface DuckDbColumnDefinition {
+  name: string;
+  duckdbType: string;
+}
+
+export interface DuckDbAddFileRequest {
+  filePath: string;
+  targetSchema?: string | null;
+  targetName: string;
+  sourceId?: string | null;
+}
+
+export interface DuckDbReplaceManagedObjectRequest {
+  targetSchema: string;
+  targetName: string;
+  objectKind: string;
+  sourceId: string;
+  sourceKind: string;
+  sourceConnectionId?: string | null;
+  sourceSpec: Record<string, unknown>;
+  columns: DuckDbColumnDefinition[];
+  rows: RawCellValue[][];
+}
+
+export interface DuckDbManagedObjectSummary {
+  targetSchema: string;
+  targetName: string;
+  objectKind: string;
+  sourceId: string;
+  sourceKind: string;
+  sourceConnectionId?: string | null;
+  lastRefreshAt?: string | null;
+  lastRefreshStatus?: string | null;
+  lastRowCount?: number | null;
+  lastError?: string | null;
+}
+
+export interface DuckDbExtensionInfo {
+  extensionName: string;
+  loaded: boolean;
+  installed: boolean;
+  description: string | null;
+  installPath: string | null;
+}
+
+export interface DuckDbManagedObjectLineage {
+  targetSchema: string;
+  targetName: string;
+  objectKind: string;
+  sourceId: string;
+  sourceKind: string;
+  sourceConnectionId?: string | null;
+  sourceSpec: Record<string, unknown>;
+  lastRefreshStatus?: string | null;
+  lastRefreshAt?: string | null;
+  lastRowCount?: number | null;
+  lastError?: string | null;
 }
 
 // =============================================================================
@@ -390,6 +450,56 @@ export class BackendAPI {
 
   static async ping(connId: string): Promise<number> {
     return invoke("ping", { connId });
+  }
+
+  static async duckdbAddFile(
+    connId: string,
+    request: DuckDbAddFileRequest,
+  ): Promise<DuckDbManagedObjectSummary> {
+    return invoke("duckdb_add_file", { connId, request });
+  }
+
+  static async duckdbReplaceManagedObject(
+    connId: string,
+    request: DuckDbReplaceManagedObjectRequest,
+  ): Promise<DuckDbManagedObjectSummary> {
+    return invoke("duckdb_replace_managed_object", { connId, request });
+  }
+
+  static async duckdbListManagedObjects(
+    connId: string,
+  ): Promise<DuckDbManagedObjectSummary[]> {
+    return invoke("duckdb_list_managed_objects", { connId });
+  }
+
+  static async duckdbGetObjectLineage(
+    connId: string,
+    targetSchema: string,
+    targetName: string,
+  ): Promise<DuckDbManagedObjectLineage | null> {
+    return invoke("duckdb_get_object_lineage", {
+      connId,
+      targetSchema,
+      targetName,
+    });
+  }
+
+  static async duckdbListExtensions(
+    connectionId: string,
+  ): Promise<DuckDbExtensionInfo[]> {
+    return invoke<DuckDbExtensionInfo[]>("duckdb_list_extensions", {
+      connId: connectionId,
+    });
+  }
+
+  static async duckdbInstallExtension(
+    connectionId: string,
+    extensionName: string,
+  ): Promise<void> {
+    await invoke("duckdb_install_extension", {
+      connId: connectionId,
+      extensionName,
+    });
   }
 
   // Streaming query

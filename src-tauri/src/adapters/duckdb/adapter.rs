@@ -83,6 +83,16 @@ pub struct DuckDbManagedObjectLineage {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbExtensionInfo {
+    pub extension_name: String,
+    pub loaded: bool,
+    pub installed: bool,
+    pub description: Option<String>,
+    pub install_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DuckDbFileFormat {
     Csv,
@@ -1100,6 +1110,40 @@ impl DuckDbAdapter {
             Self::fetch_managed_object_lineage(conn, &target_schema, &target_name)
         })
         .await
+    }
+
+    pub async fn list_extensions(&self) -> Result<Vec<DuckDbExtensionInfo>> {
+        self.execute_blocking(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT extension_name, loaded, installed, description, install_path FROM duckdb_extensions() ORDER BY extension_name"
+            ).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let mut rows = stmt.query([]).map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            let mut extensions = Vec::new();
+            while let Some(row) = rows.next().map_err(|e| AppError::DatabaseError(e.to_string()))? {
+                extensions.push(DuckDbExtensionInfo {
+                    extension_name: row.get(0).map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                    loaded: row.get(1).map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                    installed: row.get(2).map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                    description: row.get(3).ok(),
+                    install_path: row.get(4).ok(),
+                });
+            }
+            Ok(extensions)
+        }).await
+    }
+
+    pub async fn install_extension(&self, name: &str) -> Result<()> {
+        if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(AppError::InvalidInput(format!(
+                "Invalid extension name: {}. Only alphanumeric characters and underscores allowed.", name
+            )));
+        }
+        let name = name.to_string();
+        self.execute_blocking(move |conn| {
+            conn.execute_batch(&format!("INSTALL '{}'; LOAD '{}';", name, name))
+                .map_err(|e| AppError::DatabaseError(format!("Failed to install extension: {}", e)))?;
+            Ok(())
+        }).await
     }
 
     fn is_multi_statement(sql: &str) -> bool {
