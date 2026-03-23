@@ -533,3 +533,179 @@ async fn duckdb_execute_query_chunked_returns_batches() {
     adapter.disconnect().await.unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn duckdb_add_file_imports_parquet() {
+    let (adapter, db_path) = connected_adapter().await;
+
+    // Check if parquet extension is available (may not be in offline/CI environments)
+    let parquet_available = adapter
+        .execute_blocking(|conn| {
+            // Try loading parquet; if it fails, the extension isn't available
+            match conn.execute_batch("LOAD parquet") {
+                Ok(_) => Ok(true),
+                Err(_) => Ok(false),
+            }
+        })
+        .await
+        .unwrap_or(false);
+
+    if !parquet_available {
+        eprintln!("SKIP: parquet extension not available, skipping parquet import test");
+        adapter.disconnect().await.expect("disconnect duckdb");
+        let _ = fs::remove_file(db_path);
+        return;
+    }
+
+    let parquet_dir = temp_path("parquet_dir");
+    fs::create_dir_all(&parquet_dir).expect("create parquet temp dir");
+    let parquet_path = parquet_dir.join("test.parquet");
+
+    // Use DuckDB itself to create a Parquet file
+    let parquet_str = parquet_path.to_str().unwrap().to_string();
+    adapter
+        .execute_blocking(move |conn| {
+            conn.execute_batch(&format!(
+                "CREATE TABLE src AS SELECT range AS id, 'row_' || range AS name FROM range(50); \
+                 COPY src TO '{}' (FORMAT PARQUET); \
+                 DROP TABLE src;",
+                parquet_str
+            ))
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            Ok(())
+        })
+        .await
+        .expect("create parquet file");
+
+    // Import the Parquet file
+    let summary = adapter
+        .add_file(DuckDbAddFileRequest {
+            file_path: parquet_path.to_str().unwrap().to_string(),
+            target_schema: Some("main".to_string()),
+            target_name: "parquet_import".to_string(),
+            source_id: Some("file-parquet-1".to_string()),
+        })
+        .await
+        .expect("add parquet file");
+
+    assert_eq!(summary.target_name, "parquet_import");
+    assert_eq!(summary.last_row_count, Some(50));
+
+    let result = adapter
+        .execute_query("SELECT COUNT(*) AS cnt FROM main.parquet_import")
+        .await
+        .expect("count parquet rows");
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], json!(50));
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_dir_all(&parquet_dir);
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_add_file_imports_json() {
+    let (adapter, db_path) = connected_adapter().await;
+    let json_path = temp_path("input.json");
+    fs::write(
+        &json_path,
+        r#"[{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]"#,
+    )
+    .expect("write json");
+
+    let summary = adapter
+        .add_file(DuckDbAddFileRequest {
+            file_path: json_path.to_str().unwrap().to_string(),
+            target_schema: Some("main".to_string()),
+            target_name: "json_import".to_string(),
+            source_id: Some("file-json-1".to_string()),
+        })
+        .await
+        .expect("add json file");
+
+    assert_eq!(summary.target_name, "json_import");
+    assert_eq!(summary.last_row_count, Some(2));
+
+    let result = adapter
+        .execute_query("SELECT COUNT(*) AS cnt FROM main.json_import")
+        .await
+        .expect("count json rows");
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0], json!(2));
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(json_path);
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_execute_statement_returns_affected_rows() {
+    let (adapter, db_path) = connected_adapter().await;
+
+    adapter
+        .execute_statement("CREATE TABLE stmt_test(id INTEGER, name TEXT)")
+        .await
+        .expect("create table");
+
+    let inserted = adapter
+        .execute_statement("INSERT INTO stmt_test VALUES (1, 'A'), (2, 'B'), (3, 'C')")
+        .await
+        .expect("insert rows");
+    assert_eq!(inserted, 3);
+
+    let deleted = adapter
+        .execute_statement("DELETE FROM stmt_test WHERE id > 1")
+        .await
+        .expect("delete rows");
+    assert_eq!(deleted, 2);
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_execute_query_reports_meaningful_error_on_bad_sql() {
+    let (adapter, db_path) = connected_adapter().await;
+
+    let result = adapter
+        .execute_query("SELECTT * FROMM nonexistent")
+        .await;
+
+    assert!(result.is_err(), "malformed SQL should return an error");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Parser Error") || err_msg.contains("failed") || err_msg.contains("error"),
+        "error message should be meaningful, got: {}",
+        err_msg
+    );
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_list_extensions_returns_core_extensions() {
+    let (adapter, db_path) = connected_adapter().await;
+
+    let extensions = adapter
+        .list_extensions()
+        .await
+        .expect("list extensions");
+
+    assert!(!extensions.is_empty(), "extensions list should not be empty");
+
+    let ext_names: Vec<&str> = extensions.iter().map(|e| e.extension_name.as_str()).collect();
+    assert!(
+        ext_names.contains(&"json"),
+        "json extension should be present, found: {:?}",
+        ext_names
+    );
+    assert!(
+        ext_names.contains(&"parquet"),
+        "parquet extension should be present, found: {:?}",
+        ext_names
+    );
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(db_path);
+}
