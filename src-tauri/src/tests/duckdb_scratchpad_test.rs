@@ -384,3 +384,30 @@ async fn duckdb_complex_types_serialize_to_proper_json() {
     adapter.disconnect().await.expect("disconnect duckdb");
     let _ = fs::remove_file(db_path);
 }
+
+#[tokio::test]
+async fn duckdb_is_multi_statement_handles_edge_cases() {
+    // These should NOT be detected as multi-statement:
+    assert!(!DuckDbAdapter::is_multi_statement_pub(
+        "SELECT begin_date FROM t"
+    ));
+    assert!(!DuckDbAdapter::is_multi_statement_pub(
+        "SELECT * FROM t WHERE name = 'BEGIN'"
+    ));
+    assert!(!DuckDbAdapter::is_multi_statement_pub("SELECT 1"));
+    assert!(!DuckDbAdapter::is_multi_statement_pub(
+        "INSERT INTO t(x) VALUES (1)"
+    ));
+
+    // These SHOULD be detected as multi-statement:
+    assert!(DuckDbAdapter::is_multi_statement_pub(
+        "BEGIN; INSERT INTO t(x) VALUES (1); COMMIT;"
+    ));
+    assert!(DuckDbAdapter::is_multi_statement_pub(
+        "BEGIN TRANSACTION; SELECT 1; COMMIT;"
+    ));
+    assert!(DuckDbAdapter::is_multi_statement_pub("SELECT 1; SELECT 2;"));
+    assert!(DuckDbAdapter::is_multi_statement_pub(
+        "CREATE TABLE t(x INT); INSERT INTO t VALUES (1);"
+    ));
+}

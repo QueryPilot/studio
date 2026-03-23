@@ -1104,9 +1104,54 @@ impl DuckDbAdapter {
 
     fn is_multi_statement(sql: &str) -> bool {
         let trimmed = sql.trim();
-        trimmed.matches(';').count() > 1
-            || trimmed.to_uppercase().contains("BEGIN")
-            || trimmed.to_uppercase().contains("COMMIT")
+        let mut in_single_quote = false;
+        let mut in_double_quote = false;
+        let mut semicolons = 0;
+        let mut chars = trimmed.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '\'' if !in_double_quote => {
+                    in_single_quote = !in_single_quote;
+                }
+                '"' if !in_single_quote => {
+                    in_double_quote = !in_double_quote;
+                }
+                ';' if !in_single_quote && !in_double_quote => {
+                    semicolons += 1;
+                }
+                '-' if !in_single_quote && !in_double_quote => {
+                    if chars.peek() == Some(&'-') {
+                        for c in chars.by_ref() {
+                            if c == '\n' {
+                                break;
+                            }
+                        }
+                    }
+                }
+                '/' if !in_single_quote && !in_double_quote => {
+                    if chars.peek() == Some(&'*') {
+                        chars.next();
+                        let mut prev = ' ';
+                        for c in chars.by_ref() {
+                            if prev == '*' && c == '/' {
+                                break;
+                            }
+                            prev = c;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if semicolons > 1 {
+            return true;
+        }
+
+        let upper = trimmed.to_uppercase();
+        let first_word = upper.split_whitespace().next().unwrap_or("");
+        first_word == "BEGIN" || first_word == "START"
     }
 
     fn column_type_name(stmt: &duckdb::Statement<'_>, index: usize) -> String {
@@ -1486,5 +1531,12 @@ impl SqlQueryable for DuckDbAdapter {
             }
         })
         .await
+    }
+}
+
+#[cfg(test)]
+impl DuckDbAdapter {
+    pub fn is_multi_statement_pub(sql: &str) -> bool {
+        Self::is_multi_statement(sql)
     }
 }
