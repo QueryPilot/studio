@@ -3,6 +3,7 @@ use crate::adapters::duckdb::{
     DuckDbReplaceManagedObjectRequest,
 };
 use crate::core::backup_capability::{BackupCapable, BackupConfig, BackupProgress};
+use crate::error::AppError;
 use crate::core::capabilities::{BaseCapability, SqlQueryable};
 use crate::types::{ConnectionProfile, DbType};
 use serde_json::json;
@@ -498,4 +499,37 @@ async fn duckdb_backup_binary_creates_valid_copy() {
     adapter.disconnect().await.expect("disconnect duckdb");
     let _ = fs::remove_file(&db_path);
     let _ = fs::remove_file(&backup_path);
+}
+
+#[tokio::test]
+async fn duckdb_execute_query_chunked_returns_batches() {
+    let dir = std::env::temp_dir().join(format!("qp_duckdb_chunk_{}", uuid::Uuid::new_v4()));
+    let adapter = DuckDbAdapter::new();
+    let profile = test_profile(dir.to_str().unwrap());
+    adapter.connect(&profile).await.unwrap();
+
+    adapter
+        .execute_blocking(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE chunk_test AS SELECT range AS id FROM range(100)",
+            )
+            .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+
+    let (columns, chunks) = adapter
+        .execute_query_chunked("SELECT * FROM chunk_test")
+        .await
+        .unwrap();
+    assert_eq!(columns.len(), 1);
+    assert_eq!(columns[0].name, "id");
+    let total_rows: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total_rows, 100);
+    // First chunk should be 16 rows (first batch size)
+    assert_eq!(chunks[0].len(), 16);
+
+    adapter.disconnect().await.unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -278,10 +278,9 @@ fn find_main_statement_keyword(sql: &str) -> Option<String> {
 
                 // Only consider keywords at depth 0 (not inside CTE definitions)
                 // Track the FIRST (leftmost) keyword at depth 0
-                if depth == 0
-                    && first_keyword_pos.is_none_or(|(p, _)| abs_pos < p) {
-                        first_keyword_pos = Some((abs_pos, keyword));
-                    }
+                if depth == 0 && first_keyword_pos.is_none_or(|(p, _)| abs_pos < p) {
+                    first_keyword_pos = Some((abs_pos, keyword));
+                }
             }
 
             search_start = abs_pos + 1;
@@ -401,6 +400,9 @@ async fn execute_single_fetch_stream(
         DbType::Oracle => {
             execute_oracle_stream(sql, metadata_channel, data_channel, adapter).await
         }
+        DbType::DuckDB => {
+            execute_duckdb_stream(sql, metadata_channel, data_channel, adapter).await
+        }
         DbType::SQLServer => {
             execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
         }
@@ -492,6 +494,97 @@ fn send_query_results(
         total_streaming_ms: Some(total_elapsed as u64),
         fetch_count: Some(1),
         network_ms: Some(query_elapsed_ms as u64),
+        conversion_ms: Some(encode_elapsed as u64),
+        ipc_send_ms: Some(0),
+    });
+
+    Ok(())
+}
+
+/// DuckDB chunked streaming implementation.
+/// Uses progressive batch sizes (16, 64, 256, 1024, 2048) for fast initial
+/// rendering while maintaining throughput for large result sets.
+async fn execute_duckdb_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    adapter: &crate::core::manager::UnifiedAdapter,
+) -> std::result::Result<(), String> {
+    let start_time = std::time::Instant::now();
+
+    let duckdb_adapter = adapter
+        .as_duckdb()
+        .ok_or_else(|| "execute_duckdb_stream requires a DuckDB connection".to_string())?;
+
+    let (columns, chunks) = duckdb_adapter
+        .execute_query_chunked(sql)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let query_elapsed = start_time.elapsed().as_millis();
+    let total_rows: usize = chunks.iter().map(|c| c.len()).sum();
+
+    tracing::info!(
+        "  ⏱ DuckDB chunked query: {}ms, {} rows in {} chunks",
+        query_elapsed,
+        total_rows,
+        chunks.len()
+    );
+
+    // Convert columns to ColumnMeta for StreamMessage
+    let stream_columns: Vec<ColumnMeta> = columns
+        .iter()
+        .map(|c| ColumnMeta {
+            name: c.name.clone(),
+            data_type: CellValueType::Text,
+            nullable: true,
+            primary_key: false,
+            db_type: c.data_type.clone(),
+            type_oid: None,
+            default_value: None,
+            comment: None,
+            enum_values: None,
+            type_category: None,
+            precision: None,
+            scale: None,
+        })
+        .collect();
+
+    let _ = metadata_channel.send(StreamMessage::Started {
+        columns: stream_columns,
+        estimated_rows: Some(total_rows as i64),
+    });
+
+    let encode_start = std::time::Instant::now();
+    let mut sent_chunks: u64 = 0;
+    for chunk in &chunks {
+        if chunk.is_empty() {
+            continue;
+        }
+        let msgpack_data = rmp_serde::to_vec(chunk)
+            .map_err(|e| format!("Failed to encode chunk: {}", e))?;
+        if data_channel
+            .send(tauri::ipc::Response::new(msgpack_data))
+            .is_err()
+        {
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Frontend cancelled the stream".to_string(),
+            });
+            return Ok(());
+        }
+        sent_chunks += 1;
+    }
+    let encode_elapsed = encode_start.elapsed().as_millis();
+    let total_elapsed = start_time.elapsed().as_millis();
+
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows,
+        execution_time_ms: total_elapsed as u64,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_elapsed as u64),
+        fetch_count: Some(sent_chunks),
+        network_ms: Some(query_elapsed as u64),
         conversion_ms: Some(encode_elapsed as u64),
         ipc_send_ms: Some(0),
     });

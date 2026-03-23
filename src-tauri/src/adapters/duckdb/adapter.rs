@@ -1455,6 +1455,85 @@ impl BaseCapability for DuckDbAdapter {
     }
 }
 
+impl DuckDbAdapter {
+    /// Execute a query and return results in progressively larger chunks.
+    /// Batch sizes ramp up: 16, 64, 256, 1024, 2048 rows per chunk.
+    pub async fn execute_query_chunked(
+        &self,
+        sql: &str,
+    ) -> Result<(Vec<CapabilityColumnMeta>, Vec<Vec<Vec<JsonValue>>>)> {
+        let sql = sql.to_string();
+        self.execute_blocking(move |conn| {
+            if Self::is_multi_statement(&sql) {
+                conn.execute_batch(&sql)
+                    .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
+                return Ok((
+                    vec![CapabilityColumnMeta {
+                        name: "result".to_string(),
+                        data_type: "TEXT".to_string(),
+                    }],
+                    vec![vec![vec![JsonValue::String(
+                        "Batch executed successfully".to_string(),
+                    )]]],
+                ));
+            }
+
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+            let mut result_rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+            let stmt_ref = result_rows.as_ref().ok_or_else(|| {
+                AppError::DatabaseError("No statement handle".to_string())
+            })?;
+            let column_count = stmt_ref.column_count();
+            let columns: Vec<CapabilityColumnMeta> = (0..column_count)
+                .map(|i| CapabilityColumnMeta {
+                    name: stmt_ref
+                        .column_name(i)
+                        .map_or("?", |name| name.as_str())
+                        .to_string(),
+                    data_type: Self::column_type_name(stmt_ref, i),
+                })
+                .collect();
+
+            let batch_sizes = [16, 64, 256, 1024, 2048];
+            let mut chunks: Vec<Vec<Vec<JsonValue>>> = Vec::new();
+            let mut batch_idx = 0;
+            let mut current_chunk: Vec<Vec<JsonValue>> = Vec::new();
+            let mut batch_target = batch_sizes[0];
+
+            while let Some(row) = result_rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(format!("Row fetch failed: {}", e)))?
+            {
+                let mut converted = Vec::with_capacity(column_count);
+                for i in 0..column_count {
+                    let value = row.get_ref(i).map_err(|e| {
+                        AppError::DatabaseError(format!("Column read failed: {}", e))
+                    })?;
+                    converted.push(Self::value_ref_to_json(value));
+                }
+                current_chunk.push(converted);
+                if current_chunk.len() >= batch_target {
+                    chunks.push(std::mem::take(&mut current_chunk));
+                    if batch_idx < batch_sizes.len() - 1 {
+                        batch_idx += 1;
+                    }
+                    batch_target = batch_sizes[batch_idx];
+                }
+            }
+            if !current_chunk.is_empty() {
+                chunks.push(current_chunk);
+            }
+
+            Ok((columns, chunks))
+        })
+        .await
+    }
+}
+
 #[async_trait]
 impl SqlQueryable for DuckDbAdapter {
     async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult> {
