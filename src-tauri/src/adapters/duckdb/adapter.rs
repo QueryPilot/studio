@@ -1539,4 +1539,15 @@ impl DuckDbAdapter {
     pub fn is_multi_statement_pub(sql: &str) -> bool {
         Self::is_multi_statement(sql)
     }
+
+    /// Perform a lightweight health check on the DuckDB connection.
+    pub async fn ping(&self) -> bool {
+        self.execute_blocking(|conn| {
+            conn.execute_batch("SELECT 1")
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+            Ok(true)
+        })
+        .await
+        .unwrap_or(false)
+    }
 }

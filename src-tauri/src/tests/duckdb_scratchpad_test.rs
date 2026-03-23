@@ -386,6 +386,23 @@ async fn duckdb_complex_types_serialize_to_proper_json() {
 }
 
 #[tokio::test]
+async fn duckdb_is_connected_returns_false_after_disconnect() {
+    let dir = std::env::temp_dir().join(format!("qp_duckdb_health_{}", uuid::Uuid::new_v4()));
+    let adapter = DuckDbAdapter::new();
+    let profile = test_profile(dir.to_str().unwrap());
+    adapter.connect(&profile).await.unwrap();
+
+    assert!(adapter.is_connected());
+    assert!(adapter.ping().await);
+
+    adapter.disconnect().await.unwrap();
+    assert!(!adapter.is_connected());
+    assert!(!adapter.ping().await);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn duckdb_is_multi_statement_handles_edge_cases() {
     // These should NOT be detected as multi-statement:
     assert!(!DuckDbAdapter::is_multi_statement_pub(
