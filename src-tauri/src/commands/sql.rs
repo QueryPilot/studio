@@ -111,6 +111,7 @@ pub async fn switch_database(
         DbType::PostgreSQL => "SELECT current_database()",
         DbType::MySQL | DbType::MariaDB => "SELECT DATABASE()",
         DbType::SQLServer => "SELECT DB_NAME()",
+        DbType::Oracle => "SELECT SYS_CONTEXT('USERENV', 'SERVICE_NAME') FROM dual",
         _ => "SELECT 1",
     };
 
@@ -396,6 +397,9 @@ async fn execute_single_fetch_stream(
         }
         DbType::SQLite => {
             execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
+        }
+        DbType::Oracle => {
+            execute_oracle_stream(sql, metadata_channel, data_channel, adapter).await
         }
         DbType::SQLServer => {
             execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
@@ -743,6 +747,255 @@ async fn execute_mysql_stream(
     });
 
     Ok(())
+}
+
+/// Oracle-specific streaming implementation.
+///
+/// Oracle's OCI driver is synchronous, so we run the entire query + encoding
+/// inside spawn_blocking. Rows are encoded to MessagePack as they come off the
+/// server-side cursor in progressive batches, then sent to the frontend via IPC.
+async fn execute_oracle_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    adapter: &crate::core::manager::UnifiedAdapter,
+) -> std::result::Result<(), String> {
+    use crate::adapters::oracle::oracle_type_to_cell_type;
+
+    let oracle_adapter = adapter
+        .as_oracle()
+        .ok_or_else(|| "Oracle adapter not available".to_string())?;
+
+    // Clone the adapter so we can move it into spawn_blocking
+    let oracle_adapter = oracle_adapter.clone();
+    let sql_owned = sql.to_string();
+    let start_time = std::time::Instant::now();
+
+    // Use mpsc to stream encoded batches out of spawn_blocking
+    let (batch_tx, mut batch_rx) =
+        tokio::sync::mpsc::channel::<OracleBatchMessage>(8);
+
+    let blocking_handle = tokio::task::spawn_blocking(move || {
+        // Get connection inside spawn_blocking to avoid blocking the async executor
+        let conn = oracle_adapter
+            .get_connection_blocking()
+            .map_err(|e| e.to_string())?;
+
+        let mut stmt = conn
+            .statement(&sql_owned)
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        if !stmt.is_query() {
+            stmt.execute(&[]).map_err(|e| e.to_string())?;
+            let _ = batch_tx.blocking_send(OracleBatchMessage::Metadata {
+                columns: vec![],
+            });
+            return Ok::<_, String>(());
+        }
+
+        let result_set = stmt.query(&[]).map_err(|e| e.to_string())?;
+
+        // Extract column metadata
+        let columns: Vec<ColumnMeta> = result_set
+            .column_info()
+            .iter()
+            .map(|info| {
+                let otype = info.oracle_type();
+                ColumnMeta {
+                    name: info.name().to_string(),
+                    data_type: oracle_type_to_cell_type(otype),
+                    db_type: otype.to_string(),
+                    nullable: info.nullable(),
+                    primary_key: false,
+                    type_oid: None,
+                    default_value: None,
+                    comment: None,
+                    enum_values: None,
+                    type_category: None,
+                    precision: None,
+                    scale: None,
+                }
+            })
+            .collect();
+
+        let column_count = columns.len();
+
+        // Send metadata immediately
+        if batch_tx
+            .blocking_send(OracleBatchMessage::Metadata {
+                columns,
+            })
+            .is_err()
+        {
+            return Ok(());
+        }
+
+        // Progressive batch sizes
+        const BATCH_SIZES: [usize; 5] = [16, 64, 256, 1024, 2048];
+        let mut batch_index = 0usize;
+        let mut rows_in_batch = 0usize;
+        let mut total_rows = 0usize;
+
+        // Accumulate encoded row bytes into a batch buffer.
+        // The buffer holds raw encoded rows (no outer array wrapper yet).
+        let mut batch_buf: Vec<u8> = Vec::with_capacity(64 * 1024);
+
+        for row_result in result_set {
+            let row = match row_result {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("Oracle row fetch error: {}", e);
+                    continue;
+                }
+            };
+
+            // Encode the row directly into the batch buffer
+            let row_start = batch_buf.len();
+            rmp::encode::write_array_len(&mut batch_buf, column_count as u32)
+                .map_err(|e| e.to_string())?;
+            for i in 0..column_count {
+                if let Err(e) = crate::adapters::oracle::direct_msgpack::encode_oracle_cell(
+                    &mut batch_buf,
+                    &row,
+                    i,
+                ) {
+                    tracing::warn!("Oracle cell encode failed (col {}): {}", i, e);
+                    // Truncate partial row and write null row as fallback
+                    batch_buf.truncate(row_start);
+                    let _ = rmp::encode::write_array_len(&mut batch_buf, column_count as u32);
+                    for _ in 0..column_count {
+                        let _ = rmp::encode::write_nil(&mut batch_buf);
+                    }
+                    break;
+                }
+            }
+
+            rows_in_batch += 1;
+            total_rows += 1;
+
+            let target_batch_size = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
+            if rows_in_batch >= target_batch_size {
+                // Wrap accumulated rows in an outer array header
+                let mut final_buf =
+                    Vec::with_capacity(5 + batch_buf.len());
+                rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
+                    .map_err(|e| e.to_string())?;
+                final_buf.extend_from_slice(&batch_buf);
+
+                if batch_tx
+                    .blocking_send(OracleBatchMessage::Data(final_buf))
+                    .is_err()
+                {
+                    // Channel closed (user cancelled)
+                    return Ok(());
+                }
+
+                batch_buf.clear();
+                rows_in_batch = 0;
+                batch_index += 1;
+            }
+        }
+
+        // Send remaining rows
+        if rows_in_batch > 0 {
+            let mut final_buf = Vec::with_capacity(5 + batch_buf.len());
+            rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
+                .map_err(|e| e.to_string())?;
+            final_buf.extend_from_slice(&batch_buf);
+            let _ = batch_tx.blocking_send(OracleBatchMessage::Data(final_buf));
+        }
+
+        // Signal completion with total row count
+        let _ = batch_tx.blocking_send(OracleBatchMessage::Done {
+            total_rows,
+        });
+
+        Ok(())
+    });
+
+    // Async side: receive batches and send to IPC channels
+    let mut columns_sent = false;
+    let mut total_rows = 0usize;
+    let mut send_count = 0usize;
+    let mut send_time_ms = 0u64;
+
+    while let Some(msg) = batch_rx.recv().await {
+        match msg {
+            OracleBatchMessage::Metadata { columns, .. } => {
+                let _ = metadata_channel.send(StreamMessage::Started {
+                    columns,
+                    estimated_rows: None,
+                });
+                columns_sent = true;
+            }
+            OracleBatchMessage::Data(data) => {
+                if !columns_sent {
+                    continue;
+                }
+                let send_start = std::time::Instant::now();
+                if data_channel
+                    .send(tauri::ipc::Response::new(data))
+                    .is_err()
+                {
+                    let _ = metadata_channel.send(StreamMessage::Interrupted {
+                        resumable: false,
+                        message: "Query cancelled by user".to_string(),
+                    });
+                    return Err("Query cancelled by user".to_string());
+                }
+                send_time_ms += send_start.elapsed().as_millis() as u64;
+                send_count += 1;
+            }
+            OracleBatchMessage::Done { total_rows: rows } => {
+                total_rows = rows;
+            }
+        }
+    }
+
+    // Wait for the blocking task to finish
+    blocking_handle
+        .await
+        .map_err(|e| format!("Oracle streaming task panicked: {}", e))??;
+
+    let total_time = start_time.elapsed().as_millis() as u64;
+    let query_elapsed = total_time.saturating_sub(send_time_ms);
+
+    tracing::info!("==========================================");
+    tracing::info!("ORACLE STREAMING COMPLETE: {} rows", total_rows);
+    tracing::info!("  Total time: {}ms", total_time);
+    tracing::info!(
+        "  Batches: {}, IPC send: {}ms",
+        send_count,
+        send_time_ms
+    );
+    tracing::info!("==========================================");
+
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows,
+        execution_time_ms: total_time,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(total_time),
+        fetch_count: Some(send_count as u64),
+        network_ms: Some(query_elapsed),
+        conversion_ms: Some(0),
+        ipc_send_ms: Some(send_time_ms),
+    });
+
+    Ok(())
+}
+
+/// Messages sent from Oracle's synchronous cursor iteration (spawn_blocking)
+/// to the async streaming handler via mpsc channel.
+enum OracleBatchMessage {
+    /// Column metadata, sent first
+    Metadata {
+        columns: Vec<ColumnMeta>,
+    },
+    /// A batch of MessagePack-encoded rows
+    Data(Vec<u8>),
+    /// Cursor iteration complete
+    Done { total_rows: usize },
 }
 
 fn parse_mssql_spid_text(value: Option<&str>) -> Option<i16> {
@@ -1872,6 +2125,160 @@ pub async fn execute_query(
             }
         }
     }
+}
+
+// ============================================================================
+// Integration probes
+// ============================================================================
+
+/// Check whether the Oracle Instant Client (OCI) libraries are available on this machine.
+///
+/// Searches for the OCI shared library on disk in common locations.
+/// This approach works even after a fresh install without restarting the app,
+/// unlike the pool-based probe which caches the library load result per-process.
+#[tauri::command]
+pub async fn check_oracle_client() -> Result<serde_json::Value, String> {
+    tokio::task::spawn_blocking(|| {
+        let found = find_oracle_client_library();
+        match found {
+            Some(path) => {
+                // Verify the library architecture matches the running process
+                if let Some(issue) = check_library_arch_mismatch(&path) {
+                    return Ok(serde_json::json!({
+                        "available": false,
+                        "path": path,
+                        "reason": issue,
+                    }));
+                }
+                Ok(serde_json::json!({
+                    "available": true,
+                    "path": path,
+                }))
+            }
+            None => Ok(serde_json::json!({
+                "available": false,
+                "reason": "Oracle Instant Client libraries not found on this system",
+            })),
+        }
+    })
+    .await
+    .map_err(|e| format!("Task failed: {}", e))?
+}
+
+/// On macOS, check if the library's architecture matches the current process.
+/// Returns Some(error_message) if there's a mismatch.
+fn check_library_arch_mismatch(lib_path: &str) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("file")
+            .arg(lib_path)
+            .output()
+            .ok()?;
+        let info = String::from_utf8_lossy(&output.stdout);
+        let process_arch = std::env::consts::ARCH; // "aarch64" on Apple Silicon
+        if process_arch == "aarch64" && !info.contains("arm64") {
+            return Some(format!(
+                "Installed Oracle Instant Client is x86_64 but this Mac requires arm64. \
+                 Download the ARM64 version from oracle.com."
+            ));
+        }
+        if process_arch == "x86_64" && !info.contains("x86_64") {
+            return Some(
+                "Installed Oracle Instant Client architecture does not match this system."
+                    .to_string(),
+            );
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = lib_path;
+    None
+}
+
+/// Search for Oracle Instant Client shared library in common locations.
+fn find_oracle_client_library() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    let lib_name = "libclntsh.dylib";
+    #[cfg(target_os = "linux")]
+    let lib_name = "libclntsh.so";
+    #[cfg(target_os = "windows")]
+    let lib_name = "oci.dll";
+
+    // 1. Check DYLD_LIBRARY_PATH / LD_LIBRARY_PATH / PATH
+    #[cfg(target_os = "macos")]
+    let path_var = "DYLD_LIBRARY_PATH";
+    #[cfg(target_os = "linux")]
+    let path_var = "LD_LIBRARY_PATH";
+    #[cfg(target_os = "windows")]
+    let path_var = "PATH";
+
+    if let Ok(paths) = std::env::var(path_var) {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join(lib_name);
+            if candidate.exists() {
+                return Some(candidate.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 2. Check common install locations
+    let search_dirs: Vec<&str> = {
+        #[cfg(target_os = "macos")]
+        {
+            vec![
+                "/opt/homebrew/lib",
+                "/usr/local/lib",
+                "/opt/oracle/instantclient_19_8",
+                "/opt/oracle/instantclient_21_0",
+                "/opt/oracle/instantclient",
+            ]
+        }
+        #[cfg(target_os = "linux")]
+        {
+            vec![
+                "/usr/lib/oracle/21/client64/lib",
+                "/usr/lib/oracle/19.8/client64/lib",
+                "/opt/oracle/instantclient_21_0",
+                "/opt/oracle/instantclient_19_8",
+                "/usr/local/lib",
+            ]
+        }
+        #[cfg(target_os = "windows")]
+        {
+            vec![
+                "C:\\oracle\\instantclient_21_0",
+                "C:\\oracle\\instantclient_19_8",
+                "C:\\instantclient",
+            ]
+        }
+    };
+
+    for dir in search_dirs {
+        let candidate = std::path::Path::new(dir).join(lib_name);
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    // 3. Try `which` / `where` to find via PATH
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(output) = std::process::Command::new("find")
+            .args(["/opt/homebrew", "-name", lib_name, "-maxdepth", "3"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(first_line) = stdout.lines().next() {
+                    let trimmed = first_line.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 // ============================================================================

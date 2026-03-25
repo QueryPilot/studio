@@ -3,6 +3,9 @@ import {
   databaseService,
   type TableMeta,
   type FunctionMeta,
+  type SequenceMeta,
+  type PackageMeta,
+  type SynonymMeta,
 } from "@/services/databaseService";
 import { schemaCache } from "@/services/schemaCache";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
@@ -17,6 +20,9 @@ interface SchemaDataResult {
   views: TableMeta[];
   functions: FunctionMeta[];
   allFunctions: FunctionMeta[];
+  sequences: SequenceMeta[];
+  packages: PackageMeta[];
+  synonyms: SynonymMeta[];
 }
 
 interface SchemaData extends SchemaDataResult {
@@ -80,9 +86,12 @@ const loadSchemaData = async (
     schemaCache.setConnection(connectionId);
 
     // Use schemaCache for cached fetches (60% fewer redundant API calls)
-    const [tables, functions] = await Promise.all([
+    const [tables, functions, sequences, packages, synonyms] = await Promise.all([
       schemaCache.getTables(connectionId, schema),
       schemaCache.getFunctions(connectionId, schema),
+      databaseService.listSequences(connectionId, database, schema).catch(() => []),
+      databaseService.listPackages(connectionId, database, schema).catch(() => []),
+      databaseService.listSynonyms(connectionId, database, schema).catch(() => []),
     ]);
 
     // Separate tables and views
@@ -97,6 +106,9 @@ const loadSchemaData = async (
       views: viewList,
       functions: filterUserFunctions(functions),
       allFunctions,
+      sequences,
+      packages,
+      synonyms,
     };
   } catch (err: unknown) {
     logger.error("Failed to load schema data:", err);
@@ -187,6 +199,9 @@ export function useSchemaData(overrideConnectionId?: string): SchemaData {
     views: data?.views || [],
     functions: data?.functions || [],
     allFunctions: data?.allFunctions || [],
+    sequences: data?.sequences || [],
+    packages: data?.packages || [],
+    synonyms: data?.synonyms || [],
     isLoading,
     error: error
       ? error instanceof Error

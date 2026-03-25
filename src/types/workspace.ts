@@ -130,7 +130,13 @@ export interface TabState {
     title?: string;
     tableType?: "table" | "view";
     objectName?: string;
-    objectType?: "function" | "procedure";
+    objectType?:
+      | "function"
+      | "procedure"
+      | "package"
+      | "package_body"
+      | "sequence"
+      | "synonym";
   };
 
   // UI state

@@ -40,6 +40,7 @@ function mapDatabaseType(dbType: string): DbType {
     mariadb: DbType.MariaDB,
     sqlite: DbType.SQLite,
     mssql: DbType.SQLServer,
+    oracle: DbType.Oracle,
     mongodb: DbType.MongoDB,
     redis: DbType.Redis,
   };
@@ -52,9 +53,30 @@ const DB_DISPLAY_NAMES: Record<string, string> = {
   [DbType.MariaDB]: "MariaDB",
   [DbType.SQLite]: "SQLite",
   [DbType.SQLServer]: "SQL Server",
+  [DbType.Oracle]: "Oracle",
   [DbType.MongoDB]: "MongoDB",
   [DbType.Redis]: "Redis",
 };
+
+function getDefaultPort(dbType: DbType): number {
+  switch (dbType) {
+    case DbType.PostgreSQL:
+      return 5432;
+    case DbType.MySQL:
+    case DbType.MariaDB:
+      return 3306;
+    case DbType.SQLServer:
+      return 1433;
+    case DbType.Oracle:
+      return 1521;
+    case DbType.MongoDB:
+      return 27017;
+    case DbType.Redis:
+      return 6379;
+    case DbType.SQLite:
+      return 0;
+  }
+}
 
 interface ParsedInfo {
   dbType: DbType;
@@ -208,11 +230,33 @@ export function QuickConnectDialog({
         name: config.database || config.host || "Quick Connection",
         db_type: mapDatabaseType(config.dbType || "postgresql"),
         host: config.host || "localhost",
-        port: parseInt(config.port || "5432", 10),
+        port: parseInt(
+          config.port || String(getDefaultPort(mapDatabaseType(config.dbType || "postgresql"))),
+          10,
+        ),
         username: config.username || "",
         password: config.password || "",
         database: config.database || "",
-        options: {},
+        ssl_mode: config.sslMode,
+        ssl_config:
+          ("sslKeyFile" in config && config.sslKeyFile) ||
+          ("sslCertFile" in config && config.sslCertFile) ||
+          ("sslCAFile" in config && config.sslCAFile)
+            ? {
+                key_file:
+                  "sslKeyFile" in config ? config.sslKeyFile || undefined : undefined,
+                cert_file:
+                  "sslCertFile" in config ? config.sslCertFile || undefined : undefined,
+                ca_file:
+                  "sslCAFile" in config ? config.sslCAFile || undefined : undefined,
+              }
+            : undefined,
+        options: {
+          ...("options" in config ? config.options || {} : {}),
+          ...(mapDatabaseType(config.dbType || "postgresql") === DbType.Oracle
+            ? { oracle_connect_mode: "service_name" }
+            : {}),
+        },
       };
 
       // Include SSH tunnel config if parsed from env vars

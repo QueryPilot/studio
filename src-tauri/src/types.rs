@@ -48,6 +48,7 @@ pub enum DbType {
     MariaDB,
     SQLite,
     SQLServer,
+    Oracle,
     // New paradigms
     MongoDB,
     Redis,
@@ -85,7 +86,8 @@ impl DbType {
             | DbType::MySQL
             | DbType::MariaDB
             | DbType::SQLite
-            | DbType::SQLServer => DatabaseParadigm::Sql,
+            | DbType::SQLServer
+            | DbType::Oracle => DatabaseParadigm::Sql,
             DbType::MongoDB => DatabaseParadigm::Document,
             DbType::Redis => DatabaseParadigm::KeyValue,
         }

@@ -193,6 +193,7 @@ const getDialectExtension = (dialect: SqlDialect) => {
       return SQLite;
     case "mssql":
       return MSSQL;
+    case "oracle":
     case "plsql":
       return PLSQL;
     default:
@@ -210,6 +211,9 @@ const getFallbackSchema = (dbType: string, database: string): string => {
   }
   if (normalized.includes("mssql") || normalized.includes("sqlserver")) {
     return "dbo";
+  }
+  if (normalized.includes("oracle")) {
+    return "";
   }
   return "public";
 };

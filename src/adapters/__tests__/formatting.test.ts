@@ -18,6 +18,7 @@ describe('formatting utilities', () => {
       expect(toDbType(DbType.MySQL)).toBe(DbType.MySQL);
       expect(toDbType(DbType.SQLite)).toBe(DbType.SQLite);
       expect(toDbType(DbType.SQLServer)).toBe(DbType.SQLServer);
+      expect(toDbType(DbType.Oracle)).toBe(DbType.Oracle);
     });
 
     it('should convert string types to DbType enum', () => {
@@ -28,6 +29,7 @@ describe('formatting utilities', () => {
       expect(toDbType('sqlite')).toBe(DbType.SQLite);
       expect(toDbType('mssql')).toBe(DbType.SQLServer);
       expect(toDbType('sqlserver')).toBe(DbType.SQLServer);
+      expect(toDbType('oracle')).toBe(DbType.Oracle);
     });
 
     it('should be case insensitive', () => {
@@ -35,6 +37,7 @@ describe('formatting utilities', () => {
       expect(toDbType('MySQL')).toBe(DbType.MySQL);
       expect(toDbType('SQLite')).toBe(DbType.SQLite);
       expect(toDbType('MSSQL')).toBe(DbType.SQLServer);
+      expect(toDbType('Oracle')).toBe(DbType.Oracle);
     });
 
     it('should default to PostgreSQL for unknown types', () => {
@@ -90,10 +93,18 @@ describe('formatting utilities', () => {
       });
     });
 
+    describe('Oracle', () => {
+      it('should use double quotes', () => {
+        expect(quoteIdentifier('column', DbType.Oracle)).toBe('"column"');
+        expect(quoteIdentifier('table_name', DbType.Oracle)).toBe('"table_name"');
+      });
+    });
+
     it('should work with string type arguments', () => {
       expect(quoteIdentifier('column', 'postgresql')).toBe('"column"');
       expect(quoteIdentifier('column', 'mysql')).toBe('`column`');
       expect(quoteIdentifier('column', 'mssql')).toBe('[column]');
+      expect(quoteIdentifier('column', 'oracle')).toBe('"column"');
     });
   });
 
@@ -102,6 +113,7 @@ describe('formatting utilities', () => {
       expect(formatTableName(undefined, 'users', DbType.PostgreSQL)).toBe('"users"');
       expect(formatTableName(undefined, 'users', DbType.MySQL)).toBe('`users`');
       expect(formatTableName(undefined, 'users', DbType.SQLServer)).toBe('[users]');
+      expect(formatTableName(undefined, 'users', DbType.Oracle)).toBe('"users"');
     });
 
     it('should format fully qualified table name with schema', () => {

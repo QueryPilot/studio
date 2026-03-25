@@ -20,3 +20,6 @@ mod manager_test;
 
 #[cfg(test)]
 mod unified_adapter_test;
+
+#[cfg(test)]
+mod oracle_integration_test;

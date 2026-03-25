@@ -35,6 +35,9 @@ import {
   IconDatabase,
   IconLock,
   IconLockOpen,
+  IconHash,
+  IconPackage,
+  IconLink,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
@@ -70,9 +73,13 @@ import {
   databaseService,
   type TableMeta,
   type FunctionMeta,
+  type SequenceMeta,
+  type PackageMeta,
+  type SynonymMeta,
 } from "@/services/databaseService";
 import {
   openFunctionObject,
+  openSqlObjectDefinition,
   openTableObject,
   openTableDesigner,
   openCollectionDesigner,
@@ -237,7 +244,15 @@ export const ConnectionSection = forwardRef<
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set(["tables", "views", "starred", "collections"]),
+    new Set([
+      "tables",
+      "views",
+      "starred",
+      "collections",
+      "sequences",
+      "packages",
+      "synonyms",
+    ]),
   );
   const [expandedPartitionedTables, setExpandedPartitionedTables] = useState<
     Set<string>
@@ -271,6 +286,9 @@ export const ConnectionSection = forwardRef<
     views,
     functions: userFunctions,
     allFunctions,
+    sequences,
+    packages,
+    synonyms,
     isLoading: isLoadingData,
     error: schemaError,
   } = useSchemaData(isSqlDb ? connectionId : undefined);
@@ -447,6 +465,10 @@ export const ConnectionSection = forwardRef<
             functionName:
               typeof metadata?.functionName === "string"
                 ? metadata.functionName
+                : null,
+            objectType:
+              typeof metadata?.objectType === "string"
+                ? metadata.objectType
                 : null,
           };
         },
@@ -671,8 +693,26 @@ export const ConnectionSection = forwardRef<
         typeof focusedActiveTabSnapshot.schema === "string"
           ? focusedActiveTabSnapshot.schema
           : "";
-      sectionKey = "functions";
-      if (functionName && schemaName) {
+      const metadataObjectType =
+        typeof focusedActiveTabSnapshot.objectType === "string"
+          ? focusedActiveTabSnapshot.objectType
+          : "";
+      sectionKey =
+        metadataObjectType === "sequence"
+          ? "sequences"
+          : metadataObjectType === "package" ||
+              metadataObjectType === "package_body"
+            ? "packages"
+            : metadataObjectType === "synonym"
+              ? "synonyms"
+              : "functions";
+      if (
+        functionName &&
+        schemaName &&
+        (metadataObjectType === "function" ||
+          metadataObjectType === "procedure" ||
+          metadataObjectType === "")
+      ) {
         starredKey = `function:${schemaName}.${functionName}`;
       }
     } else if (focusedActiveTabSnapshot.type === "mongo-collection") {
@@ -706,14 +746,37 @@ export const ConnectionSection = forwardRef<
 
   // Auto-expand sections when data is loaded
   useEffect(() => {
-    if (tables.length > 0 || views.length > 0 || functions.length > 0) {
+    if (
+      tables.length > 0 ||
+      views.length > 0 ||
+      functions.length > 0 ||
+      sequences.length > 0 ||
+      packages.length > 0 ||
+      synonyms.length > 0
+    ) {
       queueMicrotask(() => {
         setExpandedNodes(
-          (prev) => new Set([...prev, "tables", "views", "starred"]),
+          (prev) =>
+            new Set([
+              ...prev,
+              "tables",
+              "views",
+              "starred",
+              "sequences",
+              "packages",
+              "synonyms",
+            ]),
         );
       });
     }
-  }, [tables.length, views.length, functions.length]);
+  }, [
+    tables.length,
+    views.length,
+    functions.length,
+    sequences.length,
+    packages.length,
+    synonyms.length,
+  ]);
 
   const toggleNode = (nodeId: string) => {
     const newExpanded = new Set(expandedNodes);
@@ -728,7 +791,7 @@ export const ConnectionSection = forwardRef<
   // Toggle all sections - collapse all if any expanded, expand all if all collapsed
   const toggleAllSections = useCallback(() => {
     const allSections = isSqlDb
-      ? ["starred", "tables", "views", "functions"]
+      ? ["starred", "tables", "views", "functions", "sequences", "packages", "synonyms"]
       : isDocumentDb
         ? ["collections"]
         : []; // Redis has no collapsible sections
@@ -763,10 +826,10 @@ export const ConnectionSection = forwardRef<
   // Filter items based on search and exclude starred
   const filterItems = <T extends { name: string; schema: string }>(
     items: T[],
-    type: "table" | "view" | "function",
+    type?: "table" | "view" | "function",
   ): T[] => {
     return items.filter((item) => {
-      if (starredSet.has(`${type}:${item.schema}.${item.name}`)) {
+      if (type && starredSet.has(`${type}:${item.schema}.${item.name}`)) {
         return false;
       }
       if (
@@ -798,6 +861,33 @@ export const ConnectionSection = forwardRef<
       focusedActiveTabSnapshot.schema === functionSchema &&
       focusedActiveTabSnapshot.functionName === functionName &&
       focusedActiveTabSnapshot.connectionId === connectionId
+    );
+  };
+
+  const isObjectDefinitionActive = (
+    objectName: string,
+    objectSchema: string,
+    objectType: string,
+  ): boolean => {
+    if (!focusedPanelId) return false;
+    const focusedPanel = useWorkbenchStore.getState().panelContents.get(focusedPanelId);
+    if (!focusedPanel || !focusedPanel.activeTabId) return false;
+    const metadata = focusedPanel.metadata?.[focusedPanel.activeTabId] as
+      | {
+          type?: string;
+          schema?: string;
+          functionName?: string;
+          objectType?: string;
+          connectionId?: string;
+        }
+      | undefined;
+
+    return (
+      metadata?.type === "function" &&
+      metadata.schema === objectSchema &&
+      metadata.functionName === objectName &&
+      metadata.objectType === objectType &&
+      metadata.connectionId === connectionId
     );
   };
 
@@ -953,6 +1043,23 @@ export const ConnectionSection = forwardRef<
       }
     },
     [connectionId, database, setFocusedConnection, onFunctionClick],
+  );
+
+  const handleSqlObjectDefinitionClick = useCallback(
+    (
+      item: SequenceMeta | PackageMeta | SynonymMeta,
+      objectType: "sequence" | "package" | "synonym",
+    ) => {
+      setFocusedConnection(connectionId);
+      openSqlObjectDefinition({
+        name: item.name,
+        schema: item.schema,
+        objectType,
+        connectionId,
+        database,
+      });
+    },
+    [connectionId, database, setFocusedConnection],
   );
 
   // Handle star toggle
@@ -2547,11 +2654,110 @@ export const ConnectionSection = forwardRef<
                 </SidebarSection>
               )}
 
+              {sequences.length > 0 && (
+                <SidebarSection
+                  title="Sequences"
+                  count={sequences.length}
+                  isExpanded={expandedNodes.has("sequences")}
+                  onToggle={() => {
+                    toggleNode("sequences");
+                  }}
+                  stickyClass=""
+                >
+                  {filterItems(sequences).map((sequence) => (
+                    <SidebarItem
+                      key={`${sequence.schema}.${sequence.name}`}
+                      icon={
+                        <IconHash className="h-3.5 w-4 min-w-4 text-amber-500 shrink-0" />
+                      }
+                      name={sequence.name}
+                      isActive={isObjectDefinitionActive(
+                        sequence.name,
+                        sequence.schema,
+                        "sequence",
+                      )}
+                      onClick={() => {
+                        handleSqlObjectDefinitionClick(sequence, "sequence");
+                      }}
+                    />
+                  ))}
+                </SidebarSection>
+              )}
+
+              {packages.length > 0 && (
+                <SidebarSection
+                  title="Packages"
+                  count={packages.length}
+                  isExpanded={expandedNodes.has("packages")}
+                  onToggle={() => {
+                    toggleNode("packages");
+                  }}
+                  stickyClass=""
+                >
+                  {filterItems(packages).map((pkg) => (
+                    <SidebarItem
+                      key={`${pkg.schema}.${pkg.name}`}
+                      icon={
+                        <IconPackage className="h-3.5 w-4 min-w-4 text-indigo-500 shrink-0" />
+                      }
+                      name={pkg.name}
+                      badge={pkg.has_body ? "body" : undefined}
+                      isActive={isObjectDefinitionActive(
+                        pkg.name,
+                        pkg.schema,
+                        "package",
+                      )}
+                      onClick={() => {
+                        handleSqlObjectDefinitionClick(pkg, "package");
+                      }}
+                    />
+                  ))}
+                </SidebarSection>
+              )}
+
+              {synonyms.length > 0 && (
+                <SidebarSection
+                  title="Synonyms"
+                  count={synonyms.length}
+                  isExpanded={expandedNodes.has("synonyms")}
+                  onToggle={() => {
+                    toggleNode("synonyms");
+                  }}
+                  stickyClass=""
+                >
+                  {filterItems(synonyms).map((synonym) => (
+                    <SidebarItem
+                      key={`${synonym.schema}.${synonym.name}`}
+                      icon={
+                        <IconLink className="h-3.5 w-4 min-w-4 text-cyan-500 shrink-0" />
+                      }
+                      name={synonym.name}
+                      badge={
+                        synonym.target_name
+                          ? `${synonym.target_schema ? `${synonym.target_schema}.` : ""}${synonym.target_name}`
+                          : undefined
+                      }
+                      isActive={isObjectDefinitionActive(
+                        synonym.name,
+                        synonym.schema,
+                        "synonym",
+                      )}
+                      onClick={() => {
+                        handleSqlObjectDefinitionClick(synonym, "synonym");
+                      }}
+                    />
+                  ))}
+                </SidebarSection>
+              )}
+
               {/* Empty state - SQL */}
               {!isLoadingData &&
                 tables.length === 0 &&
                 views.length === 0 &&
-                allFunctions.length === 0 && (
+                allFunctions.length === 0 &&
+                sequences.length === 0 &&
+                packages.length === 0 &&
+                synonyms.length === 0 && (
                   <div className="text-center py-4 pl-2 pr-1">
                     <p className="text-xs text-muted-foreground mb-3">
                       {schema ? "No objects found" : "Select a schema"}

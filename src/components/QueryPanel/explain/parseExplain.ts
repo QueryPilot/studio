@@ -4,6 +4,7 @@ import { parseSQLiteExplainQueryPlan } from "./parsers/sqlite";
 import { parseMySqlExplain } from "./parsers/mysql";
 import { parseSqlServerExplain } from "./parsers/sqlserver";
 import { parseSqlServerTextShowplan } from "./parsers/sqlserverText";
+import { parseOracleExplain } from "./parsers/oracle";
 
 export interface ParseExplainInput {
   columns: string[];
@@ -21,6 +22,9 @@ export function parseExplain(input: ParseExplainInput): ParsedExplain {
   }
   if (normalizedType.includes("sqlserver") || normalizedType.includes("mssql")) {
     return parseSqlServerExplain(input);
+  }
+  if (normalizedType.includes("oracle")) {
+    return parseOracleExplain(input);
   }
 
   const normalizedColumns = input.columns.map((column) =>
@@ -56,6 +60,14 @@ export function parseExplain(input: ParseExplainInput): ParsedExplain {
     normalizedColumns[0] === "stmttext";
   if (looksLikeSqlServerText) {
     return parseSqlServerTextShowplan(input);
+  }
+
+  // Oracle DBMS_XPLAN.DISPLAY: single "plan_table_output" column
+  const looksLikeOraclePlan =
+    normalizedColumns.length === 1 &&
+    normalizedColumns[0] === "plan_table_output";
+  if (looksLikeOraclePlan) {
+    return parseOracleExplain(input);
   }
 
   return parsePostgresExplain(input.rows);

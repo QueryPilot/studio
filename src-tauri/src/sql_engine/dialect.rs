@@ -14,6 +14,7 @@ pub enum SqlDialect {
     MySQL,
     SQLite,
     MsSQL,
+    Oracle,
     PlSQL,
 }
 
@@ -25,6 +26,7 @@ impl SqlDialect {
             SqlDialect::MySQL => Box::new(MySqlDialect {}),
             SqlDialect::SQLite => Box::new(SQLiteDialect {}),
             SqlDialect::MsSQL => Box::new(MsSqlDialect {}),
+            SqlDialect::Oracle => Box::new(GenericDialect {}),
             SqlDialect::PlSQL => Box::new(GenericDialect {}),
         }
     }
@@ -36,6 +38,7 @@ impl SqlDialect {
             SqlDialect::MySQL => "mysql",
             SqlDialect::SQLite => "sqlite",
             SqlDialect::MsSQL => "mssql",
+            SqlDialect::Oracle => "oracle",
             SqlDialect::PlSQL => "plsql",
         }
     }
@@ -48,7 +51,8 @@ impl From<&str> for SqlDialect {
             "mysql" | "mariadb" => SqlDialect::MySQL,
             "sqlite" => SqlDialect::SQLite,
             "mssql" | "sqlserver" | "transactsql" => SqlDialect::MsSQL,
-            "plsql" | "oracle" => SqlDialect::PlSQL,
+            "oracle" => SqlDialect::Oracle,
+            "plsql" => SqlDialect::PlSQL,
             _ => SqlDialect::PostgreSQL,
         }
     }
@@ -62,6 +66,7 @@ impl From<crate::types::DbType> for SqlDialect {
             crate::types::DbType::MySQL | crate::types::DbType::MariaDB => SqlDialect::MySQL,
             crate::types::DbType::SQLite => SqlDialect::SQLite,
             crate::types::DbType::SQLServer => SqlDialect::MsSQL,
+            crate::types::DbType::Oracle => SqlDialect::Oracle,
             // Non-SQL databases default to PostgreSQL dialect (they won't use SQL parsing anyway)
             crate::types::DbType::MongoDB | crate::types::DbType::Redis => SqlDialect::PostgreSQL,
         }
@@ -79,6 +84,7 @@ mod tests {
         assert_eq!(SqlDialect::from("mysql"), SqlDialect::MySQL);
         assert_eq!(SqlDialect::from("sqlite"), SqlDialect::SQLite);
         assert_eq!(SqlDialect::from("mssql"), SqlDialect::MsSQL);
+        assert_eq!(SqlDialect::from("oracle"), SqlDialect::Oracle);
         assert_eq!(SqlDialect::from("unknown"), SqlDialect::PostgreSQL);
     }
 
@@ -86,5 +92,6 @@ mod tests {
     fn test_dialect_name() {
         assert_eq!(SqlDialect::PostgreSQL.name(), "postgresql");
         assert_eq!(SqlDialect::MySQL.name(), "mysql");
+        assert_eq!(SqlDialect::Oracle.name(), "oracle");
     }
 }

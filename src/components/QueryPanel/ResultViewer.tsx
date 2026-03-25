@@ -99,6 +99,7 @@ const DB_TYPE_MAP: Record<string, DbType> = {
   sqlite: DbType.SQLite,
   mssql: DbType.SQLServer,
   sqlserver: DbType.SQLServer,
+  oracle: DbType.Oracle,
   mongodb: DbType.MongoDB,
   mongo: DbType.MongoDB,
   redis: DbType.Redis,
@@ -172,7 +173,7 @@ const ExportMenu = memo(function ExportMenu({
   };
 
   const handleCopyInsert = async () => {
-    const validTypes = ["postgresql", "mysql", "mariadb", "mssql", "sqlite"];
+    const validTypes = ["postgresql", "mysql", "mariadb", "mssql", "sqlite", "oracle"];
     const dbTypeToUse =
       databaseType && validTypes.includes(databaseType)
         ? (databaseType as InsertExportOptions["databaseType"])

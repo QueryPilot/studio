@@ -6,6 +6,7 @@ import {
   MYSQL_STANDARD_TYPES,
   SQLITE_STANDARD_TYPES,
   MSSQL_STANDARD_TYPES,
+  ORACLE_STANDARD_TYPES,
 } from "@/components/TableStructure/DataTypeCellRenderer";
 
 interface UseSupportedColumnTypesParams {
@@ -30,6 +31,7 @@ const DEFAULT_COLUMN_TYPES: Record<DbType, { types: string[]; default: string }>
   [DbType.MariaDB]: { types: MYSQL_STANDARD_TYPES, default: "varchar" },
   [DbType.SQLite]: { types: SQLITE_STANDARD_TYPES, default: "text" },
   [DbType.SQLServer]: { types: MSSQL_STANDARD_TYPES, default: "nvarchar" },
+  [DbType.Oracle]: { types: ORACLE_STANDARD_TYPES, default: "number" },
   [DbType.MongoDB]: { types: [], default: "" },
   [DbType.Redis]: { types: [], default: "" },
 };

@@ -9,6 +9,9 @@ import {
   IconLayout2,
   IconArrowRight,
   IconCopy,
+  IconPackage,
+  IconHash,
+  IconLink,
 } from "@tabler/icons-react";
 import { useDraggable } from "@dnd-kit/core";
 import {
@@ -42,7 +45,13 @@ interface DraggableTabProps {
   isView?: boolean;
   kind?: "Table" | "View" | "MaterializedView";
   returnType?: string;
-  objectType?: "function" | "procedure";
+  objectType?:
+    | "function"
+    | "procedure"
+    | "package"
+    | "package_body"
+    | "sequence"
+    | "synonym";
   isNextActive?: boolean;
   connectionId?: string;
   workspaceConnectionIds?: string[];
@@ -106,6 +115,15 @@ export const DraggableTab: React.FC<DraggableTabProps> = React.memo(({
       case "view":
         return IconEye;
       case "function":
+        if (objectType === "package" || objectType === "package_body") {
+          return IconPackage;
+        }
+        if (objectType === "sequence") {
+          return IconHash;
+        }
+        if (objectType === "synonym") {
+          return IconLink;
+        }
         return IconMathFunction;
       case "query":
         return IconBrandTabler;
@@ -115,7 +133,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = React.memo(({
       default:
         return IconTable;
     }
-  }, [tabType, isView]);
+  }, [tabType, isView, objectType]);
 
   const getIconClass = () => {
     if (tabType === "table" && isView) {
@@ -137,6 +155,25 @@ export const DraggableTab: React.FC<DraggableTabProps> = React.memo(({
       );
     }
     if (tabType === "function") {
+      if (objectType === "package" || objectType === "package_body") {
+        return cn(
+          "h-3.5 w-3.5",
+          isActive && isFocused ? "text-indigo-500" : "text-indigo-500/60",
+        );
+      }
+      if (objectType === "sequence") {
+        return cn(
+          "h-3.5 w-3.5",
+          isActive && isFocused ? "text-amber-500" : "text-amber-500/60",
+        );
+      }
+      if (objectType === "synonym") {
+        return cn(
+          "h-3.5 w-3.5",
+          isActive && isFocused ? "text-cyan-500" : "text-cyan-500/60",
+        );
+      }
+      // Procedures return 'void', functions have a return type
       const isProcedure =
         objectType === "procedure" ||
         (objectType == null && returnType === "void");

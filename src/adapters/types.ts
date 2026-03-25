@@ -624,6 +624,13 @@ export interface DatabaseAdapter {
    */
   getPartitionsQuery?(schema: string, table: string): string;
 
+  /**
+   * Oracle-specific metadata queries. Other dialects can omit them.
+   */
+  getSequencesQuery?(schema: string): string;
+  getPackagesQuery?(schema: string): string;
+  getSynonymsQuery?(schema: string): string;
+
   // ─────────────────────────────────────────────────────────────────
   // Materialized View Operations
   // ─────────────────────────────────────────────────────────────────
@@ -647,7 +654,10 @@ export type ObjectDefinitionType =
   | 'materialized_view'
   | 'function'
   | 'procedure'
+  | 'package'
+  | 'package_body'
   | 'sequence'
+  | 'synonym'
   | 'enum'
   | 'domain'
   | 'composite'

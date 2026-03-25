@@ -69,10 +69,10 @@ querypilot-cli:
 
 # Development
 dev d: querypilot-cli
-	pnpm tauri:dev
+	DYLD_LIBRARY_PATH=/opt/homebrew/lib:$(DYLD_LIBRARY_PATH) pnpm tauri:dev
 
 dev-profile dp: querypilot-cli
-	QP_STREAM_PROFILE=1 pnpm tauri:dev
+	DYLD_LIBRARY_PATH=/opt/homebrew/lib:$(DYLD_LIBRARY_PATH) QP_STREAM_PROFILE=1 pnpm tauri:dev
 
 # Build for production
 build:
@@ -287,13 +287,18 @@ seed-sqlserver:
 	@echo "SQL Server seeded successfully!"
 
 seed-oracle:
-	@echo "Setting up Oracle user..."
-	@docker exec -i query-pilot-oracle sqlplus -s system/DevPass123@localhost:1521/XE < seeds/oracle/setup.sql || true
+	@echo "Waiting for Oracle to be ready..."
+	@until docker exec query-pilot-oracle bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s system/DevPass123@//localhost:1521/XE" > /dev/null 2>&1; do \
+		echo "Waiting for Oracle to accept connections..."; \
+		sleep 10; \
+	done
+	@echo "Oracle is ready. Setting up user..."
+	@docker exec -i query-pilot-oracle sqlplus -s system/DevPass123@//localhost:1521/XE < seeds/oracle/setup.sql
 	@echo "Creating Oracle schema..."
-	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/01_schema.sql || true
+	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@//localhost:1521/XE < seeds/oracle/01_schema.sql
 	@echo "Seeding Oracle data..."
-	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@localhost:1521/XE < seeds/oracle/02_seed_data.sql || true
-	@echo "Oracle seeding attempted (may require manual setup for complex schemas)"
+	@docker exec -i query-pilot-oracle sqlplus -s todoapp/DevPass123@//localhost:1521/XE < seeds/oracle/02_seed_data.sql
+	@echo "Oracle seeded successfully!"
 
 seed-mongodb:
 	@echo "MongoDB is seeded automatically via init scripts."

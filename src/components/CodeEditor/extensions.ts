@@ -239,6 +239,7 @@ const getDialect = (dialect?: SqlDialect) => {
       return MySQL;
     case "sqlite":
       return SQLite;
+    case "oracle":
     case "plsql":
       return PLSQL;
     case "mssql":
@@ -264,6 +265,8 @@ export const getLanguageExtension = (
         return "main";
       case "mssql":
         return "dbo";
+      case "oracle":
+        return undefined;
       default:
         return "public";
     }

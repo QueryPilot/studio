@@ -6,9 +6,10 @@ import TelemetryPanel from "./panels/TelemetryPanel";
 import { Suspense, lazy } from "react";
 import { IconLoader2 } from "@tabler/icons-react";
 
-// Lazy load the shortcuts panel (it might be heavy)
+// Lazy load heavier panels
 const ShortcutsPanel = lazy(() => import("./panels/KeyboardShortcutsPanel"));
 const AIPreferencesPanel = lazy(() => import("./panels/AIPreferencesPanel"));
+const IntegrationsPanel = lazy(() => import("./panels/IntegrationsPanel"));
 
 interface PreferencesDialogProps {
   open?: boolean;
@@ -60,6 +61,18 @@ export function PreferencesDialog({
         );
       case "telemetry":
         return <TelemetryPanel />;
+      case "integrations":
+        return (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <IntegrationsPanel />
+          </Suspense>
+        );
       default:
         return <GeneralPanel />;
     }

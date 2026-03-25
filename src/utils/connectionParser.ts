@@ -7,6 +7,7 @@ export type DatabaseType =
   | "mariadb"
   | "sqlite"
   | "mssql"
+  | "oracle"
   | "mongodb"
   | "redis";
 
@@ -56,10 +57,13 @@ function looksLikeConnectionUri(text: string): boolean {
   if (!trimmed) return false;
 
   if (/^jdbc:/i.test(trimmed)) return true;
-  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite):\/\//i.test(trimmed)) {
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle):\/\//i.test(trimmed)) {
     return true;
   }
-  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite):/i.test(trimmed)) {
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle):/i.test(trimmed)) {
+    return true;
+  }
+  if (/^\(DESCRIPTION\s*=/i.test(trimmed)) {
     return true;
   }
   // MongoDB URIs (standard and SRV format for Atlas)
@@ -220,6 +224,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
       connLower === "odbc"
     ) {
       config.dbType = "mssql";
+    } else if (connLower === "oracle" || connLower === "oracledb") {
+      config.dbType = "oracle";
     } else if (connLower === "sqlite" || connLower === "sqlite3") {
       config.dbType = "sqlite";
     } else if (connLower === "mongodb" || connLower === "mongo") {
@@ -235,6 +241,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     config.dbType = "mariadb";
   } else if (hasPrefix("MSSQL_") || hasPrefix("SQLSERVER_") || hasPrefix("SQL_SERVER_")) {
     config.dbType = "mssql";
+  } else if (hasPrefix("ORACLE_")) {
+    config.dbType = "oracle";
   } else if (hasPrefix("SQLITE_")) {
     config.dbType = "sqlite";
   } else if (hasPrefix("MONGO_") || hasPrefix("MONGODB_")) {
@@ -257,6 +265,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MSSQL_HOST",
     "SQLSERVER_HOST",
     "SQL_SERVER_HOST",
+    // Oracle
+    "ORACLE_HOST",
     // MongoDB
     "MONGODB_HOST",
     "MONGO_HOST",
@@ -286,6 +296,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MSSQL_PORT",
     "SQLSERVER_PORT",
     "SQL_SERVER_PORT",
+    // Oracle
+    "ORACLE_PORT",
     // MongoDB
     "MONGODB_PORT",
     "MONGO_PORT",
@@ -315,6 +327,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "SQLSERVER_USER",
     "SQL_SERVER_USER",
     "SA_USER",
+    // Oracle
+    "ORACLE_USER",
+    "ORACLE_USERNAME",
     // MongoDB
     "MONGODB_USER",
     "MONGODB_USERNAME",
@@ -351,6 +366,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "SQLSERVER_PASSWORD",
     "SQL_SERVER_PASSWORD",
     "SA_PASSWORD",
+    // Oracle
+    "ORACLE_PASSWORD",
+    "ORACLE_PASS",
     // MongoDB
     "MONGODB_PASSWORD",
     "MONGO_PASSWORD",
@@ -386,6 +404,11 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "MSSQL_DB",
     "SQLSERVER_DATABASE",
     "SQL_SERVER_DATABASE",
+    // Oracle
+    "ORACLE_DATABASE",
+    "ORACLE_DB",
+    "ORACLE_SERVICE_NAME",
+    "ORACLE_SID",
     // SQLite
     "SQLITE_DATABASE",
     "SQLITE_DB",
@@ -431,6 +454,9 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     // SQL Server
     "MSSQL_URL",
     "SQLSERVER_URL",
+    // Oracle
+    "ORACLE_URL",
+    "ORACLE_URI",
     // MongoDB
     "MONGODB_URL",
     "MONGODB_URI",
@@ -779,7 +805,7 @@ function applyQueryParams(
   config: ParsedUriConfig,
   params: URLSearchParams,
 ): void {
-  const options: Record<string, string> = {};
+  const options: Record<string, string> = { ...(config.options ?? {}) };
 
   for (const [key, value] of params.entries()) {
     const keyLower = key.toLowerCase();
@@ -1219,6 +1245,8 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
     dbType = protocol === "mariadb" ? "mariadb" : "mysql";
   } else if (protocol === "mssql" || protocol === "sqlserver") {
     dbType = "mssql";
+  } else if (protocol === "oracle") {
+    dbType = "oracle";
   } else if (protocol === "mongodb" || protocol === "mongodb+srv") {
     dbType = "mongodb";
   } else if (protocol === "redis" || protocol === "rediss") {
@@ -1239,6 +1267,100 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
 
   applyQueryParams(config, url.searchParams);
 
+  if (config.dbType === "oracle") {
+    const mode = config.options?.oracle_connect_mode ?? "service_name";
+    const port = config.port ?? "1521";
+    if (mode === "sid" && config.host && config.database) {
+      config.options = {
+        ...(config.options ?? {}),
+        oracle_connect_mode: "sid",
+        oracle_sid: config.database,
+        oracle_connect_string: `${config.host}:${port}:${config.database}`,
+      };
+    } else if (config.host && config.database) {
+      config.options = {
+        ...(config.options ?? {}),
+        oracle_connect_mode: "service_name",
+        oracle_service_name: config.database,
+        oracle_connect_string: `//${config.host}:${port}/${config.database}`,
+      };
+    }
+  }
+
+  return config;
+}
+
+function extractOracleDescriptorValue(
+  descriptor: string,
+  key: "SERVICE_NAME" | "SID" | "HOST" | "PORT",
+): string | undefined {
+  const match = descriptor.match(new RegExp(`\\(${key}\\s*=\\s*([^\\)]+)\\)`, "i"));
+  return match?.[1]?.trim();
+}
+
+function parseOracleThinConnectString(input: string): ParsedUriConfig {
+  const match = input.trim().match(/^oracle:(?:thin:)?@(.+)$/i);
+  const connectString = match?.[1]?.trim();
+  if (!connectString) {
+    throw new Error("Invalid Oracle thin connection string");
+  }
+
+  const config: ParsedUriConfig = {
+    dbType: "oracle",
+    options: {
+      oracle_connect_string: connectString,
+    },
+  };
+  const options: Record<string, string> = config.options ?? {};
+  config.options = options;
+
+  if (connectString.startsWith("//")) {
+    const url = new URL(`oracle:${connectString}`);
+    config.host = url.hostname || undefined;
+    config.port = url.port || undefined;
+    if (url.pathname && url.pathname !== "/") {
+      const serviceName = decodeURIComponent(url.pathname.slice(1));
+      config.database = serviceName;
+      options.oracle_connect_mode = "service_name";
+      options.oracle_service_name = serviceName;
+    }
+    applyQueryParams(config, url.searchParams);
+    return config;
+  }
+
+  const sidMatch = connectString.match(/^([^:\/\(\)]+):(\d+):([^\/\(\)]+)$/);
+  if (sidMatch) {
+    config.host = sidMatch[1];
+    config.port = sidMatch[2];
+    const sid = sidMatch[3];
+    if (!sid) {
+      throw new Error("Invalid Oracle SID connection string");
+    }
+    config.database = sid;
+    options.oracle_connect_mode = "sid";
+    options.oracle_sid = sid;
+    return config;
+  }
+
+  if (/^\(DESCRIPTION\s*=/i.test(connectString)) {
+    config.host = extractOracleDescriptorValue(connectString, "HOST");
+    config.port = extractOracleDescriptorValue(connectString, "PORT");
+    const serviceName = extractOracleDescriptorValue(connectString, "SERVICE_NAME");
+    const sid = extractOracleDescriptorValue(connectString, "SID");
+    config.database = serviceName ?? sid;
+    options.oracle_connect_mode = "descriptor";
+    if (serviceName) {
+      options.oracle_service_name = serviceName;
+    }
+    if (sid) {
+      options.oracle_sid = sid;
+    }
+    return config;
+  }
+
+  config.database = connectString;
+  options.oracle_connect_mode = "tns_alias";
+  options.oracle_tns_alias = connectString;
   return config;
 }
 
@@ -1258,6 +1380,10 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
     return parseConnectionUri(trimmed.replace(/^jdbc:/i, ""));
   }
 
+  if (/^\(DESCRIPTION\s*=/i.test(trimmed)) {
+    return parseOracleThinConnectString(`oracle:@${trimmed}`);
+  }
+
   if (/^(server|data source|address|addr|network address)\s*=/i.test(trimmed)) {
     const parsed = parseSqlServerKeyValueString(trimmed);
     if (parsed) return parsed;
@@ -1269,6 +1395,10 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
 
   if (/^sqlite:/i.test(trimmed) || looksLikeSqlitePath(trimmed)) {
     return parseSqliteUri(trimmed);
+  }
+
+  if (/^oracle:(?:thin:)?@/i.test(trimmed)) {
+    return parseOracleThinConnectString(trimmed);
   }
 
   if (/^mongodb(\+srv)?:\/\//i.test(trimmed)) {
@@ -1368,6 +1498,7 @@ export function buildConnectionUri(
     [DbType.MariaDB]: "mariadb",
     [DbType.SQLite]: "sqlite",
     [DbType.SQLServer]: "mssql",
+    [DbType.Oracle]: "oracle",
     [DbType.MongoDB]: "mongodb",
     [DbType.Redis]: "redis",
   };

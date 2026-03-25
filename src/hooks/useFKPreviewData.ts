@@ -98,6 +98,8 @@ function buildEmbeddedFKSql(
   const selectParts = [`${tableName}.*`];
   const joinParts: string[] = [];
 
+  const tableAliasKeyword = dbType === DbType.Oracle ? "" : " AS";
+
   embeddedFKs.forEach((fk, i) => {
     const alias = `t${i + 1}`;
     const refTable = formatTableName(fk.refSchema, fk.refTable, dbType);
@@ -110,13 +112,18 @@ function buildEmbeddedFKSql(
     }
 
     joinParts.push(
-      `LEFT JOIN ${refTable} AS ${alias} ON ${tableName}.${quoteIdentifier(fk.fkColumn, dbType)} = ${alias}.${quoteIdentifier(fk.refPkColumn, dbType)}`,
+      `LEFT JOIN ${refTable}${tableAliasKeyword} ${alias} ON ${tableName}.${quoteIdentifier(fk.fkColumn, dbType)} = ${alias}.${quoteIdentifier(fk.refPkColumn, dbType)}`,
     );
   });
 
   const colName = quoteIdentifier(pkColumn, dbType);
   const selectKeyword = dbType === DbType.SQLServer ? `SELECT TOP 1` : `SELECT`;
-  const limitSuffix = dbType === DbType.SQLServer ? '' : ' LIMIT 1';
+  const limitSuffix =
+    dbType === DbType.SQLServer
+      ? ""
+      : dbType === DbType.Oracle
+        ? " FETCH FIRST 1 ROWS ONLY"
+        : " LIMIT 1";
   return `${selectKeyword} ${selectParts.join(", ")} FROM ${tableName} ${joinParts.join(" ")} WHERE ${tableName}.${colName} = ${pkValue}${limitSuffix}`;
 }
 
@@ -183,6 +190,8 @@ export function useFKPreviewData(params: FKPreviewDataParams): FKPreviewDataResu
           const colName = quoteIdentifier(pkColumn, dbType);
           if (dbType === DbType.SQLServer) {
             sql = `SELECT TOP 1 * FROM ${tableName} WHERE ${colName} = ${val}`;
+          } else if (dbType === DbType.Oracle) {
+            sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} FETCH FIRST 1 ROWS ONLY`;
           } else {
             sql = `SELECT * FROM ${tableName} WHERE ${colName} = ${val} LIMIT 1`;
           }

@@ -43,6 +43,7 @@ import {
   IconFolderOpen,
   IconLayout2,
   IconX,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import {
   Tooltip,
@@ -52,6 +53,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { toast } from "sonner";
 import {
@@ -107,6 +109,8 @@ function getDefaultPort(type: DatabaseType): string {
       return "3306";
     case "mssql":
       return "1433";
+    case "oracle":
+      return "1521";
     case "sqlite":
       return "";
     case "mongodb":
@@ -171,6 +175,7 @@ export function ConnectionForm() {
         "4": "mariadb",
         "5": "mongodb",
         "6": "redis",
+        "7": "oracle",
         postgresql: "postgresql",
         postgres: "postgresql",
         mysql: "mysql",
@@ -178,6 +183,7 @@ export function ConnectionForm() {
         sqlite: "sqlite",
         mssql: "mssql",
         sqlserver: "mssql",
+        oracle: "oracle",
         mongodb: "mongodb",
         redis: "redis",
       };
@@ -301,10 +307,37 @@ export function ConnectionForm() {
     connection?.profile.ssl_config?.ca_file || "",
   );
 
+  // Oracle-specific state
+  const existingOptions = connection?.profile.options;
+  const [oracleConnectMode, setOracleConnectMode] = useState<string>(() => {
+    return existingOptions?.oracle_connect_mode || "service_name";
+  });
+  const [oracleSid, setOracleSid] = useState(
+    existingOptions?.oracle_sid || "",
+  );
+  const [oracleTnsAlias, setOracleTnsAlias] = useState(
+    existingOptions?.oracle_tns_alias || "",
+  );
+  const [oracleConnectString, setOracleConnectString] = useState(
+    existingOptions?.oracle_connect_string || "",
+  );
+  const [oracleWalletDir, setOracleWalletDir] = useState(
+    existingOptions?.oracle_wallet_dir || "",
+  );
+
   // Connection options state (e.g., charset=utf8mb4)
+  // Filter out Oracle-specific keys so they don't appear in the generic textarea
+  const oracleOptionKeys = new Set([
+    "oracle_connect_mode",
+    "oracle_sid",
+    "oracle_tns_alias",
+    "oracle_connect_string",
+    "oracle_wallet_dir",
+  ]);
   const [connectionOptions, setConnectionOptions] = useState<string>(() => {
     if (connection?.profile.options) {
       return Object.entries(connection.profile.options)
+        .filter(([k]) => !oracleOptionKeys.has(k))
         .map(([k, v]) => `${k}=${v}`)
         .join("\n");
     }
@@ -317,6 +350,32 @@ export function ConnectionForm() {
   const [isTesting, setIsTesting] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
   const skipDefaultPortRef = useRef(false);
+
+  // Oracle driver availability check
+  const [oracleDriverAvailable, setOracleDriverAvailable] = useState<
+    boolean | null
+  >(null);
+  const openPreferences = usePreferencesStore((s) => s.openPreferences);
+
+  useEffect(() => {
+    if (dbType !== "oracle") {
+      setOracleDriverAvailable(null);
+      return;
+    }
+    let cancelled = false;
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke<{ available: boolean; reason?: string }>(
+        "check_oracle_client",
+      ).then((result) => {
+        if (!cancelled) setOracleDriverAvailable(result.available);
+      }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [dbType]);
+
+  const isOracleDriverMissing = dbType === "oracle" && oracleDriverAvailable === false;
 
   // Update port when database type changes
   useEffect(() => {
@@ -685,6 +744,8 @@ export function ConnectionForm() {
               ? DbType.MariaDB
               : dbType === "sqlite"
                 ? DbType.SQLite
+                : dbType === "oracle"
+                  ? DbType.Oracle
                 : dbType === "mongodb"
                   ? DbType.MongoDB
                   : dbType === "redis"
@@ -711,7 +772,26 @@ export function ConnectionForm() {
           : undefined,
       ssh_tunnel: undefined,
       bastion: undefined,
-      options: parseConnectionOptions(connectionOptions),
+      options: {
+        ...parseConnectionOptions(connectionOptions),
+        ...(dbType === "oracle"
+          ? {
+              oracle_connect_mode: oracleConnectMode,
+              ...(oracleConnectMode === "sid" && oracleSid
+                ? { oracle_sid: oracleSid }
+                : {}),
+              ...(oracleConnectMode === "tns_alias" && oracleTnsAlias
+                ? { oracle_tns_alias: oracleTnsAlias }
+                : {}),
+              ...(oracleConnectMode === "connect_string" && oracleConnectString
+                ? { oracle_connect_string: oracleConnectString }
+                : {}),
+              ...(oracleWalletDir
+                ? { oracle_wallet_dir: oracleWalletDir }
+                : {}),
+            }
+          : {}),
+      },
       default_schema: defaultSchema || undefined,
       safe_mode: safeMode,
     };
@@ -906,6 +986,11 @@ export function ConnectionForm() {
       value: "mssql",
       label: "SQL Server",
       logo: getDatabaseLogo(DbType.SQLServer),
+    },
+    {
+      value: "oracle",
+      label: "Oracle (Beta)",
+      logo: getDatabaseLogo(DbType.Oracle),
     },
     {
       value: "mongodb",
@@ -1364,7 +1449,9 @@ export function ConnectionForm() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="database" className="text-xs">
-                    Database
+                    {dbType === "oracle" && oracleConnectMode === "service_name"
+                      ? "Service Name"
+                      : "Database"}
                   </Label>
                   <Input
                     id="database"
@@ -1373,7 +1460,11 @@ export function ConnectionForm() {
                     onChange={(e) => {
                       setDatabase(e.target.value);
                     }}
-                    placeholder="database name"
+                    placeholder={
+                      dbType === "oracle" && oracleConnectMode === "service_name"
+                        ? "ORCL"
+                        : "database name"
+                    }
                     disabled={isTesting}
                   />
                 </div>
@@ -1395,6 +1486,137 @@ export function ConnectionForm() {
                   </div>
                 )}
               </div>
+
+              {/* Oracle-specific fields */}
+              {dbType === "oracle" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="oracleConnectMode" className="text-xs">
+                        Connection Mode
+                      </Label>
+                      <Select
+                        value={oracleConnectMode}
+                        onValueChange={(v) => {
+                          if (v) setOracleConnectMode(v);
+                        }}
+                      >
+                        <SelectTrigger className="mt-1 h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="service_name" className="text-xs">
+                            Service Name
+                          </SelectItem>
+                          <SelectItem value="sid" className="text-xs">
+                            SID (legacy)
+                          </SelectItem>
+                          <SelectItem value="tns_alias" className="text-xs">
+                            TNS Alias
+                          </SelectItem>
+                          <SelectItem value="connect_string" className="text-xs">
+                            Raw Connect String
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {oracleConnectMode === "sid" && (
+                      <div>
+                        <Label htmlFor="oracleSid" className="text-xs">
+                          SID
+                        </Label>
+                        <Input
+                          id="oracleSid"
+                          className="mt-1 h-8 text-xs"
+                          value={oracleSid}
+                          onChange={(e) => {
+                            setOracleSid(e.target.value);
+                          }}
+                          placeholder="ORCL"
+                          disabled={isTesting}
+                        />
+                      </div>
+                    )}
+
+                    {oracleConnectMode === "tns_alias" && (
+                      <div>
+                        <Label htmlFor="oracleTnsAlias" className="text-xs">
+                          TNS Alias
+                        </Label>
+                        <Input
+                          id="oracleTnsAlias"
+                          className="mt-1 h-8 text-xs"
+                          value={oracleTnsAlias}
+                          onChange={(e) => {
+                            setOracleTnsAlias(e.target.value);
+                          }}
+                          placeholder="mydb_alias"
+                          disabled={isTesting}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {oracleConnectMode === "connect_string" && (
+                    <div>
+                      <Label htmlFor="oracleConnectString" className="text-xs">
+                        Connect String
+                      </Label>
+                      <textarea
+                        id="oracleConnectString"
+                        className="mt-1 w-full h-16 text-xs px-2 py-1.5 border rounded-md bg-background resize-none font-mono"
+                        value={oracleConnectString}
+                        onChange={(e) => {
+                          setOracleConnectString(e.target.value);
+                        }}
+                        placeholder="(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=...)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=...)))"
+                        disabled={isTesting}
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <Label htmlFor="oracleWalletDir" className="text-xs">
+                      Wallet Directory
+                    </Label>
+                    <div className="flex gap-1.5 mt-1">
+                      <Input
+                        id="oracleWalletDir"
+                        className="h-8 text-xs flex-1"
+                        value={oracleWalletDir}
+                        onChange={(e) => {
+                          setOracleWalletDir(e.target.value);
+                        }}
+                        placeholder="/path/to/wallet (optional)"
+                        disabled={isTesting}
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          void (async () => {
+                            try {
+                              const selected = await open({ directory: true });
+                              if (selected && typeof selected === "string") {
+                                setOracleWalletDir(selected);
+                              }
+                            } catch (error) {
+                              logger.error("Failed to open directory dialog:", error);
+                              toast.error("Failed to open directory picker");
+                            }
+                          })();
+                        }}
+                        disabled={isTesting}
+                        title="Browse wallet directory"
+                      >
+                        <IconFolderOpen className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div>
@@ -1864,11 +2086,22 @@ export function ConnectionForm() {
         </div>
 
         <div className="flex items-center gap-2">
+          {isOracleDriverMissing && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-950"
+              onClick={() => { openPreferences("integrations"); }}
+            >
+              <IconAlertTriangle className="h-3 w-3" />
+              Install Driver
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
             onClick={handleTest}
-            disabled={isTesting || isSaving}
+            disabled={isTesting || isSaving || isOracleDriverMissing}
             className={cn(
               "h-7 px-2.5 text-xs",
               testSuccess && "text-green-600!",

@@ -117,6 +117,7 @@ export function useTableFullStructure({
         options: normalizedOptions,
       }),
     enabled: shouldEnable,
+    staleTime: 60_000, // Structure rarely changes — avoid re-fetching for 60s
   });
 
   const refresh = useCallback(async () => {

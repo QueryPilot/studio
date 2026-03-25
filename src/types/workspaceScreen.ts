@@ -54,7 +54,13 @@ export interface TabPayload {
   // For function/procedure tabs
   functionName?: string;
   objectName?: string;
-  objectType?: "function" | "procedure";
+  objectType?:
+    | "function"
+    | "procedure"
+    | "package"
+    | "package_body"
+    | "sequence"
+    | "synonym";
   returnType?: string;
 }
 

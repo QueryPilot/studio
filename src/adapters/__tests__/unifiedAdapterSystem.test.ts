@@ -111,6 +111,10 @@ describe('Unified Adapter System', () => {
       expect(getParadigm(DbType.SQLServer)).toBe('sql');
     });
 
+    it('Oracle maps to sql paradigm', () => {
+      expect(getParadigm(DbType.Oracle)).toBe('sql');
+    });
+
     it('MongoDB maps to document paradigm', () => {
       expect(getParadigm(DbType.MongoDB)).toBe('document');
     });
@@ -156,6 +160,7 @@ describe('Unified Adapter System', () => {
       DbType.MariaDB,
       DbType.SQLite,
       DbType.SQLServer,
+      DbType.Oracle,
     ];
 
     it.each(sqlDbTypes)('%s should have sql paradigm', (dbType) => {

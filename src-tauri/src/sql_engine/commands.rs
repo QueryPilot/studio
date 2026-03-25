@@ -121,7 +121,8 @@ fn parse_dialect(dialect: &str) -> SqlDialect {
         "mysql" | "mariadb" => SqlDialect::MySQL,
         "sqlite" => SqlDialect::SQLite,
         "mssql" | "sqlserver" | "transactsql" => SqlDialect::MsSQL,
-        "plsql" | "oracle" => SqlDialect::PlSQL,
+        "oracle" => SqlDialect::Oracle,
+        "plsql" => SqlDialect::PlSQL,
         _ => SqlDialect::PostgreSQL, // Default
     }
 }
@@ -131,6 +132,7 @@ fn default_schema_name(dialect: &SqlDialect) -> Option<&'static str> {
         SqlDialect::SQLite => Some("main"),
         SqlDialect::MsSQL => Some("dbo"),
         SqlDialect::PostgreSQL | SqlDialect::PlSQL => Some("public"),
+        SqlDialect::Oracle => None,
         SqlDialect::MySQL => None,
     }
 }

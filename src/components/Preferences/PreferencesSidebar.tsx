@@ -8,6 +8,7 @@ import {
   IconKeyboard,
   IconSparkles,
   IconActivity,
+  IconPlug,
 } from "@tabler/icons-react";
 
 const categories = [
@@ -30,6 +31,11 @@ const categories = [
     id: "telemetry" as PreferenceCategory,
     label: "Telemetry & Reporting",
     icon: IconActivity,
+  },
+  {
+    id: "integrations" as PreferenceCategory,
+    label: "Integrations",
+    icon: IconPlug,
   },
 ];
 

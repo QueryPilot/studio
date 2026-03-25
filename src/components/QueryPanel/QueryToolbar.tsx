@@ -46,7 +46,8 @@ const DIALECT_OPTIONS: Array<{
   { value: "mysql", label: "MySQL", description: "MySQL syntax" },
   { value: "sqlite", label: "SQLite", description: "SQLite syntax" },
   { value: "mssql", label: "SQL Server", description: "T-SQL syntax" },
-  { value: "plsql", label: "PL/SQL", description: "Oracle PL/SQL syntax" },
+  { value: "oracle", label: "Oracle", description: "Oracle SQL and PL/SQL syntax" },
+  { value: "plsql", label: "PL/SQL", description: "Procedural SQL syntax" },
 ];
 
 interface QueryToolbarProps {

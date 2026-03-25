@@ -866,6 +866,111 @@ describe('SqlDataGrid', () => {
     expect(typeof latestProps?.onSelectIdentifierColumns).toBe('function');
   });
 
+  it('uses Oracle synthetic ROWID fallback for tables without deterministic identity', () => {
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        rows: [
+          {
+            col_0: { value: 'AAAPr9AAEAAAACXAAA', db_type: 'ROWID', value_type: 'Text', is_truncated: false },
+            col_1: { value: 'alice@example.com', db_type: 'VARCHAR2', value_type: 'Text', is_truncated: false },
+          },
+        ],
+        columns: [
+          {
+            name: '__qp_rowid',
+            db_type: 'ROWID',
+            nullable: false,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+          {
+            name: 'email',
+            db_type: 'VARCHAR2',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 1,
+          },
+        ],
+        estimatedTotal: 1,
+      }),
+    );
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'APP',
+        database: 'oracle-db',
+        columns: [],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <SqlDataGrid
+        connectionId="oracle-conn"
+        database="oracle-db"
+        schema="APP"
+        table="USERS"
+        dbType={DbType.Oracle}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    const commandFactory = latestProps?.commandFactory as
+      | {
+          primaryKeyColumns: string[];
+          createDeleteCommand: (
+            row: Record<string, unknown>,
+            rowKey: string,
+          ) => unknown;
+          getRowKey: (row: Record<string, unknown>, index: number) => string;
+        }
+      | undefined;
+    const gridColumns =
+      (latestProps?.columns as Array<Record<string, unknown>> | undefined) ?? [];
+    const row = {
+      col_0: { value: 'AAAPr9AAEAAAACXAAA', db_type: 'ROWID', value_type: 'Text', is_truncated: false },
+      col_1: { value: 'alice@example.com', db_type: 'VARCHAR2', value_type: 'Text', is_truncated: false },
+    };
+
+    expect(mockUseTableDataQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: ['__qp_rowid'],
+      }),
+    );
+    expect(commandFactory?.primaryKeyColumns).toEqual(['__qp_rowid']);
+    expect(gridColumns.map((column) => column.name)).toEqual(['email']);
+
+    const rowKey = commandFactory?.getRowKey(row, 0);
+    if (!rowKey) {
+      throw new Error('Expected Oracle ROWID row key');
+    }
+
+    commandFactory?.createDeleteCommand(row, rowKey);
+
+    expect(createDeleteCommandMock).toHaveBeenCalledWith(
+      expect.anything(),
+      'test-target',
+      expect.anything(),
+      expect.objectContaining({
+        matcherMode: 'deterministic',
+        identityColumns: ['__qp_rowid'],
+      }),
+    );
+    expect(latestProps?.readOnlyReason).toBeUndefined();
+  });
+
   it('should skip best-effort probe for inserted-row updates linked by tempId', async () => {
     mockUseTableDataQuery.mockReturnValue(
       makeTableDataQueryResult({

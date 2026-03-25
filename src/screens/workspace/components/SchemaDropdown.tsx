@@ -70,6 +70,10 @@ export function SchemaDropdown({
 
   // Check if database supports schemas (not MySQL/SQLite)
   const supportsSchemas =
+    dbType === DbType.PostgreSQL ||
+    dbType === DbType.SQLServer ||
+    dbType === DbType.Oracle;
+  const canCreateSchema =
     dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 
   // Track connection active state
@@ -133,7 +137,8 @@ export function SchemaDropdown({
     s.toLowerCase().includes(searchLower)
   );
   const exactMatch = schemas.some((s) => s.toLowerCase() === searchLower);
-  const showCreateOption = searchValue.trim() && !exactMatch && !isLoadingSchemas;
+  const showCreateOption =
+    canCreateSchema && searchValue.trim() && !exactMatch && !isLoadingSchemas;
 
   const handleSelect = useCallback(
     async (schema: string) => {

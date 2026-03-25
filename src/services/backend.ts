@@ -10,6 +10,7 @@ export enum DbType {
   MariaDB = "MariaDB",
   SQLite = "SQLite",
   SQLServer = "SQLServer",
+  Oracle = "Oracle",
   // New paradigms
   MongoDB = "MongoDB",
   Redis = "Redis",

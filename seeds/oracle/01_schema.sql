@@ -86,7 +86,7 @@ CREATE TABLE customers (
 ALTER TABLE customers ADD CONSTRAINT ensure_cust_pref_json CHECK (preferences IS JSON);
 ALTER TABLE customers ADD CONSTRAINT ensure_cust_meta_json CHECK (metadata IS JSON);
 
-CREATE INDEX idx_customers_email ON customers(email);
+-- email already indexed via UNIQUE constraint
 CREATE INDEX idx_customers_name ON customers(last_name, first_name);
 
 -- Addresses table
@@ -99,7 +99,7 @@ CREATE TABLE addresses (
     city VARCHAR2(100) NOT NULL,
     state VARCHAR2(100),
     postal_code VARCHAR2(20) NOT NULL,
-    country CHAR(2) NOT NULL DEFAULT 'US',
+    country CHAR(2) DEFAULT 'US' NOT NULL,
     is_default NUMBER(1) DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_addresses_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
@@ -172,7 +172,7 @@ ALTER TABLE products ADD CONSTRAINT ensure_prod_attr_json CHECK (attributes IS J
 ALTER TABLE products ADD CONSTRAINT ensure_prod_imgs_json CHECK (images IS JSON);
 
 CREATE INDEX idx_products_category ON products(category_id);
-CREATE INDEX idx_products_sku ON products(sku);
+-- sku already indexed via UNIQUE constraint
 CREATE INDEX idx_products_price ON products(price);
 
 -- Inventory table
@@ -493,3 +493,68 @@ SELECT
 FROM customers c
 LEFT JOIN orders o ON c.id = o.customer_id AND o.status NOT IN ('cancelled', 'refunded')
 GROUP BY c.id, c.email, c.first_name, c.last_name, c.created_at, c.loyalty_points;
+
+-- ============================================================================
+-- 6. STORED PROCEDURES AND FUNCTIONS
+-- ============================================================================
+
+-- Function: Calculate total order value for a customer
+CREATE OR REPLACE FUNCTION fn_customer_lifetime_value(p_customer_id IN NUMBER)
+RETURN NUMBER IS
+    v_total NUMBER(12,2);
+BEGIN
+    SELECT NVL(SUM(total_amount), 0) INTO v_total
+    FROM orders
+    WHERE customer_id = p_customer_id
+    AND status NOT IN ('cancelled', 'refunded');
+    RETURN v_total;
+END;
+/
+
+-- Procedure: Update product rating
+CREATE OR REPLACE PROCEDURE sp_update_product_rating(p_product_id IN NUMBER) IS
+    v_avg_rating NUMBER(3,2);
+    v_count NUMBER;
+BEGIN
+    SELECT NVL(AVG(rating), 0), COUNT(*)
+    INTO v_avg_rating, v_count
+    FROM reviews
+    WHERE product_id = p_product_id AND is_approved = 1;
+
+    UPDATE products
+    SET rating_avg = v_avg_rating, rating_count = v_count, updated_at = CURRENT_TIMESTAMP
+    WHERE id = p_product_id;
+    COMMIT;
+END;
+/
+
+-- Procedure: Search products by keyword
+CREATE OR REPLACE PROCEDURE sp_search_products(
+    p_keyword IN VARCHAR2,
+    p_cursor OUT SYS_REFCURSOR
+) IS
+BEGIN
+    OPEN p_cursor FOR
+    SELECT id, sku, name, price, rating_avg
+    FROM products
+    WHERE UPPER(name) LIKE '%' || UPPER(p_keyword) || '%'
+    OR UPPER(description) LIKE '%' || UPPER(p_keyword) || '%'
+    ORDER BY rating_avg DESC;
+END;
+/
+
+-- Trigger: Audit order status changes
+CREATE OR REPLACE TRIGGER trg_order_status_audit
+AFTER UPDATE OF status ON orders
+FOR EACH ROW
+BEGIN
+    INSERT INTO order_audit_log (order_id, action, old_values, new_values, changed_by)
+    VALUES (
+        :NEW.id,
+        'status_change',
+        '{"status": "' || :OLD.status || '"}',
+        '{"status": "' || :NEW.status || '"}',
+        SYS_CONTEXT('USERENV', 'SESSION_USER')
+    );
+END;
+/

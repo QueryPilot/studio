@@ -95,6 +95,14 @@ export function buildTransactionCommands(
     };
   }
 
+  if (normalized === DbType.Oracle.toLowerCase()) {
+    return {
+      begin: "",
+      commit: "COMMIT",
+      rollback: "ROLLBACK",
+    };
+  }
+
   return {
     begin: "BEGIN",
     commit: "COMMIT",

@@ -345,6 +345,80 @@ export const IntrospectionService = {
     }));
   },
 
+  async getSequences(
+    connectionId: string,
+    schema: string,
+  ): Promise<
+    Array<{
+      schema: string;
+      name: string;
+      increment_by?: number;
+      min_value?: number;
+      max_value?: number;
+      last_number?: number;
+      cache_size?: number;
+      cycle?: boolean;
+    }>
+  > {
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    const sql = adapter?.getSequencesQuery?.(schema);
+    if (!sql) return [];
+
+    const result = await BackendAPI.query(connectionId, sql);
+    return result.rows.map((row) => ({
+      schema: getString(row[0]),
+      name: getString(row[1]),
+      increment_by: getNumber(row[2]),
+      min_value: getNumber(row[3]),
+      max_value: getNumber(row[4]),
+      last_number: getNumber(row[5]),
+      cache_size: getNumber(row[6]),
+      cycle: getString(row[7]).toUpperCase() === "Y",
+    }));
+  },
+
+  async getPackages(
+    connectionId: string,
+    schema: string,
+  ): Promise<Array<{ schema: string; name: string; has_body: boolean }>> {
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    const sql = adapter?.getPackagesQuery?.(schema);
+    if (!sql) return [];
+
+    const result = await BackendAPI.query(connectionId, sql);
+    return result.rows.map((row) => ({
+      schema: getString(row[0]),
+      name: getString(row[1]),
+      has_body: getBool(row[2]),
+    }));
+  },
+
+  async getSynonyms(
+    connectionId: string,
+    schema: string,
+  ): Promise<
+    Array<{
+      schema: string;
+      name: string;
+      target_schema?: string;
+      target_name?: string;
+      db_link?: string;
+    }>
+  > {
+    const adapter = await getSqlAdapterForConnection(connectionId);
+    const sql = adapter?.getSynonymsQuery?.(schema);
+    if (!sql) return [];
+
+    const result = await BackendAPI.query(connectionId, sql);
+    return result.rows.map((row) => ({
+      schema: getString(row[0]),
+      name: getString(row[1]),
+      target_schema: getString(row[2]) || undefined,
+      target_name: getString(row[3]) || undefined,
+      db_link: getString(row[4]) || undefined,
+    }));
+  },
+
   /**
    * Get indexes on a table
    */

@@ -43,6 +43,8 @@ export function resolveSchemaForLint(
       return "main";
     case "mssql":
       return "dbo";
+    case "oracle":
+      return null;
     case "postgresql":
     case "plsql":
       return "public";

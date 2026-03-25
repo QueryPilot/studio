@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 use crate::adapters::mongodb::MongoDbAdapter;
 use crate::adapters::mssql::MssqlAdapter;
 use crate::adapters::mysql::MySqlAdapter;
+use crate::adapters::oracle::OracleAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
@@ -50,6 +51,7 @@ pub struct UnifiedAdapter {
     mysql: Option<*const MySqlAdapter>,
     mssql: Option<*const MssqlAdapter>,
     sqlite: Option<*const SqliteAdapter>,
+    oracle: Option<*const OracleAdapter>,
     mongo: Option<*const MongoDbAdapter>,
     redis: Option<*const RedisAdapter>,
 
@@ -79,6 +81,7 @@ impl UnifiedAdapter {
             mysql: None,
             mssql: None,
             sqlite: None,
+            oracle: None,
             mongo: None,
             redis: None,
             db_type: DbType::PostgreSQL,
@@ -101,6 +104,7 @@ impl UnifiedAdapter {
             mysql: Some(ptr),
             mssql: None,
             sqlite: None,
+            oracle: None,
             mongo: None,
             redis: None,
             db_type,
@@ -123,6 +127,7 @@ impl UnifiedAdapter {
             mysql: None,
             mssql: None,
             sqlite: Some(ptr),
+            oracle: None,
             mongo: None,
             redis: None,
             db_type: DbType::SQLite,
@@ -145,9 +150,32 @@ impl UnifiedAdapter {
             mysql: None,
             mssql: Some(ptr),
             sqlite: None,
+            oracle: None,
             mongo: None,
             redis: None,
             db_type: DbType::SQLServer,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for Oracle
+    pub fn oracle(adapter: OracleAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const OracleAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: None,
+            postgres: None,
+            mysql: None,
+            mssql: None,
+            sqlite: None,
+            oracle: Some(ptr),
+            mongo: None,
+            redis: None,
+            db_type: DbType::Oracle,
         }
     }
 
@@ -167,6 +195,7 @@ impl UnifiedAdapter {
             mysql: None,
             mssql: None,
             sqlite: None,
+            oracle: None,
             mongo: Some(ptr),
             redis: None,
             db_type: DbType::MongoDB,
@@ -189,6 +218,7 @@ impl UnifiedAdapter {
             mysql: None,
             mssql: None,
             sqlite: None,
+            oracle: None,
             mongo: None,
             redis: Some(ptr),
             db_type: DbType::Redis,
@@ -255,6 +285,10 @@ impl UnifiedAdapter {
 
     pub fn as_sqlite(&self) -> Option<&SqliteAdapter> {
         self.sqlite.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_oracle(&self) -> Option<&OracleAdapter> {
+        self.oracle.map(|p| unsafe { &*p })
     }
 
     pub fn as_mongo(&self) -> Option<&MongoDbAdapter> {
@@ -962,6 +996,7 @@ impl ConnectionManager {
             }
             DbType::SQLite => Ok(UnifiedAdapter::sqlite(SqliteAdapter::new())),
             DbType::SQLServer => Ok(UnifiedAdapter::mssql(MssqlAdapter::new())),
+            DbType::Oracle => Ok(UnifiedAdapter::oracle(OracleAdapter::new())),
             DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),
             DbType::Redis => Ok(UnifiedAdapter::redis(RedisAdapter::new())),
         }

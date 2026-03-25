@@ -31,6 +31,7 @@ export interface ConnectionConfig {
     | "MariaDB"
     | "SQLite"
     | "SQLServer"
+    | "Oracle"
     | "MongoDB"
     | "Redis";
   host: string;
@@ -62,6 +63,31 @@ export interface FunctionMeta {
   arguments: string[];
   routine_type?: "FUNCTION" | "PROCEDURE";
   is_extension?: boolean;
+}
+
+export interface SequenceMeta {
+  schema: string;
+  name: string;
+  increment_by?: number;
+  min_value?: number;
+  max_value?: number;
+  last_number?: number;
+  cache_size?: number;
+  cycle?: boolean;
+}
+
+export interface PackageMeta {
+  schema: string;
+  name: string;
+  has_body: boolean;
+}
+
+export interface SynonymMeta {
+  schema: string;
+  name: string;
+  target_schema?: string;
+  target_name?: string;
+  db_link?: string;
 }
 
 export interface TriggerMeta {
@@ -441,7 +467,8 @@ class DatabaseService {
 
   /**
    * Update the active schema/search path for the current connection.
-   * Currently only implemented for PostgreSQL.
+   * PostgreSQL uses SET search_path; Oracle reconnects with oracle_current_schema
+   * so pooled sessions consistently apply the selected schema.
    */
   async switchSchema(connectionId: string, schema: string): Promise<void> {
     if (!connectionId) {
@@ -462,6 +489,25 @@ class DatabaseService {
 
     const stored = await vaultStorage.getConnection(connectionId);
     const dbType = stored?.profile.db_type ?? "PostgreSQL";
+
+    if (stored && dbType === "Oracle") {
+      const updatedProfile: ConnectionProfile = {
+        ...stored.profile,
+        options: {
+          ...(stored.profile.options ?? {}),
+          oracle_current_schema: schema,
+        },
+      };
+
+      await vaultStorage.updateConnection(connectionId, updatedProfile);
+
+      if (this.isConnectionActive(connectionId)) {
+        await this.disconnect(connectionId);
+      }
+
+      await this.connectById(connectionId);
+      return;
+    }
 
     if (stored && dbType !== "PostgreSQL") {
       logger.warn(
@@ -738,6 +784,45 @@ class DatabaseService {
       }));
     } catch (error) {
       logger.error("Failed to list functions:", error);
+      throw error;
+    }
+  }
+
+  async listSequences(
+    connectionId: string,
+    _database: string,
+    schema: string,
+  ): Promise<SequenceMeta[]> {
+    try {
+      return await IntrospectionService.getSequences(connectionId, schema);
+    } catch (error) {
+      logger.error("Failed to list sequences:", error);
+      throw error;
+    }
+  }
+
+  async listPackages(
+    connectionId: string,
+    _database: string,
+    schema: string,
+  ): Promise<PackageMeta[]> {
+    try {
+      return await IntrospectionService.getPackages(connectionId, schema);
+    } catch (error) {
+      logger.error("Failed to list packages:", error);
+      throw error;
+    }
+  }
+
+  async listSynonyms(
+    connectionId: string,
+    _database: string,
+    schema: string,
+  ): Promise<SynonymMeta[]> {
+    try {
+      return await IntrospectionService.getSynonyms(connectionId, schema);
+    } catch (error) {
+      logger.error("Failed to list synonyms:", error);
       throw error;
     }
   }

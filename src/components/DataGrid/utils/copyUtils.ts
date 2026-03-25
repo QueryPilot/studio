@@ -144,6 +144,12 @@ function getDialectQuoting(dbType: DatabaseType) {
         formatTableName: (schema: string, table: string) =>
           `[${schema}].[${table}]`,
       };
+    case "oracle":
+      return {
+        quoteIdentifier: (id: string) => `"${id}"`,
+        formatTableName: (schema: string, table: string) =>
+          `"${schema}"."${table}"`,
+      };
     case "mongodb":
       // MongoDB doesn't use SQL INSERT
       return {
@@ -188,6 +194,7 @@ function formatSQLValue(value: unknown, dbType: DatabaseType): string {
       case "sqlite":
         return value ? "1" : "0";
       case "mssql":
+      case "oracle":
         return value ? "1" : "0";
       default:
         return value ? "TRUE" : "FALSE";

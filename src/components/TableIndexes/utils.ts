@@ -24,6 +24,8 @@ export function getDialectFromDbType(dbType: DbType): string {
       return "sqlite";
     case DbType.SQLServer:
       return "mssql";
+    case DbType.Oracle:
+      return "oracle";
     default:
       return "postgresql";
   }

@@ -1812,6 +1812,11 @@ export function isExplainResult(columns: string[], rows: unknown[][]): boolean {
       if (typeof firstRow === "string" && firstRow.includes("|--")) return true;
     }
 
+    // Oracle DBMS_XPLAN.DISPLAY: single "plan_table_output" column
+    if (colName === "plan_table_output") {
+      return true;
+    }
+
     // MSSQL SHOWPLAN_XML / STATISTICS XML: check for ShowPlan namespace
     // Postgres XML EXPLAIN: check for <explain or <Plan>
     if (typeof rows[0]?.[0] === "string") {

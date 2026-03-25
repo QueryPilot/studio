@@ -395,6 +395,10 @@ export const Panel: React.FC<PanelProps> = React.memo(
                       metadata?.objectType as
                         | "function"
                         | "procedure"
+                        | "package"
+                        | "package_body"
+                        | "sequence"
+                        | "synonym"
                         | undefined
                     }
                     isNextActive={isNextActive}

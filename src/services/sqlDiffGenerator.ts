@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { ORACLE_ROWID_ALIAS } from "@/adapters/dialects/OracleAdapter";
 import { DbType } from "./backend";
 import type {
   CrudCommand,
@@ -31,6 +32,10 @@ const DIALECTS = {
     identifierQuote: "[",
     escapeIdentifier: (value: string) => value.replace(/]/g, "]]"),
   },
+  [DbType.Oracle]: {
+    identifierQuote: '"',
+    escapeIdentifier: (value: string) => value.replace(/"/g, '""'),
+  },
 } as const;
 
 type SupportedDbType = keyof typeof DIALECTS;
@@ -41,6 +46,7 @@ const SQL_TRUE_FALSE: Record<SupportedDbType, { true: string; false: string }> =
   [DbType.MariaDB]: { true: "1", false: "0" },
   [DbType.SQLite]: { true: "1", false: "0" },
   [DbType.SQLServer]: { true: "1", false: "0" },
+  [DbType.Oracle]: { true: "1", false: "0" },
 };
 
 const ensureDialect = (dbType: DbType): SupportedDbType => {
@@ -101,7 +107,11 @@ const buildWhereClause = (
 ): string =>
   Object.entries(primaryKeys)
     .map(([key, value]) => {
-      const identifier = quoteIdentifier(key, dbType);
+      // Oracle: translate synthetic __qp_rowid to the ROWID pseudocolumn
+      const identifier =
+        key === ORACLE_ROWID_ALIAS && dbType === DbType.Oracle
+          ? "ROWID"
+          : quoteIdentifier(key, dbType);
       if (value === null) {
         return `${identifier} IS NULL`;
       }

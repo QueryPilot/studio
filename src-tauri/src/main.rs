@@ -180,6 +180,8 @@ fn main() {
             commands::search_tool_paths,
             commands::download_tool,
             commands::install_tool_via_brew,
+            // Integration probe commands
+            commands::check_oracle_client,
             // ACP (AI agent) commands
             acp::commands::acp_list_agents,
             acp::commands::acp_fetch_agent_models,

@@ -5,7 +5,8 @@ export type PreferenceCategory =
   | "general"
   | "shortcuts"
   | "ai"
-  | "telemetry";
+  | "telemetry"
+  | "integrations";
 
 export interface TelemetryPreferences {
   sentryEnabled: boolean; // Enable crash reporting to Sentry

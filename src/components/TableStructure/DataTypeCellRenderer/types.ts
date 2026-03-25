@@ -183,3 +183,27 @@ export const MSSQL_STANDARD_TYPES = [
   "nvarchar(max)",
   "varbinary(max)",
 ];
+
+// Common Oracle data types
+export const ORACLE_STANDARD_TYPES = [
+  "number",
+  "binary_float",
+  "binary_double",
+  "float",
+  "varchar2",
+  "nvarchar2",
+  "char",
+  "nchar",
+  "clob",
+  "nclob",
+  "blob",
+  "raw",
+  "date",
+  "timestamp",
+  "timestamp with time zone",
+  "timestamp with local time zone",
+  "interval day to second",
+  "interval year to month",
+  "xmltype",
+  "json",
+];

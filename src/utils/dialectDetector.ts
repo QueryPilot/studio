@@ -1,6 +1,10 @@
 import type { SqlDialect } from "@/components/CodeEditor";
 import { DbType } from "@/types/connection";
 
+function normalizeDbType(dbType: DbType | string): string {
+  return String(dbType).toLowerCase();
+}
+
 /**
  * Strip SQL comments to allow pattern matching on actual code
  * Handles both line comments (--) and block comments
@@ -90,8 +94,7 @@ export function detectSqlDialect(
   sql?: string,
 ): SqlDialect {
   // Normalize dbType to handle various formats
-  const normalizedDbType =
-    typeof dbType === "string" ? dbType.toLowerCase() : dbType;
+  const normalizedDbType = normalizeDbType(dbType);
 
   // For PostgreSQL, detect if this is procedural code (PL/pgSQL)
   if (
@@ -142,10 +145,11 @@ export function detectSqlDialect(
 
   // Oracle (map to plsql dialect for better PL/SQL support)
   if (
+    normalizedDbType === DbType.Oracle.toLowerCase() ||
     normalizedDbType === "oracle" ||
     normalizedDbType.includes("oracle")
   ) {
-    return "plsql";
+    return "oracle";
   }
 
   // Default to PostgreSQL
@@ -162,9 +166,7 @@ export function detectDialectForObject(
   dbType: DbType | string,
   objectType: import("@/adapters/types").ObjectDefinitionType,
 ): SqlDialect {
-  const normalizedDbType = typeof dbType === "string"
-    ? dbType.toLowerCase()
-    : dbType;
+  const normalizedDbType = normalizeDbType(dbType);
 
   // For PostgreSQL functions/procedures, use plsql for better PL/pgSQL highlighting
   if (
@@ -173,6 +175,18 @@ export function detectDialectForObject(
     (objectType === "function" || objectType === "procedure")
   ) {
     return "plsql";
+  }
+
+  if (
+    (normalizedDbType === DbType.Oracle.toLowerCase() ||
+      normalizedDbType.includes("oracle")) &&
+    (objectType === "function" ||
+      objectType === "procedure" ||
+      objectType === "package" ||
+      objectType === "package_body" ||
+      objectType === "synonym")
+  ) {
+    return "oracle";
   }
 
   // For all other cases, use standard dialect detection

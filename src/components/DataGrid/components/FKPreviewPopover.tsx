@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import type { RawCellValue } from "@/services/backend";
 import type { EmbeddedFKConfig } from "@/adapters/types";
+import { ORACLE_ROWID_ALIAS } from "@/adapters/dialects/OracleAdapter";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -236,7 +237,11 @@ export function FKPreviewPopover({
     }
     // Fallback: use query result columns, filtering out __qp_fk__ columns
     return columns
-      .filter((col) => !col.name.startsWith("__qp_fk__"))
+      .filter(
+        (col) =>
+          !col.name.startsWith("__qp_fk__") &&
+          col.name !== ORACLE_ROWID_ALIAS,
+      )
       .map((col) => ({
         name: col.name,
         db_type: col.db_type || "",

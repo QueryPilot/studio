@@ -6,6 +6,7 @@
 use crate::adapters::mongodb::MongoDbAdapter;
 use crate::adapters::mssql::MssqlAdapter;
 use crate::adapters::mysql::MySqlAdapter;
+use crate::adapters::oracle::OracleAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
@@ -104,6 +105,23 @@ fn test_unified_adapter_mssql_construction() {
 }
 
 #[test]
+fn test_unified_adapter_oracle_construction() {
+    let adapter = OracleAdapter::new();
+    let unified = UnifiedAdapter::oracle(adapter);
+
+    assert_eq!(unified.db_type(), DbType::Oracle);
+    assert!(unified.as_sql().is_some(), "Oracle should be SqlQueryable");
+    assert!(
+        unified.as_document().is_none(),
+        "Oracle should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "Oracle should not be RichKeyValueOperable"
+    );
+}
+
+#[test]
 fn test_unified_adapter_mongodb_construction() {
     let adapter = MongoDbAdapter::new();
     let unified = UnifiedAdapter::mongodb(adapter);
@@ -166,6 +184,7 @@ fn test_all_db_types_have_unified_adapter_support() {
         (DbType::MariaDB, "sql"),
         (DbType::SQLite, "sql"),
         (DbType::SQLServer, "sql"),
+        (DbType::Oracle, "sql"),
         (DbType::MongoDB, "document"),
         (DbType::Redis, "keyvalue"),
     ];
@@ -190,6 +209,10 @@ fn test_all_db_types_have_unified_adapter_support() {
             }
             (DbType::SQLServer, "sql") => {
                 let unified = UnifiedAdapter::mssql(MssqlAdapter::new());
+                assert!(unified.as_sql().is_some());
+            }
+            (DbType::Oracle, "sql") => {
+                let unified = UnifiedAdapter::oracle(OracleAdapter::new());
                 assert!(unified.as_sql().is_some());
             }
             (DbType::MongoDB, "document") => {

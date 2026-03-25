@@ -276,7 +276,10 @@ static COMMENT_ON_VIEW_SHAPE_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 fn is_comment_on_view_statement(stmt_text: &str, dialect: SqlDialect) -> bool {
-    if !matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::PlSQL) {
+    if !matches!(
+        dialect,
+        SqlDialect::PostgreSQL | SqlDialect::Oracle | SqlDialect::PlSQL
+    ) {
         return false;
     }
 

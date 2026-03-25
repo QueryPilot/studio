@@ -40,6 +40,10 @@ const DEFAULT_INDEX_TYPES: Record<DbType, { types: string[]; default: string }> 
     types: ["clustered", "nonclustered", "columnstore"],
     default: "nonclustered",
   },
+  [DbType.Oracle]: {
+    types: ["normal", "bitmap", "function-based normal", "function-based bitmap"],
+    default: "normal",
+  },
   // Non-SQL databases don't have traditional indexes in the same way
   [DbType.MongoDB]: {
     types: ["single", "compound", "text", "hashed", "2dsphere", "2d"],

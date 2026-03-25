@@ -332,6 +332,10 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
         const m = metadata as
           | { objectType?: unknown; returnType?: unknown }
           | undefined;
+        if (m?.objectType === "package") return "package";
+        if (m?.objectType === "package_body") return "package_body";
+        if (m?.objectType === "sequence") return "sequence";
+        if (m?.objectType === "synonym") return "synonym";
         if (m?.objectType === "procedure") return "procedure";
         if (m?.objectType === "function") return "function";
         if (m?.returnType === "void" && dbType && isMySQLCompatible(dbType)) {

@@ -4,6 +4,7 @@ import { usePanelFocusStore } from '@/stores/panelFocusStore';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
 import { buildMongoCollectionMetadataQuery } from '@/screens/workspace/components/sidebarContextMenuHelpers';
+import type { ObjectDefinitionType } from '@/adapters/types';
 
 type TableViewType = 'data' | 'structure' | 'indexes' | 'triggers' | 'definition' | 'partitions';
 
@@ -479,6 +480,15 @@ interface OpenFunctionParams {
   database: string;
 }
 
+interface OpenSqlObjectDefinitionParams {
+  name: string;
+  schema: string;
+  objectType: ObjectDefinitionType;
+  connectionId: string;
+  database: string;
+  returnType?: string;
+}
+
 export function openTableObject({
   table,
   connectionId,
@@ -588,6 +598,30 @@ export function openFunctionObject({
   connectionId,
   database,
 }: OpenFunctionParams): void {
+  const objectType =
+    func.routine_type === 'PROCEDURE' ||
+    (!func.routine_type && func.return_type === 'void')
+      ? 'procedure'
+      : 'function';
+
+  openSqlObjectDefinition({
+    name: func.name,
+    schema: func.schema,
+    objectType,
+    connectionId,
+    database,
+    returnType: func.return_type,
+  });
+}
+
+export function openSqlObjectDefinition({
+  name,
+  schema,
+  objectType,
+  connectionId,
+  database,
+  returnType,
+}: OpenSqlObjectDefinitionParams): void {
   const { addTab, panelContents, focusPanel, setActiveTab, updateTabMetadata } =
     useWorkbenchStore.getState();
 
@@ -601,22 +635,16 @@ export function openFunctionObject({
   }
 
   if (!targetPanelId) return;
-
-  const objectType =
-    func.routine_type === 'PROCEDURE' ||
-    (!func.routine_type && func.return_type === 'void')
-      ? 'procedure'
-      : 'function';
-  const objectKey = `function-${connectionId}-${func.schema}-${func.name}`;
+  const objectKey = `object-${connectionId}-${objectType}-${schema}-${name}`;
 
   const funcMetadata = {
     type: 'function' as const,
-    title: func.name,
+    title: name,
     connectionId,
     database,
-    schema: func.schema,
-    functionName: func.name,
-    returnType: func.return_type,
+    schema,
+    functionName: name,
+    returnType,
     objectType,
     objectKey,
   };

@@ -35,6 +35,8 @@ export function toDbType(dbType: string | DbType): DbType {
     case "mssql":
     case "sqlserver":
       return DbType.SQLServer;
+    case "oracle":
+      return DbType.Oracle;
     default:
       return DbType.PostgreSQL;
   }
@@ -54,6 +56,7 @@ export function quoteIdentifier(name: string, dbType: DbType | string): string {
       // Square brackets with escaping
       return `[${name.replace(/]/g, "]]")}]`;
     case DbType.PostgreSQL:
+    case DbType.Oracle:
     case DbType.SQLite:
     default:
       // Double quotes with escaping
@@ -129,6 +132,7 @@ export function formatValue(value: unknown, dbType: DbType | string): string {
   if (typeof value === "boolean") {
     switch (type) {
       case DbType.PostgreSQL:
+      case DbType.Oracle:
         return value ? "TRUE" : "FALSE";
       case DbType.MySQL:
       case DbType.SQLite:
@@ -180,6 +184,7 @@ export function formatValue(value: unknown, dbType: DbType | string): string {
 
     switch (type) {
       case DbType.PostgreSQL:
+      case DbType.Oracle:
         return `'\\x${hex}'::bytea`;
       case DbType.MySQL:
       case DbType.SQLite:

@@ -100,6 +100,7 @@ function mapDatabaseType(dbType: string): DbType {
     mariadb: DbType.MariaDB,
     sqlite: DbType.SQLite,
     mssql: DbType.SQLServer,
+    oracle: DbType.Oracle,
     mongodb: DbType.MongoDB,
     redis: DbType.Redis,
   };

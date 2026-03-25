@@ -69,6 +69,8 @@ const sqlAdapterModules: Partial<
     import("./dialects/SQLiteAdapter").then((m) => m.SQLiteAdapter),
   [DbType.SQLServer]: () =>
     import("./dialects/MSSQLAdapter").then((m) => m.MSSQLAdapter),
+  [DbType.Oracle]: () =>
+    import("./dialects/OracleAdapter").then((m) => m.OracleAdapter),
 };
 
 export function isSqlParadigm(dbType: DbType): boolean {

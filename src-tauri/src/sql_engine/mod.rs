@@ -171,6 +171,9 @@ mod tests {
 
         let mariadb: SqlDialect = DbType::MariaDB.into();
         assert_eq!(mariadb, SqlDialect::MySQL); // MariaDB uses MySQL dialect
+
+        let oracle: SqlDialect = DbType::Oracle.into();
+        assert_eq!(oracle, SqlDialect::Oracle);
     }
 
     #[test]

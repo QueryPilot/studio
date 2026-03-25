@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseConnectionUri } from '../connectionParser';
+import { buildConnectionUri, parseConnectionUri } from '../connectionParser';
 import { SslMode } from '@/types/connection';
+import { DbType } from '@/types/connection';
 
 describe('parseConnectionUri', () => {
   it('should parse MySQL URI with charset query parameter', () => {
@@ -58,5 +59,45 @@ describe('parseConnectionUri', () => {
 
     expect(result.password).toBe('p@ss#w0rd');
     expect(result.options).toEqual({ charset: 'utf8mb4' });
+  });
+
+  it('should parse a standard Oracle service-name URI', () => {
+    const uri = 'oracle://system:DevPass123@localhost:1521/FREEPDB1';
+    const result = parseConnectionUri(uri);
+
+    expect(result.dbType).toBe('oracle');
+    expect(result.host).toBe('localhost');
+    expect(result.port).toBe('1521');
+    expect(result.username).toBe('system');
+    expect(result.password).toBe('DevPass123');
+    expect(result.database).toBe('FREEPDB1');
+  });
+
+  it('should parse a JDBC Oracle thin service-name URI', () => {
+    const uri = 'jdbc:oracle:thin:@//db.internal:11521/XE';
+    const result = parseConnectionUri(uri);
+
+    expect(result.dbType).toBe('oracle');
+    expect(result.host).toBe('db.internal');
+    expect(result.port).toBe('11521');
+    expect(result.database).toBe('XE');
+  });
+});
+
+describe('buildConnectionUri', () => {
+  it('should build an Oracle URI from a connection profile', () => {
+    const uri = buildConnectionUri({
+      id: 'oracle-dev',
+      name: 'Oracle Dev',
+      db_type: DbType.Oracle,
+      host: 'localhost',
+      port: 1521,
+      database: 'FREEPDB1',
+      username: 'system',
+      password: 'DevPass123',
+      options: {},
+    });
+
+    expect(uri).toBe('oracle://system@localhost:1521/FREEPDB1');
   });
 });

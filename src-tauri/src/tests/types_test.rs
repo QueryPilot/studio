@@ -221,6 +221,7 @@ mod db_type_tests {
     fn test_db_type_equality() {
         assert_eq!(DbType::PostgreSQL, DbType::PostgreSQL);
         assert_eq!(DbType::MySQL, DbType::MySQL);
+        assert_eq!(DbType::Oracle, DbType::Oracle);
         assert_ne!(DbType::PostgreSQL, DbType::MySQL);
     }
 
@@ -239,6 +240,7 @@ mod db_type_tests {
             DbType::MySQL,
             DbType::SQLite,
             DbType::SQLServer,
+            DbType::Oracle,
         ];
 
         for db_type in types {
@@ -246,6 +248,12 @@ mod db_type_tests {
             let deserialized: DbType = serde_json::from_str(&json).unwrap();
             assert_eq!(db_type, deserialized);
         }
+    }
+
+    #[test]
+    fn test_oracle_is_sql_paradigm() {
+        assert_eq!(DbType::Oracle.paradigm(), DatabaseParadigm::Sql);
+        assert!(DbType::Oracle.is_sql());
     }
 }
 

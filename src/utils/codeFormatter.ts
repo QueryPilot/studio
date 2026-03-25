@@ -24,6 +24,7 @@ const SQL_LANGUAGE_MAP: Record<SqlDialect, SqlFormatterLanguage> = {
   postgresql: "postgresql",
   mysql: "mysql",
   sqlite: "sqlite",
+  oracle: "plsql",
   plsql: "plsql",
   mssql: "tsql",
 };

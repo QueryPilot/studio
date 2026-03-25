@@ -112,6 +112,11 @@ INSERT INTO inventory (product_id, warehouse_code, quantity, reserved_quantity, 
 INSERT INTO inventory (product_id, warehouse_code, quantity, reserved_quantity, reorder_level, reorder_quantity, last_restocked_at) VALUES (9, 'MAIN', 250, 18, 35, 100, SYSTIMESTAMP - INTERVAL '6' DAY);
 INSERT INTO inventory (product_id, warehouse_code, quantity, reserved_quantity, reorder_level, reorder_quantity, last_restocked_at) VALUES (10, 'MAIN', 400, 30, 50, 150, SYSTIMESTAMP - INTERVAL '4' DAY);
 
+-- Create sequence for order IDs
+BEGIN EXECUTE IMMEDIATE 'DROP SEQUENCE orders_id_seq'; EXCEPTION WHEN OTHERS THEN NULL; END;
+/
+CREATE SEQUENCE orders_id_seq START WITH 1;
+
 -- Generate Orders with PL/SQL
 DECLARE
     v_customer_id NUMBER;
@@ -121,10 +126,10 @@ DECLARE
     v_total NUMBER(12,2);
     v_order_id NUMBER;
 BEGIN
-    FOR i IN 1..100 LOOP
+    FOR i IN 1..500 LOOP
         v_customer_id := MOD(i, 20) + 1;
         v_order_date := SYSTIMESTAMP - NUMTODSINTERVAL(DBMS_RANDOM.VALUE(1, 365), 'DAY');
-        
+
         CASE MOD(i, 7)
             WHEN 0 THEN v_status := 'pending';
             WHEN 1 THEN v_status := 'confirmed';
@@ -134,22 +139,22 @@ BEGIN
             WHEN 5 THEN v_status := 'cancelled';
             ELSE v_status := 'refunded';
         END CASE;
-        
+
         CASE MOD(i, 4)
             WHEN 0 THEN v_payment := 'credit_card';
             WHEN 1 THEN v_payment := 'debit_card';
             WHEN 2 THEN v_payment := 'paypal';
             ELSE v_payment := 'bank_transfer';
         END CASE;
-        
+
         v_total := ROUND(DBMS_RANDOM.VALUE(50, 2000), 2);
-        
-        INSERT INTO orders (order_number, customer_id, status, payment_method, payment_status, subtotal, tax_amount, total_amount, created_at)
-        VALUES ('ORD-' || LPAD(TO_CHAR(i), 6, '0'), v_customer_id, v_status, v_payment, 
+
+        v_order_id := orders_id_seq.NEXTVAL;
+        INSERT INTO orders (id, order_number, customer_id, status, payment_method, payment_status, subtotal, tax_amount, total_amount, created_at)
+        VALUES (v_order_id, 'ORD-' || LPAD(TO_CHAR(i), 6, '0'), v_customer_id, v_status, v_payment,
                 CASE WHEN MOD(i, 3) = 0 THEN 'pending' ELSE 'paid' END,
-                v_total * 0.9, v_total * 0.1, v_total, v_order_date)
-        RETURNING id INTO v_order_id;
-        
+                v_total * 0.9, v_total * 0.1, v_total, v_order_date);
+
         FOR j IN 1..MOD(i, 3) + 1 LOOP
             INSERT INTO order_items (order_id, order_created_at, product_id, product_name, product_sku, quantity, unit_price, total_price)
             SELECT v_order_id, v_order_date, id, name, sku, MOD(j, 3) + 1, price, price * (MOD(j, 3) + 1)
@@ -165,9 +170,17 @@ INSERT INTO unicode_samples (description, sample_text, category, char_count, byt
 INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Chinese Text', N'中文文本测试', 'CJK', 6, 18);
 INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Korean Text', N'한국어 텍스트', 'CJK', 7, 21);
 INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Russian Text', N'Русский текст', 'Cyrillic', 13, 26);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Arabic Text', N'نص عربي للاختبار', 'RTL', 15, 30);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Hindi Text', N'हिन्दी पाठ परीक्षण', 'Devanagari', 18, 54);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Thai Text', N'ข้อความทดสอบภาษาไทย', 'Thai', 19, 57);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Emoji Text', N'Hello 🌍🎉 World 🚀', 'Emoji', 17, 27);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Mixed Script', N'English 日本語 العربية', 'Mixed', 19, 37);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Greek Text', N'Ελληνικό κείμενο', 'Greek', 16, 32);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Vietnamese Text', N'Văn bản tiếng Việt', 'Latin Extended', 18, 22);
+INSERT INTO unicode_samples (description, sample_text, category, char_count, byte_count) VALUES ('Hebrew Text', N'טקסט בעברית', 'RTL', 11, 22);
 
 -- Numeric Extremes
-INSERT INTO numeric_extremes (description, tiny_val, small_val, int_val, big_val, decimal_val, float_val, double_val) VALUES ('Maximum Values', 127, 32767, 2147483647, 9223372036854775807, 99999999999999999999.999999999999999999, 3.4028235E+38, 1.7976931348623157E+308);
+INSERT INTO numeric_extremes (description, tiny_val, small_val, int_val, big_val, decimal_val, float_val, double_val) VALUES ('Maximum Values', 127, 32767, 2147483647, 9223372036854775807, 99999999999999999999.999999999999999999, 3.402E+38, 1.797E+308);
 INSERT INTO numeric_extremes (description, tiny_val, small_val, int_val, big_val, decimal_val, float_val, double_val) VALUES ('Zero Values', 0, 0, 0, 0, 0, 0, 0);
 
 -- JSON Documents
@@ -179,9 +192,9 @@ INSERT INTO json_documents (description, doc_json) VALUES ('Array', '[1, 2, 3, "
 INSERT INTO null_patterns (description, all_null_row, nullable_int, nullable_text, nullable_bool, nullable_date, nullable_json) VALUES ('All Nulls', NULL, NULL, NULL, NULL, NULL, NULL);
 INSERT INTO null_patterns (description, all_null_row, nullable_int, nullable_text, nullable_bool, nullable_date, nullable_json) VALUES ('All Values', 'Has Value', 42, 'Some text', 1, SYSDATE, '{"key": "value"}');
 
--- Large Table (1000 rows)
+-- Large Table (10000 rows)
 BEGIN
-    FOR i IN 1..1000 LOOP
+    FOR i IN 1..10000 LOOP
         INSERT INTO large_table (random_int, random_text, random_date, random_bool, category, amount)
         VALUES (
             ROUND(DBMS_RANDOM.VALUE(1, 10000)),

@@ -19,6 +19,7 @@ export type DatabaseType =
   | "sqlite"
   | "mssql"
   | "mariadb"
+  | "oracle"
   | "mongodb";
 
 /**

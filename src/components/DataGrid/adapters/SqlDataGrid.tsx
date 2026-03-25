@@ -60,6 +60,7 @@ import type { FilterColumnInfo } from "@/utils/filterParser";
 import { useEmbeddedFKPreferencesStore } from "../stores/embeddedFKPreferencesStore";
 import type { EmbeddedFKConfig } from "@/adapters/types";
 import { getAdapterForConnection } from "@/adapters";
+import { ORACLE_ROWID_ALIAS } from "@/adapters/dialects/OracleAdapter";
 import {
   createInsertCommand,
   createUpdateCommand,
@@ -254,8 +255,27 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     });
   }, [tableStructure?.columns, tableStructure?.foreignKeys]);
 
+  const structureIdentityColumns = useMemo(() => {
+    return (
+      chooseDeterministicIdentityColumns({
+        primaryKeys: tableStructure?.primaryKeys,
+        constraints: tableStructure?.constraints,
+        indexes: tableStructure?.indexes,
+      }) ?? []
+    );
+  }, [
+    tableStructure?.primaryKeys,
+    tableStructure?.constraints,
+    tableStructure?.indexes,
+  ]);
+
+  // Always include ROWID for Oracle tables — avoids waiting for structure to load
+  // before firing the data query. ROWID is harmless when PKs exist (just an extra hidden column).
+  const shouldUseOracleRowIdFallback =
+    dbType === DbType.Oracle && entityType === "table";
+
   // Map DbType to dialect for AI filter
-  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" => {
+  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" | "oracle" => {
     switch (dbType) {
       case DbType.PostgreSQL:
         return "postgresql";
@@ -266,6 +286,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         return "sqlite";
       case DbType.SQLServer:
         return "mssql";
+      case DbType.Oracle:
+        return "oracle";
       default:
         return "postgresql";
     }
@@ -500,6 +522,7 @@ RULES:
     entityName: table,
     entityType,
     enabled: true,
+    select: shouldUseOracleRowIdFallback ? [ORACLE_ROWID_ALIAS] : undefined,
     embeddedFKs:
       deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,
     filters: activeFilter,
@@ -597,7 +620,7 @@ RULES:
   }, [tableStructure?.primaryKeys]);
 
   // Convert ColumnMeta[] to GridColumnV2[] with FK metadata
-  const columns = useMemo<GridColumnV2[]>(() => {
+  const internalColumns = useMemo<GridColumnV2[]>(() => {
     const visibleColumns = columnMeta.filter(
       (meta) => !meta.name.startsWith("__qp_fk__"),
     );
@@ -640,45 +663,40 @@ RULES:
     });
   }, [columnMeta, fkReferenceByColumn, embeddedFKPrefs, structurePKColumns]);
 
+  const columns = useMemo(
+    () =>
+      internalColumns.filter((column) => column.name !== ORACLE_ROWID_ALIAS),
+    [internalColumns],
+  );
+
   // Build column name to field mapping
   const columnNameToFieldMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const col of columns) {
+    for (const col of internalColumns) {
       map.set(col.name, col.field);
     }
     return map;
-  }, [columns]);
+  }, [internalColumns]);
 
   // Build field to column mapping
   const columnByFieldMap = useMemo(() => {
     const map = new Map<string, GridColumnV2>();
-    for (const col of columns) {
+    for (const col of internalColumns) {
       map.set(col.field, col);
     }
     return map;
-  }, [columns]);
-
-  const structureIdentityColumns = useMemo(() => {
-    return (
-      chooseDeterministicIdentityColumns({
-        primaryKeys: tableStructure?.primaryKeys,
-        constraints: tableStructure?.constraints,
-        indexes: tableStructure?.indexes,
-      }) ?? []
-    );
-  }, [
-    tableStructure?.primaryKeys,
-    tableStructure?.constraints,
-    tableStructure?.indexes,
-  ]);
+  }, [internalColumns]);
 
   // Deterministic identity inferred from PK/UNIQUE metadata.
   const deterministicIdentityColumns = useMemo(() => {
     if (structureIdentityColumns.length > 0) {
       return structureIdentityColumns;
     }
-    return columns.filter((col) => col.meta?.is_pk).map((col) => col.name);
-  }, [columns, structureIdentityColumns]);
+    if (shouldUseOracleRowIdFallback) {
+      return [ORACLE_ROWID_ALIAS];
+    }
+    return internalColumns.filter((col) => col.meta?.is_pk).map((col) => col.name);
+  }, [internalColumns, shouldUseOracleRowIdFallback, structureIdentityColumns]);
 
   const selectableIdentifierColumns = useMemo(() => {
     const seen = new Set<string>();
@@ -819,7 +837,7 @@ RULES:
               ? configuredIdentityColumns
               : bestEffortIdentityColumns;
 
-          return createUpdateCommand(event, target, columns, {
+          return createUpdateCommand(event, target, internalColumns, {
             identityColumns,
             matcherMode: rowMatcherMode,
           });
@@ -832,7 +850,7 @@ RULES:
       createInsertCommand: (data?: Record<string, unknown>) => {
         // Create a new row with default values
         const newRow: GridRowModel = {};
-        columns.forEach((col) => {
+        internalColumns.forEach((col) => {
           const providedValue = data?.[col.name];
           if (providedValue !== undefined) {
             newRow[col.field] = {
@@ -862,7 +880,7 @@ RULES:
             } as GridCellValue;
           }
         });
-        return createInsertCommand(newRow, target, columns);
+        return createInsertCommand(newRow, target, internalColumns);
       },
 
       createDeleteCommand: (row: GridRowModel, _rowKey: string) => {
@@ -870,7 +888,7 @@ RULES:
           configuredIdentityColumns.length > 0
             ? configuredIdentityColumns
             : bestEffortIdentityColumns;
-        return createDeleteCommand(row, target, columns, {
+        return createDeleteCommand(row, target, internalColumns, {
           identityColumns,
           matcherMode: rowMatcherMode,
         });
@@ -948,6 +966,7 @@ RULES:
     schema,
     table,
     columns,
+    internalColumns,
     bestEffortIdentityColumns,
     configuredIdentityColumns,
     rowMatcherMode,
@@ -1166,7 +1185,14 @@ RULES:
 
   // Set of document PKs that have staged edits (for tree view undo button)
   const stagedDocIds = useMemo(() => {
-    if (!stagedCommands || stagedCommands.length === 0 || !configuredIdentityColumns.length) return undefined;
+    if (
+      !stagedCommands ||
+      stagedCommands.length === 0 ||
+      !configuredIdentityColumns.length ||
+      configuredIdentityColumns.includes(ORACLE_ROWID_ALIAS)
+    ) {
+      return undefined;
+    }
     const ids = new Set<string>();
     for (const cmd of stagedCommands) {
       if (cmd.type !== "data.update" || cmd.state !== "staged") continue;
@@ -1185,7 +1211,10 @@ RULES:
     const internalFields = new Set<string>();
     columnMeta.forEach((meta, index) => {
       const field = `col_${index}`;
-      if (meta.name.startsWith("__qp_fk__")) {
+      if (
+        meta.name.startsWith("__qp_fk__") ||
+        meta.name === ORACLE_ROWID_ALIAS
+      ) {
         internalFields.add(field);
       } else {
         fieldToName.set(field, meta.name);
@@ -1290,7 +1319,12 @@ RULES:
 
   const handleTreeFieldEdit = useCallback(
     (docIndex: number, fieldPath: string, newValue: unknown) => {
-      if (!commandFactory) return;
+      if (
+        !commandFactory ||
+        configuredIdentityColumns.includes(ORACLE_ROWID_ALIAS)
+      ) {
+        return;
+      }
       const doc = displayedDocsRef.current[docIndex];
       if (!doc) return;
       const primaryKeys: Record<string, JsonValue> = {};
@@ -1320,6 +1354,7 @@ RULES:
 
   const handleTreeDocumentUndo = useCallback(
     (docIndex: number) => {
+      if (configuredIdentityColumns.includes(ORACLE_ROWID_ALIAS)) return;
       const cmds = stagedCommandsRef.current;
       if (!cmds) return;
       const doc = displayedDocsRef.current[docIndex];
@@ -1349,6 +1384,7 @@ RULES:
 
   const handleTreeDeleteDocument = useCallback(
     (docIndex: number) => {
+      if (configuredIdentityColumns.includes(ORACLE_ROWID_ALIAS)) return;
       const doc = displayedDocsRef.current[docIndex];
       if (!doc || !configuredIdentityColumns.length) return;
       const primaryKeys: Record<string, JsonValue> = {};
@@ -1370,6 +1406,11 @@ RULES:
     },
     [configuredIdentityColumns, connectionId, database, schema, table, stageCommand],
   );
+
+  const canEditDocumentViews =
+    !isReadOnly &&
+    hasConfiguredIdentity &&
+    !configuredIdentityColumns.includes(ORACLE_ROWID_ALIAS);
 
   // --- Loading States ---
   if (isLoading) {
@@ -1437,18 +1478,18 @@ RULES:
               documents={documentsWithStagedEdits}
               className="min-h-0 flex-1 px-1.5"
               gridId={gridId}
-              identifierFields={configuredIdentityColumns.length > 0 ? configuredIdentityColumns : undefined}
+              identifierFields={canEditDocumentViews ? configuredIdentityColumns : undefined}
               hasMore={hasNextPage}
               isLoadingMore={isFetchingNextPage}
               onLoadMore={fetchNextPage}
-              editable={!isReadOnly && hasConfiguredIdentity}
+              editable={canEditDocumentViews}
               allowStructuralEdits={false}
               onExpandCollapseRef={expandCollapseRef}
               stagedDocIds={stagedDocIds}
-              onFieldEdit={handleTreeFieldEdit}
-              onDocumentUndo={handleTreeDocumentUndo}
+              onFieldEdit={canEditDocumentViews ? handleTreeFieldEdit : undefined}
+              onDocumentUndo={canEditDocumentViews ? handleTreeDocumentUndo : undefined}
               onInsertDocument={!isReadOnly && commandFactory ? handleTreeInsertDocument : undefined}
-              onDeleteDocument={!isReadOnly && commandFactory ? handleTreeDeleteDocument : undefined}
+              onDeleteDocument={canEditDocumentViews && commandFactory ? handleTreeDeleteDocument : undefined}
             />
           ) : (
             <DocumentJsonView
