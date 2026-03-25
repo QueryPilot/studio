@@ -158,26 +158,13 @@ impl BackupCapable for DuckDbAdapter {
                     });
                 }
 
-                // Try to get row count
-                let row_count: Option<u64> = conn
-                    .query_row(
-                        &format!(
-                            "SELECT COUNT(*) FROM \"{}\".\"{}\"",
-                            schema_name.replace('"', "\"\""),
-                            table_name.replace('"', "\"\"")
-                        ),
-                        [],
-                        |r| r.get(0),
-                    )
-                    .ok();
-
                 objects.push(BackupObject {
                     id: format!("{}.{}", schema_name, table_name),
                     name: table_name,
                     object_type: BackupObjectType::Table,
                     parent_id: Some(schema_name),
                     estimated_size: estimated_size.map(|s| s as u64),
-                    row_count,
+                    row_count: None, // Skip per-table COUNT(*) to avoid O(N) queries on large databases
                 });
             }
 
