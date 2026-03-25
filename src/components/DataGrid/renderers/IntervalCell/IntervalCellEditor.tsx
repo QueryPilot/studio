@@ -70,7 +70,10 @@ export const IntervalCellEditor: React.FC<IntervalCellEditorProps> = ({
 
   const commitCurrentValue = useCallback(() => {
     const currentValue = getCurrentValue();
-    const hasChanged = currentValue !== initialValue;
+    // Normalize both through format round-trip to avoid phantom commits
+    // for equivalent representations (e.g., "@ 1 hour" vs "01:00:00")
+    const normalizedInitial = formatInterval(parseInterval(initialValue));
+    const hasChanged = currentValue !== normalizedInitial;
 
     if (!hasChanged) {
       finishedRef.current = true;

@@ -116,6 +116,13 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   // Parse initial value
   const initialParsed = useMemo(() => parseDateTime(raw, kind), [raw, kind]);
 
+  // Preserve the original date-time separator (space vs T) from the DB value
+  const originalSeparator = useMemo(() => {
+    if (!raw) return "T";
+    const match = raw.match(/\d{4}-\d{2}-\d{2}([T ])\d{2}:/);
+    return match?.[1] ?? "T";
+  }, [raw]);
+
   const [selectedDate, setSelectedDate] = useState<Date | null>(
     initialParsed.date,
   );
@@ -131,7 +138,7 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   const [open, setOpen] = useState(false);
   const [timeCollapsed, setTimeCollapsed] = useState(false);
   const [manualText, setManualText] = useState<string>(raw ?? "");
-  const [manualDirty, setManualDirty] = useState(false);
+  const [manualDirty, setManualDirty] = useState(true); // Start dirty to preserve raw value format
   // Skip the initial effect run to preserve original value format
   const hasInitialized = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -155,13 +162,13 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
       return `${y}-${m}-${d}`;
     }
 
-    // datetime-cell - use T separator for ISO format consistency
-    let result = `${y}-${m}-${d}T${hour}:${minute}:${second}`;
+    // datetime-cell - preserve original separator (space or T)
+    let result = `${y}-${m}-${d}${originalSeparator}${hour}:${minute}:${second}`;
     if (millisecond) result += `.${millisecond}`;
     if (selectedTimezone && selectedTimezone !== "none")
       result += selectedTimezone === "Z" ? "Z" : selectedTimezone;
     return result;
-  }, [kind, selectedDate, hour, minute, second, millisecond, selectedTimezone]);
+  }, [kind, selectedDate, hour, minute, second, millisecond, selectedTimezone, originalSeparator]);
 
   const commit = useCallback(
     (nextRaw: string | null) => {
@@ -255,10 +262,17 @@ export const DateTimeCellEditor: React.FC<DateTimeCellEditorProps> = ({
   }, [kind, selectedTimezone]);
 
   const handleSetToday = useCallback(() => {
-    const today = new Date();
-    setSelectedDate(today);
+    const now = new Date();
+    const isUTC = selectedTimezone === "Z" || selectedTimezone === "+00:00";
+    if (isUTC) {
+      setSelectedDate(
+        new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
+    } else {
+      setSelectedDate(now);
+    }
     setManualDirty(false);
-  }, []);
+  }, [selectedTimezone]);
 
   const handleSave = useCallback(() => {
     const result = buildDateTimeString();

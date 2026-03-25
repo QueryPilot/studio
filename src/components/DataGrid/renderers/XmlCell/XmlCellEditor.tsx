@@ -64,7 +64,7 @@ export const XmlCellEditor: React.FC<XmlCellEditorProps> = ({
 
   const commitCurrentValue = useCallback(() => {
     const currentValue = xmlValue.trim() || null;
-    const hasChanged = currentValue !== initialValue;
+    const hasChanged = currentValue !== (initialValue.trim() || null);
 
     if (!hasChanged) {
       finishedRef.current = true;

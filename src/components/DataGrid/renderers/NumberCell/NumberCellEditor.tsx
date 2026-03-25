@@ -134,8 +134,14 @@ export const NumberCellEditor: React.FC<NumberCellEditorProps> = ({
           : [1, 0];
         finishedRef.current = true;
 
-        // Commit the current text value before moving (normalized)
+        // Check if value actually changed before committing
         const normalized = normalizeValue(initialValueRef.current);
+        const normalizedInitial = normalizeValue(initialText);
+        if (normalized === normalizedInitial) {
+          onFinishedEditing(undefined, movement);
+          return;
+        }
+
         const committedValue: string | null = !normalized
           ? nullable
             ? null

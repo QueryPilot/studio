@@ -180,12 +180,16 @@ export const ReferenceCellEditor: React.FC<ReferenceCellEditorProps> = ({
     // Use activeValue (selected item) if available, otherwise use inputValue
     const valueToCommit = activeValue || inputValue.trim();
 
+    // No change detection — if the value matches the initial, cancel
+    if (String(valueToCommit) === String(initialValue ?? "")) {
+      finishedRef.current = true;
+      onFinishedEditing(undefined);
+      return;
+    }
+
     if (!valueToCommit) {
       if (nullable) {
         commit(null);
-      } else if (initialValue == null) {
-        finishedRef.current = true;
-        onFinishedEditing(undefined);
       } else {
         finishedRef.current = true;
         onFinishedEditing(undefined);

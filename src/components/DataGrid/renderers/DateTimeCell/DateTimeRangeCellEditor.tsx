@@ -79,8 +79,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       bounds[1]
     }`;
 
-    // IconCheck if value actually changed
-    const hasChanged = currentValue !== originalValueRef.current;
+    // Normalize whitespace around comma for comparison
+    const normalize = (s: string | null) => s?.replace(/,\s*/g, ",") ?? "";
+    const hasChanged = normalize(currentValue) !== normalize(originalValueRef.current);
 
     // If no changes were made, cancel the edit
     if (!hasChanged) {
@@ -115,13 +116,13 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       finishedRef.current = true;
       setOpenRange(false);
 
-      // IconCheck if value actually changed
       const nextLower = lowerText.trim() || null;
       const nextUpper = upperText.trim() || null;
       const text = `${bounds[0]}${nextLower ?? ""},${nextUpper ?? ""}${
         bounds[1]
       }`;
-      const hasChanged = text !== originalValueRef.current;
+      const normalizeRange = (s: string | null) => s?.replace(/,\s*/g, ",") ?? "";
+      const hasChanged = normalizeRange(text) !== normalizeRange(originalValueRef.current);
 
       // If no changes, cancel and move
       if (!hasChanged) {
@@ -189,13 +190,16 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
       };
       const lower = toDate(lowerText);
       const upper = toDate(upperText);
-      const displayLower = lower ?? new Date();
-      const displayUpper = upper ?? new Date();
+      // Extract time directly from the text to avoid UTC conversion shifting the display
+      const extractTime = (text: string): string => {
+        const m = text.match(/[T ](\d{2}:\d{2}:\d{2})/);
+        return m?.[1] ?? "00:00:00";
+      };
       return {
         lowerDateValue: lower,
         upperDateValue: upper,
-        lowerTimeValue: dayjs.utc(displayLower).format("HH:mm:ss"),
-        upperTimeValue: dayjs.utc(displayUpper).format("HH:mm:ss"),
+        lowerTimeValue: lowerText ? extractTime(lowerText) : "00:00:00",
+        upperTimeValue: upperText ? extractTime(upperText) : "00:00:00",
       };
     }, [lowerText, upperText, tz]);
   const displayLowerDate = lowerDateValue ?? new Date();
@@ -315,15 +319,10 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                       defaultMonth={displayLowerDate}
                       onSelect={(d) => {
                         if (!d) return;
-                        const from = dayjs.utc(lowerDateValue ?? d);
-                        const next = dayjs.utc(d)
-                          .hour(from.hour())
-                          .minute(from.minute())
-                          .second(from.second())
-                          .millisecond(from.millisecond());
-                        setLowerText(
-                          next.tz(tz).format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                        );
+                        // Replace only the date portion, preserving time + sub-seconds + offset
+                        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                        const timeAndRest = lowerText.match(/[T ](.+)/)?.[1] ?? "00:00:00";
+                        setLowerText(`${dateStr}T${timeAndRest}`);
                       }}
                       captionLayout="dropdown"
                       className="mt-2 border-0 bg-transparent p-0 shadow-none"
@@ -337,17 +336,13 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                         step="1"
                         value={lowerTimeValue}
                         onChange={(e) => {
-                          const base =
-                            dayjs.utc(displayLowerDate).format("YYYY-MM-DD");
-                          const parsed = dayjs.tz(
-                            `${base}T${e.target.value}`,
-                            tz,
-                          );
-                          if (parsed.isValid()) {
-                            setLowerText(
-                              parsed.format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                            );
-                          }
+                          // Replace only the time portion, preserving date + sub-seconds + offset
+                          const dateMatch = lowerText.match(/^(\d{4}-\d{2}-\d{2})/);
+                          const dateStr = dateMatch?.[1] ?? dayjs(displayLowerDate).format("YYYY-MM-DD");
+                          const subsecAndOffset = lowerText.match(/\d{2}:\d{2}:\d{2}(\.[\d]+)?([+-]\d{2}:\d{2}|Z)?$/);
+                          const subsec = subsecAndOffset?.[1] ?? "";
+                          const offset = subsecAndOffset?.[2] ?? "";
+                          setLowerText(`${dateStr}T${e.target.value}${subsec}${offset}`);
                         }}
                         className="h-8 text-xs"
                       />
@@ -364,15 +359,9 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                       defaultMonth={displayUpperDate}
                       onSelect={(d) => {
                         if (!d) return;
-                        const to = dayjs.utc(upperDateValue ?? d);
-                        const next = dayjs.utc(d)
-                          .hour(to.hour())
-                          .minute(to.minute())
-                          .second(to.second())
-                          .millisecond(to.millisecond());
-                        setUpperText(
-                          next.tz(tz).format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                        );
+                        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                        const timeAndRest = upperText.match(/[T ](.+)/)?.[1] ?? "00:00:00";
+                        setUpperText(`${dateStr}T${timeAndRest}`);
                       }}
                       captionLayout="dropdown"
                       className="mt-2 border-0 bg-transparent p-0 shadow-none"
@@ -386,17 +375,12 @@ export const DateTimeRangeCellEditor: React.FC<RangeEditorProps> = ({
                         step="1"
                         value={upperTimeValue}
                         onChange={(e) => {
-                          const base =
-                            dayjs.utc(displayUpperDate).format("YYYY-MM-DD");
-                          const parsed = dayjs.tz(
-                            `${base}T${e.target.value}`,
-                            tz,
-                          );
-                          if (parsed.isValid()) {
-                            setUpperText(
-                              parsed.format("YYYY-MM-DDTHH:mm:ss.SSSZ"),
-                            );
-                          }
+                          const dateMatch = upperText.match(/^(\d{4}-\d{2}-\d{2})/);
+                          const dateStr = dateMatch?.[1] ?? dayjs(displayUpperDate).format("YYYY-MM-DD");
+                          const subsecAndOffset = upperText.match(/\d{2}:\d{2}:\d{2}(\.[\d]+)?([+-]\d{2}:\d{2}|Z)?$/);
+                          const subsec = subsecAndOffset?.[1] ?? "";
+                          const offset = subsecAndOffset?.[2] ?? "";
+                          setUpperText(`${dateStr}T${e.target.value}${subsec}${offset}`);
                         }}
                         className="h-8 text-xs"
                       />

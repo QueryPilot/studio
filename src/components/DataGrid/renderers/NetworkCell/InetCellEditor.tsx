@@ -138,6 +138,10 @@ export const InetCellEditor: React.FC<InetCellEditorProps> = ({
         finishedRef.current = true;
 
         const currentValue = getCurrentValue();
+        if (currentValue === initialValue) {
+          onFinishedEditing(undefined, movement);
+          return;
+        }
         if (currentValue && !isValidInet(currentValue)) {
           onFinishedEditing(undefined, movement);
           return;

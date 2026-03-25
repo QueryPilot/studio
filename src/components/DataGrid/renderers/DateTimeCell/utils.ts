@@ -43,8 +43,8 @@ export const parseDateTime = (
   );
 
   if (!dateTimeMatch) {
-    // Fallback to dayjs for unusual formats
-    const parsed = dayjs(strValue);
+    // Fallback to dayjs for unusual formats — use UTC to avoid timezone shifts
+    const parsed = dayjs.utc(strValue);
     if (!parsed.isValid()) return { date: null, time: null, timezone: null };
     return {
       date: parsed.toDate(),

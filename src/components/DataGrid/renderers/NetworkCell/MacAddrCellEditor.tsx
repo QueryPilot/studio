@@ -110,6 +110,10 @@ export const MacAddrCellEditor: React.FC<MacAddrCellEditorProps> = ({
         finishedRef.current = true;
 
         const currentValue = macValue.trim() || null;
+        if (currentValue === initialValue) {
+          onFinishedEditing(undefined, movement);
+          return;
+        }
         if (currentValue && !isValidMacAddr(currentValue)) {
           onFinishedEditing(undefined, movement);
           return;
