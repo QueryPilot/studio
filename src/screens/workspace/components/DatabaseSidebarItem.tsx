@@ -28,6 +28,8 @@ interface SidebarSectionProps {
   stickyClass?: string;
   onAdd?: () => void;
   addTooltip?: string;
+  /** Custom content to render instead of the default "+" button */
+  addContent?: ReactNode;
   /** Extra content to render in the header (e.g. filter dropdowns) */
   headerExtra?: ReactNode;
   /** Context menu handlers */
@@ -46,6 +48,7 @@ export function SidebarSection({
   stickyClass = "sticky top-0 bg-background z-20",
   onAdd,
   addTooltip,
+  addContent,
   headerExtra,
   onExpandAll,
   onCollapseAll,
@@ -79,7 +82,17 @@ export function SidebarSection({
           {headerExtra}
         </div>
       )}
-      {onAdd && (
+      {addContent && (
+        <div
+          className="shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          {addContent}
+        </div>
+      )}
+      {!addContent && onAdd && (
         <button
           className="p-1 mr-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           onClick={(e) => {

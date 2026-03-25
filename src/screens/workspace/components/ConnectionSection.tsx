@@ -33,11 +33,14 @@ import {
   IconSitemap,
   IconCopy,
   IconDatabase,
+  IconFileImport,
+  IconFolderOpen,
+  IconLink,
   IconLock,
   IconLockOpen,
   IconHash,
   IconPackage,
-  IconLink,
+  IconPlus,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
@@ -45,12 +48,14 @@ import { nanoid } from "nanoid";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
+import { refreshConnectionData } from "@/lib/refreshConnectionData";
 import { FunctionFilterDropdown } from "./FunctionFilterDropdown";
 import {
   RedisDbFilterDropdown,
   type RedisDatabaseInfo,
 } from "./RedisDbFilterDropdown";
 import { useRedisDbFilterStore } from "@/stores/useRedisDbFilterStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import {
   isMySQLCompatible,
@@ -104,6 +109,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
@@ -125,6 +133,7 @@ import {
   buildMongoCollectionMetadataQuery,
   buildRedisDatabaseDefinition,
   buildRedisSelectCommand,
+  canSnapshotToDuckDb,
   canCopyDefinition,
   canDelete,
   canTruncate,
@@ -132,17 +141,46 @@ import {
   isImmediateExecution,
   type SidebarSelectedTypes,
 } from "./sidebarContextMenuHelpers";
+import {
+  defaultDuckDbTargetNameFromFile,
+  defaultDuckDbTargetNameFromSnapshotSource,
+  describeDuckDbSnapshotSource,
+  fetchRedisSnapshotRawValue,
+  sanitizeDuckDbObjectName,
+  type DuckDbSnapshotSource,
+} from "./duckDbScratchpadHelpers";
 import { toast } from "sonner";
 import { writeClipboardText } from "@/lib/clipboard";
 import { getAdapterForConnection } from "@/adapters";
 import type { DatabaseAdapter } from "@/adapters/types";
+import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
+import { RedisAdapter } from "@/adapters/redis/RedisAdapter";
 import { queryStreamClient } from "@/services/queryStreamClient";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import {
+  DuckDbScratchpadService,
+  type DuckDbManagedObjectLineage,
+  type DuckDbRedisSnapshotEntry,
+} from "@/services/duckDbScratchpadService";
 import type {
   DocumentResult,
   KeyValueOperation,
   KeyValueResult,
 } from "@/adapters/types/ipc";
+import type { QueryColumnMeta, RawCellValue } from "@/services/backend";
+import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
+import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
+import {
+  DuckDbTablesDropdown,
+  type DuckDbConnectedSource,
+} from "./DuckDbTablesDropdown";
+import {
+  SnapshotToDuckDbDialog,
+  type DuckDbScratchpadOption,
+} from "./SnapshotToDuckDbDialog";
+
+const { open } = await import("@tauri-apps/plugin-dialog");
+const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
 
 interface ConnectionSectionProps {
   connection: OpenConnection;
@@ -195,6 +233,32 @@ interface PendingConfirmAction {
   confirmLabel?: string;
   confirmVariant?: "destructive" | "default";
   onConfirm: () => Promise<void>;
+}
+
+const DEFAULT_DUCKDB_SCHEMA = "main";
+const DEFAULT_DUCKDB_TABLE_NAME = "scratchpad_data";
+const REDIS_SCAN_BATCH_SIZE = 200;
+const MONGO_SNAPSHOT_BATCH_SIZE = 500;
+
+function expectSourceSpecRecord(
+  value: unknown,
+  label: string,
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseRedisDbIndex(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
 }
 
 const parseDesignerTag = (
@@ -268,6 +332,20 @@ export const ConnectionSection = forwardRef<
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
   const [pendingConfirmAction, setPendingConfirmAction] =
     useState<PendingConfirmAction | null>(null);
+  const [duckDbImportFilePath, setDuckDbImportFilePath] = useState<
+    string | null
+  >(null);
+  const [duckDbAddFileDialogOpen, setDuckDbAddFileDialogOpen] = useState(false);
+  const [isAddingDuckDbFile, setIsAddingDuckDbFile] = useState(false);
+  const [duckDbImportUrlDialogOpen, setDuckDbImportUrlDialogOpen] =
+    useState(false);
+  const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
+  const [snapshotSource, setSnapshotSource] =
+    useState<DuckDbSnapshotSource | null>(null);
+  const [isCreatingDuckDbSnapshot, setIsCreatingDuckDbSnapshot] =
+    useState(false);
+  const [isRefreshingDuckDbSnapshots, setIsRefreshingDuckDbSnapshots] =
+    useState(false);
   const [sqlTruncateOptions, setSqlTruncateOptions] = useState({
     restartIdentity: false,
     cascade: false,
@@ -401,9 +479,14 @@ export const ConnectionSection = forwardRef<
 
   // Detect cluster mode — hide filter for cluster (only db0 supported)
   const isClusterMode = profile.options.mode === "cluster";
+  const duckDbFilePath =
+    dbType === DbType.DuckDB && typeof profile.database === "string"
+      ? profile.database
+      : "";
 
   // Store actions
   const {
+    getConnectionById,
     reconnectConnection,
     reconnectDisconnectedConnections,
     removeConnectionFromWorkspace,
@@ -411,12 +494,43 @@ export const ConnectionSection = forwardRef<
     updateConnectionState,
   } = useWorkspaceBundleStore(
     useShallow((s) => ({
+      getConnectionById: s.getConnectionById,
       reconnectConnection: s.reconnectConnection,
       reconnectDisconnectedConnections: s.reconnectDisconnectedConnections,
       removeConnectionFromWorkspace: s.removeConnectionFromWorkspace,
       setFocusedConnection: s.setFocusedConnection,
       updateConnectionState: s.updateConnectionState,
     })),
+  );
+  const storedConnections = useConnectionStore((s) => s.connections);
+  const duckDbScratchpads = useMemo<DuckDbScratchpadOption[]>(
+    () =>
+      storedConnections
+        .filter((storedConnection) => storedConnection.profile.db_type === DbType.DuckDB)
+        .map((storedConnection) => ({
+          id: storedConnection.profile.id,
+          name: storedConnection.profile.name,
+          path: storedConnection.profile.database,
+        })),
+    [storedConnections],
+  );
+  // Connected non-DuckDB connections for snapshot dropdown
+  const connectedNonDuckDbSources = useWorkspaceBundleStore(
+    useShallow((s): DuckDbConnectedSource[] => {
+      const workspace = s.activeWorkspace;
+      if (!workspace) return [];
+      const sources: DuckDbConnectedSource[] = [];
+      workspace.connections.forEach((conn) => {
+        if (
+          conn.id !== connectionId &&
+          conn.profile.db_type !== DbType.DuckDB &&
+          conn.status === "connected"
+        ) {
+          sources.push({ id: conn.id, name: conn.profile.name });
+        }
+      });
+      return sources;
+    }),
   );
   const { toggleStarred, getStarredItems } = useStarredItemsStore();
   // Scoped version: only re-render when THIS connection's commands change (#10 fix)
@@ -1355,6 +1469,510 @@ export const ConnectionSection = forwardRef<
     toast.success(`Truncated db${targetDb} (executed immediately)`);
   };
 
+  const loadSqlSnapshotRows = useCallback(
+    async (
+      sourceConnectionId: string,
+      sourceDatabase: string,
+      sourceSchema: string,
+      sourceName: string,
+    ): Promise<{ columns: QueryColumnMeta[]; rows: RawCellValue[][] }> => {
+      await databaseService.connectById(sourceConnectionId, sourceDatabase);
+      const adapter = (await getAdapterForConnection(
+        sourceConnectionId,
+      )) as DatabaseAdapter;
+      const sql = adapter.select({
+        schema: sourceSchema,
+        table: sourceName,
+      });
+
+      if (typeof sql !== "string") {
+        throw new Error("DuckDB snapshot currently requires a SQL source query");
+      }
+
+      const rows: RawCellValue[][] = [];
+      let columns: QueryColumnMeta[] = [];
+
+      await queryStreamClient.streamWithCallbacks(
+        {
+          connId: sourceConnectionId,
+          tabId: `duckdb-snapshot-${nanoid(8)}`,
+          sql,
+          batchSize: 1_000,
+        },
+        {
+          onStarted: (startedColumns) => {
+            columns = startedColumns;
+          },
+          onBatch: (batch) => {
+            rows.push(...batch.rows);
+          },
+        },
+      );
+
+      return { columns, rows };
+    },
+    [],
+  );
+
+  const loadMongoSnapshotDocuments = useCallback(
+    async (
+      sourceConnectionId: string,
+      sourceDatabase: string,
+      collection: string,
+    ): Promise<Record<string, unknown>[]> => {
+      await databaseService.connectById(sourceConnectionId, sourceDatabase);
+      const adapter = new MongoDBAdapter(sourceConnectionId);
+      const documents: Record<string, unknown>[] = [];
+      let cursor: { lastId: unknown; lastSortValues?: Record<string, unknown> } | null =
+        null;
+
+      for (;;) {
+        const page = await adapter.findDocumentsPage(
+          collection,
+          {},
+          {
+            limit: MONGO_SNAPSHOT_BATCH_SIZE,
+            cursor,
+          },
+          sourceDatabase,
+        );
+
+        page.documents.forEach((document) => {
+          documents.push(expectSourceSpecRecord(document, "MongoDB document"));
+        });
+
+        if (!page.hasMore || !page.nextCursor) {
+          break;
+        }
+        cursor = page.nextCursor;
+      }
+
+      return documents;
+    },
+    [],
+  );
+
+  const resolveRedisRestoreDbIndex = useCallback(
+    (sourceConnectionId: string): number => {
+      const activeSourceConnection = getConnectionById(sourceConnectionId);
+      const activeDbIndex = parseRedisDbIndex(activeSourceConnection?.database);
+      if (activeDbIndex !== null) {
+        return activeDbIndex;
+      }
+
+      const storedSourceConnection =
+        useConnectionStore.getState().getConnection(sourceConnectionId);
+      const storedDbIndex = parseRedisDbIndex(
+        storedSourceConnection?.profile.database,
+      );
+      return storedDbIndex ?? 0;
+    },
+    [getConnectionById],
+  );
+
+  const loadRedisSnapshotEntries = useCallback(
+    async (
+      sourceConnectionId: string,
+      dbIndex: number,
+    ): Promise<DuckDbRedisSnapshotEntry[]> => {
+      await databaseService.connectById(sourceConnectionId, String(dbIndex));
+      const adapter = new RedisAdapter(sourceConnectionId);
+      const restoreDbIndex = resolveRedisRestoreDbIndex(sourceConnectionId);
+      const entries: DuckDbRedisSnapshotEntry[] = [];
+
+      await adapter.selectDatabase(dbIndex);
+      try {
+        let cursor = "0";
+
+        do {
+          const result = await adapter.scanKeysWithPreviews(
+            "*",
+            cursor,
+            REDIS_SCAN_BATCH_SIZE,
+          );
+
+          for (const keyInfo of result.keys) {
+            const raw = await fetchRedisSnapshotRawValue(
+              adapter,
+              keyInfo.key,
+              keyInfo.keyType,
+            );
+            entries.push({
+              key: keyInfo.key,
+              type: keyInfo.keyType,
+              ttl: keyInfo.ttl,
+              dbIndex,
+              raw,
+            });
+          }
+
+          cursor = result.cursor;
+        } while (cursor !== "0");
+      } finally {
+        if (restoreDbIndex !== dbIndex) {
+          try {
+            await adapter.selectDatabase(restoreDbIndex);
+          } catch {
+            // Best effort restore; keep the primary snapshot outcome intact.
+          }
+        }
+      }
+
+      return entries;
+    },
+    [resolveRedisRestoreDbIndex],
+  );
+
+  const loadSqlSnapshotFromLineage = useCallback(
+    async (lineage: DuckDbManagedObjectLineage) => {
+      if (!lineage.sourceConnectionId) {
+        throw new Error("SQL scratchpad lineage is missing a source connection");
+      }
+      const sourceSpec = expectSourceSpecRecord(
+        lineage.sourceSpec,
+        "SQL scratchpad source spec",
+      );
+      const sourceDatabase = sourceSpec.database;
+      const sourceSchema = sourceSpec.schema;
+      const sourceName = sourceSpec.name;
+
+      if (typeof sourceDatabase !== "string" || !sourceDatabase) {
+        throw new Error("SQL scratchpad source spec is missing database");
+      }
+      if (typeof sourceSchema !== "string" || !sourceSchema) {
+        throw new Error("SQL scratchpad source spec is missing schema");
+      }
+      if (typeof sourceName !== "string" || !sourceName) {
+        throw new Error("SQL scratchpad source spec is missing name");
+      }
+
+      return loadSqlSnapshotRows(
+        lineage.sourceConnectionId,
+        sourceDatabase,
+        sourceSchema,
+        sourceName,
+      );
+    },
+    [loadSqlSnapshotRows],
+  );
+
+  const loadMongoSnapshotFromLineage = useCallback(
+    async (lineage: DuckDbManagedObjectLineage) => {
+      if (!lineage.sourceConnectionId) {
+        throw new Error("MongoDB scratchpad lineage is missing a source connection");
+      }
+      const sourceSpec = expectSourceSpecRecord(
+        lineage.sourceSpec,
+        "MongoDB scratchpad source spec",
+      );
+      const sourceDatabase = sourceSpec.database;
+      const collection = sourceSpec.collection;
+
+      if (typeof sourceDatabase !== "string" || !sourceDatabase) {
+        throw new Error("MongoDB scratchpad source spec is missing database");
+      }
+      if (typeof collection !== "string" || !collection) {
+        throw new Error("MongoDB scratchpad source spec is missing collection");
+      }
+
+      return loadMongoSnapshotDocuments(
+        lineage.sourceConnectionId,
+        sourceDatabase,
+        collection,
+      );
+    },
+    [loadMongoSnapshotDocuments],
+  );
+
+  const loadRedisSnapshotFromLineage = useCallback(
+    async (lineage: DuckDbManagedObjectLineage) => {
+      if (!lineage.sourceConnectionId) {
+        throw new Error("Redis scratchpad lineage is missing a source connection");
+      }
+      const sourceSpec = expectSourceSpecRecord(
+        lineage.sourceSpec,
+        "Redis scratchpad source spec",
+      );
+      const dbIndex = parseRedisDbIndex(sourceSpec.dbIndex);
+      if (dbIndex === null) {
+        throw new Error("Redis scratchpad source spec is missing dbIndex");
+      }
+      return loadRedisSnapshotEntries(lineage.sourceConnectionId, dbIndex);
+    },
+    [loadRedisSnapshotEntries],
+  );
+
+  const openSnapshotDialogForSource = (source: DuckDbSnapshotSource) => {
+    if (duckDbScratchpads.length === 0) {
+      toast.error("Create a DuckDB scratchpad first");
+      return;
+    }
+
+    setSnapshotSource(source);
+    setSnapshotDialogOpen(true);
+    setContextMenu(null);
+    setSelectedItems(new Set());
+  };
+
+  const handleOpenDuckDbAddFileDialog = async () => {
+    const selected = await open({
+      multiple: false,
+      title: "Add file to DuckDB scratchpad",
+      filters: [
+        {
+          name: "Supported data files",
+          extensions: ["csv", "parquet", "json", "jsonl", "ndjson"],
+        },
+      ],
+    });
+
+    if (typeof selected !== "string" || !selected) {
+      return;
+    }
+
+    setDuckDbImportFilePath(selected);
+    setDuckDbAddFileDialogOpen(true);
+  };
+
+  const handleAddDuckDbFile = async (targetName: string) => {
+    if (!duckDbImportFilePath) {
+      return;
+    }
+
+    setIsAddingDuckDbFile(true);
+    try {
+      await DuckDbScratchpadService.importFile(connectionId, {
+        filePath: duckDbImportFilePath,
+        targetSchema: schema || DEFAULT_DUCKDB_SCHEMA,
+        targetName: sanitizeDuckDbObjectName(
+          targetName,
+          defaultDuckDbTargetNameFromFile(duckDbImportFilePath),
+        ),
+        sourceId: nanoid(),
+      });
+      refreshConnectionData(connection);
+      toast.success("File imported into DuckDB scratchpad");
+      setDuckDbAddFileDialogOpen(false);
+      setDuckDbImportFilePath(null);
+    } catch (error) {
+      toast.error("Failed to import file into DuckDB scratchpad", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsAddingDuckDbFile(false);
+    }
+  };
+
+  const handleImportDuckDbUrl = async (url: string, targetName: string) => {
+    try {
+      setIsAddingDuckDbFile(true);
+      await DuckDbScratchpadService.importFile(connectionId, {
+        filePath: url,
+        targetSchema: schema || DEFAULT_DUCKDB_SCHEMA,
+        targetName: sanitizeDuckDbObjectName(targetName),
+      });
+      toast.success(`Imported "${targetName}" from URL`);
+      refreshConnectionData(connection);
+      setDuckDbImportUrlDialogOpen(false);
+    } catch (error) {
+      toast.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsAddingDuckDbFile(false);
+    }
+  };
+
+  const handleRevealDuckDbFile = async () => {
+    if (!duckDbFilePath) {
+      toast.error("Scratchpad file path is unavailable");
+      return;
+    }
+
+    try {
+      await revealItemInDir(duckDbFilePath);
+    } catch (error) {
+      toast.error("Failed to reveal DuckDB scratchpad file", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleCreateDuckDbSnapshot = async (
+    targetConnectionId: string,
+    targetName: string,
+  ) => {
+    if (!snapshotSource) {
+      return;
+    }
+
+    const normalizedTargetName = sanitizeDuckDbObjectName(
+      targetName,
+      defaultDuckDbTargetNameFromSnapshotSource(snapshotSource),
+    );
+
+    setIsCreatingDuckDbSnapshot(true);
+    try {
+      await databaseService.connectById(targetConnectionId);
+      const sourceId = nanoid();
+
+      if (snapshotSource.kind === "sql") {
+        const snapshot = await loadSqlSnapshotRows(
+          snapshotSource.sourceConnectionId,
+          snapshotSource.sourceDatabase,
+          snapshotSource.schema,
+          snapshotSource.name,
+        );
+        await DuckDbScratchpadService.replaceManagedObject(
+          targetConnectionId,
+          DuckDbScratchpadService.buildSqlSnapshotRequest({
+            targetSchema: DEFAULT_DUCKDB_SCHEMA,
+            targetName: normalizedTargetName,
+            sourceId,
+            sourceKind:
+              snapshotSource.objectType === "materialized_view"
+                ? "sql_materialized_view"
+                : snapshotSource.objectType === "view"
+                  ? "sql_view"
+                  : "sql_table",
+            sourceConnectionId: snapshotSource.sourceConnectionId,
+            sourceSpec: {
+              database: snapshotSource.sourceDatabase,
+              schema: snapshotSource.schema,
+              name: snapshotSource.name,
+              objectType: snapshotSource.objectType,
+            },
+            columns: snapshot.columns,
+            rows: snapshot.rows,
+          }),
+        );
+      } else if (snapshotSource.kind === "mongo") {
+        const documents = await loadMongoSnapshotDocuments(
+          snapshotSource.sourceConnectionId,
+          snapshotSource.sourceDatabase,
+          snapshotSource.collection,
+        );
+        await DuckDbScratchpadService.replaceManagedObject(
+          targetConnectionId,
+          DuckDbScratchpadService.buildMongoSnapshotRequest({
+            targetSchema: DEFAULT_DUCKDB_SCHEMA,
+            targetName: normalizedTargetName,
+            sourceId,
+            sourceConnectionId: snapshotSource.sourceConnectionId,
+            sourceSpec: {
+              database: snapshotSource.sourceDatabase,
+              collection: snapshotSource.collection,
+            },
+            collection: snapshotSource.collection,
+            documents,
+          }),
+        );
+      } else {
+        const entries = await loadRedisSnapshotEntries(
+          snapshotSource.sourceConnectionId,
+          snapshotSource.dbIndex,
+        );
+        await DuckDbScratchpadService.replaceManagedObject(
+          targetConnectionId,
+          DuckDbScratchpadService.buildRedisSnapshotRequest({
+            targetSchema: DEFAULT_DUCKDB_SCHEMA,
+            targetName: normalizedTargetName,
+            sourceId,
+            sourceConnectionId: snapshotSource.sourceConnectionId,
+            sourceSpec: {
+              dbIndex: snapshotSource.dbIndex,
+              pattern: "*",
+            },
+            entries,
+          }),
+        );
+      }
+
+      const targetConnection = getConnectionById(targetConnectionId);
+      if (targetConnection) {
+        refreshConnectionData(targetConnection);
+      }
+
+      toast.success("Snapshot created in DuckDB scratchpad", {
+        description: describeDuckDbSnapshotSource(snapshotSource),
+      });
+      setSnapshotDialogOpen(false);
+      setSnapshotSource(null);
+    } catch (error) {
+      toast.error("Failed to create DuckDB snapshot", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsCreatingDuckDbSnapshot(false);
+    }
+  };
+
+  const handleRefreshDuckDbSnapshots = async () => {
+    setIsRefreshingDuckDbSnapshots(true);
+    try {
+      const managedObjects =
+        await DuckDbScratchpadService.listManagedObjects(connectionId);
+
+      if (managedObjects.length === 0) {
+        toast.success("No DuckDB scratchpad snapshots to refresh");
+        return;
+      }
+
+      let refreshedCount = 0;
+      let failedCount = 0;
+      const failures: string[] = [];
+
+      for (const managedObject of managedObjects) {
+        const lineage = await DuckDbScratchpadService.getObjectLineage(
+          connectionId,
+          managedObject.targetSchema,
+          managedObject.targetName,
+        );
+
+        if (!lineage) {
+          failedCount += 1;
+          failures.push(
+            `${managedObject.targetName}: missing lineage metadata`,
+          );
+          continue;
+        }
+
+        try {
+          await DuckDbScratchpadService.refreshManagedObject(connectionId, lineage, {
+            loadSqlSnapshot: loadSqlSnapshotFromLineage,
+            loadMongoSnapshot: loadMongoSnapshotFromLineage,
+            loadRedisSnapshot: loadRedisSnapshotFromLineage,
+          });
+          refreshedCount += 1;
+        } catch (error) {
+          failedCount += 1;
+          failures.push(
+            `${managedObject.targetName}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
+      refreshConnectionData(connection);
+
+      if (failedCount === 0) {
+        toast.success(`Refreshed ${refreshedCount} DuckDB snapshot(s)`);
+      } else {
+        toast.error(
+          `Refreshed ${refreshedCount} snapshot(s), ${failedCount} failed`,
+          {
+            description: failures[0],
+          },
+        );
+      }
+    } catch (error) {
+      toast.error("Failed to refresh DuckDB snapshots", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsRefreshingDuckDbSnapshots(false);
+    }
+  };
+
   const stageSqlCommandsAndOpenGlobalChanges = useCallback(
     (
       commands: ReturnType<typeof stageBatchWithSingleHistoryEntry>,
@@ -1810,6 +2428,55 @@ export const ConnectionSection = forwardRef<
     setSelectedItems(new Set());
   };
 
+  const handleSnapshotSelectedObjectToDuckDb = () => {
+    const [item] = getSelectedItems();
+    if (!item) {
+      return;
+    }
+
+    if (item.type === "collection") {
+      if (!database) {
+        toast.error("MongoDB snapshot requires an active database");
+        return;
+      }
+
+      openSnapshotDialogForSource({
+        kind: "mongo",
+        sourceConnectionId: connectionId,
+        sourceConnectionName: profile.name,
+        sourceDatabase: database,
+        collection: item.name,
+      });
+      return;
+    }
+
+    if (item.type === "table" || item.type === "view") {
+      openSnapshotDialogForSource({
+        kind: "sql",
+        sourceConnectionId: connectionId,
+        sourceConnectionName: profile.name,
+        sourceDatabase: database,
+        schema: item.schema,
+        name: item.name,
+        objectType:
+          item.type === "table"
+            ? "table"
+            : item.kind === "MaterializedView"
+              ? "materialized_view"
+              : "view",
+      });
+    }
+  };
+
+  const handleSnapshotRedisDatabaseToDuckDb = (dbIndex: number) => {
+    openSnapshotDialogForSource({
+      kind: "redis",
+      sourceConnectionId: connectionId,
+      sourceConnectionName: profile.name,
+      dbIndex,
+    });
+  };
+
   const handleViewData = () => {
     const items = getSelectedItems();
     items.forEach((item) => {
@@ -2098,6 +2765,61 @@ export const ConnectionSection = forwardRef<
               </ContextMenuItem>
             </>
           )}
+          {dbType === DbType.DuckDB && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>
+                  <IconPlus className="h-4 w-4 mr-2" />
+                  Add Data
+                </ContextMenuSubTrigger>
+                <ContextMenuSubContent>
+                  <ContextMenuItem
+                    onClick={() => {
+                      void handleOpenDuckDbAddFileDialog();
+                    }}
+                    disabled={isAddingDuckDbFile}
+                  >
+                    <IconFileImport className="h-4 w-4 mr-2" />
+                    Import from File...
+                  </ContextMenuItem>
+                  <ContextMenuItem
+                    onClick={() => {
+                      setDuckDbImportUrlDialogOpen(true);
+                    }}
+                  >
+                    <IconLink className="h-4 w-4 mr-2" />
+                    Import from URL...
+                  </ContextMenuItem>
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+              <ContextMenuItem
+                onClick={() => {
+                  requestConfirmation({
+                    title: "Refresh DuckDB Snapshots",
+                    description:
+                      "This will replace each managed DuckDB table with freshly imported data from its source.",
+                    entityName: profile.name,
+                    confirmLabel: "Refresh Snapshots",
+                    onConfirm: handleRefreshDuckDbSnapshots,
+                  });
+                }}
+                disabled={isRefreshingDuckDbSnapshots}
+              >
+                <IconRefresh className="h-4 w-4 mr-2" />
+                Refresh Snapshots
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => {
+                  void handleRevealDuckDbFile();
+                }}
+                disabled={!duckDbFilePath}
+              >
+                <IconFolderOpen className="h-4 w-4 mr-2" />
+                Reveal File
+              </ContextMenuItem>
+            </>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             onClick={() => {
@@ -2293,8 +3015,32 @@ export const ConnectionSection = forwardRef<
                     toggleNode("tables");
                   }}
                   stickyClass=""
-                  onAdd={handleCreateTable}
-                  addTooltip="Create new table"
+                  onAdd={
+                    dbType !== DbType.DuckDB ? handleCreateTable : undefined
+                  }
+                  addTooltip={
+                    dbType !== DbType.DuckDB ? "Create new table" : undefined
+                  }
+                  addContent={
+                    dbType === DbType.DuckDB ? (
+                      <DuckDbTablesDropdown
+                        onNewTable={handleCreateTable}
+                        onImportFile={() => {
+                          void handleOpenDuckDbAddFileDialog();
+                        }}
+                        onImportUrl={() => {
+                          setDuckDbImportUrlDialogOpen(true);
+                        }}
+                        connections={connectedNonDuckDbSources}
+                        onSnapshotFromConnection={(_connId, connName) => {
+                          toast.info(
+                            `Snapshot from "${connName}" — use the context menu on individual tables to snapshot.`,
+                          );
+                        }}
+                        disabled={isAddingDuckDbFile}
+                      />
+                    ) : undefined
+                  }
                   onSelectAll={handleSelectAllTables}
                   onCopyAllNames={handleCopyAllTableNames}
                 >
@@ -2933,6 +3679,19 @@ export const ConnectionSection = forwardRef<
                             <IconRefresh className="h-4 w-4 mr-2" />
                             Reload
                           </ContextMenuItem>
+                          {duckDbScratchpads.length > 0 && (
+                            <>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                onClick={() => {
+                                  handleSnapshotRedisDatabaseToDuckDb(dbInfo.db);
+                                }}
+                              >
+                                <IconDatabase className="h-4 w-4 mr-2" />
+                                Snapshot to DuckDB...
+                              </ContextMenuItem>
+                            </>
+                          )}
                           <ContextMenuSeparator />
                           <ContextMenuItem
                             onClick={() => {
@@ -3068,6 +3827,12 @@ export const ConnectionSection = forwardRef<
                   ? () => void handleRefreshMaterializedView()
                   : undefined
               }
+              onSnapshotToDuckDb={
+                canSnapshotToDuckDb(selectedTypes) &&
+                duckDbScratchpads.length > 0
+                  ? handleSnapshotSelectedObjectToDuckDb
+                  : undefined
+              }
               onViewData={handleViewData}
               onViewStructure={handleViewStructure}
               onViewIndexes={handleViewIndexes}
@@ -3076,6 +3841,65 @@ export const ConnectionSection = forwardRef<
             />
           );
         })()}
+
+      <DuckDbAddFileDialog
+        key={
+          duckDbAddFileDialogOpen
+            ? `duckdb-add-file:${duckDbImportFilePath ?? ""}`
+            : "duckdb-add-file:closed"
+        }
+        open={duckDbAddFileDialogOpen}
+        onOpenChange={(openValue) => {
+          setDuckDbAddFileDialogOpen(openValue);
+          if (!openValue) {
+            setDuckDbImportFilePath(null);
+          }
+        }}
+        filePath={duckDbImportFilePath}
+        defaultTargetName={
+          duckDbImportFilePath
+            ? defaultDuckDbTargetNameFromFile(duckDbImportFilePath)
+            : DEFAULT_DUCKDB_TABLE_NAME
+        }
+        isSubmitting={isAddingDuckDbFile}
+        onConfirm={handleAddDuckDbFile}
+      />
+
+      <DuckDbImportUrlDialog
+        open={duckDbImportUrlDialogOpen}
+        onClose={() => {
+          setDuckDbImportUrlDialogOpen(false);
+        }}
+        onSubmit={handleImportDuckDbUrl}
+      />
+
+      <SnapshotToDuckDbDialog
+        key={
+          snapshotDialogOpen && snapshotSource
+            ? `duckdb-snapshot:${snapshotSource.kind}:${describeDuckDbSnapshotSource(snapshotSource)}`
+            : "duckdb-snapshot:closed"
+        }
+        open={snapshotDialogOpen}
+        onOpenChange={(openValue) => {
+          setSnapshotDialogOpen(openValue);
+          if (!openValue) {
+            setSnapshotSource(null);
+          }
+        }}
+        scratchpads={duckDbScratchpads}
+        defaultTargetName={
+          snapshotSource
+            ? defaultDuckDbTargetNameFromSnapshotSource(snapshotSource)
+            : DEFAULT_DUCKDB_TABLE_NAME
+        }
+        sourceLabel={
+          snapshotSource
+            ? describeDuckDbSnapshotSource(snapshotSource)
+            : "selected source"
+        }
+        isSubmitting={isCreatingDuckDbSnapshot}
+        onConfirm={handleCreateDuckDbSnapshot}
+      />
 
       <ConfirmDeleteDialog
         open={pendingConfirmAction !== null}
