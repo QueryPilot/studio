@@ -55,6 +55,11 @@ SELECT
   NULL AS comment
 FROM information_schema.views
 WHERE table_schema = '${this.escapeString(schema)}'
+  AND table_name NOT IN (
+    SELECT function_name FROM duckdb_functions() WHERE function_type = 'table'
+  )
+  AND table_name NOT LIKE 'sqlite_%'
+  AND table_name NOT LIKE 'pragma_%'
 ORDER BY table_name`;
   }
 
