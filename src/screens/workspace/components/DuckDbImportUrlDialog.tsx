@@ -73,10 +73,16 @@ function DuckDbImportUrlForm({
     setTargetName(value);
   };
 
+  const trimmedUrl = url.trim();
+  const isValidUrl =
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://") ||
+    trimmedUrl.startsWith("s3://");
+
   const handleSubmit = () => {
-    if (!url.trim() || !targetName.trim()) return;
+    if (!isValidUrl || !targetName.trim()) return;
     setIsSubmitting(true);
-    onSubmit(url.trim(), targetName.trim());
+    onSubmit(trimmedUrl, targetName.trim());
   };
 
   return (
@@ -103,6 +109,11 @@ function DuckDbImportUrlForm({
           <p className="text-xs text-muted-foreground">
             Supports HTTP, HTTPS, and S3 URLs for Parquet, CSV, and JSON files.
           </p>
+          {trimmedUrl && !isValidUrl && (
+            <p className="text-xs text-destructive">
+              URL must start with http://, https://, or s3://
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -124,7 +135,7 @@ function DuckDbImportUrlForm({
         </Button>
         <Button
           onClick={handleSubmit}
-          disabled={isSubmitting || !url.trim() || !targetName.trim()}
+          disabled={isSubmitting || !isValidUrl || !targetName.trim()}
         >
           {isSubmitting ? "Importing..." : "Import"}
         </Button>

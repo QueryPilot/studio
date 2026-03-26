@@ -1189,6 +1189,22 @@ impl DuckDbAdapter {
                         }
                     }
                 }
+                '$' if !in_single_quote && !in_double_quote => {
+                    if chars.peek() == Some(&'$') {
+                        chars.next(); // consume second $
+                        // Skip until matching $$
+                        loop {
+                            match chars.next() {
+                                Some('$') if chars.peek() == Some(&'$') => {
+                                    chars.next(); // consume second $
+                                    break;
+                                }
+                                Some(_) => continue,
+                                None => break, // unterminated dollar quote
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -1279,12 +1295,28 @@ impl DuckDbAdapter {
                     JsonValue::Number(JsonNumber::from(v))
                 }
             }
-            ValueRef::Float(v) => JsonNumber::from_f64(v as f64)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null),
-            ValueRef::Double(v) => JsonNumber::from_f64(v)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null),
+            ValueRef::Float(v) => {
+                if v.is_nan() {
+                    JsonValue::String("NaN".to_string())
+                } else if v.is_infinite() {
+                    JsonValue::String(if v > 0.0 { "Infinity" } else { "-Infinity" }.to_string())
+                } else {
+                    JsonNumber::from_f64(v as f64)
+                        .map(JsonValue::Number)
+                        .unwrap_or(JsonValue::Null)
+                }
+            }
+            ValueRef::Double(v) => {
+                if v.is_nan() {
+                    JsonValue::String("NaN".to_string())
+                } else if v.is_infinite() {
+                    JsonValue::String(if v > 0.0 { "Infinity" } else { "-Infinity" }.to_string())
+                } else {
+                    JsonNumber::from_f64(v)
+                        .map(JsonValue::Number)
+                        .unwrap_or(JsonValue::Null)
+                }
+            }
             ValueRef::HugeInt(v) => JsonValue::String(v.to_string()),
             ValueRef::Decimal(v) => JsonValue::String(v.to_string()),
             ValueRef::Timestamp(unit, value) => {
@@ -1345,12 +1377,28 @@ impl DuckDbAdapter {
                     JsonValue::Number(JsonNumber::from(v))
                 }
             }
-            DuckValue::Float(v) => JsonNumber::from_f64(v as f64)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null),
-            DuckValue::Double(v) => JsonNumber::from_f64(v)
-                .map(JsonValue::Number)
-                .unwrap_or(JsonValue::Null),
+            DuckValue::Float(v) => {
+                if v.is_nan() {
+                    JsonValue::String("NaN".to_string())
+                } else if v.is_infinite() {
+                    JsonValue::String(if v > 0.0 { "Infinity" } else { "-Infinity" }.to_string())
+                } else {
+                    JsonNumber::from_f64(v as f64)
+                        .map(JsonValue::Number)
+                        .unwrap_or(JsonValue::Null)
+                }
+            }
+            DuckValue::Double(v) => {
+                if v.is_nan() {
+                    JsonValue::String("NaN".to_string())
+                } else if v.is_infinite() {
+                    JsonValue::String(if v > 0.0 { "Infinity" } else { "-Infinity" }.to_string())
+                } else {
+                    JsonNumber::from_f64(v)
+                        .map(JsonValue::Number)
+                        .unwrap_or(JsonValue::Null)
+                }
+            }
             DuckValue::HugeInt(v) => JsonValue::String(v.to_string()),
             DuckValue::Decimal(v) => JsonValue::String(v.to_string()),
             DuckValue::Timestamp(unit, v) => JsonValue::Number(JsonNumber::from(unit.to_micros(v))),
