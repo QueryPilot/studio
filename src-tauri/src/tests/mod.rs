@@ -23,3 +23,4 @@ mod unified_adapter_test;
 
 #[cfg(test)]
 mod oracle_integration_test;
+mod duckdb_scratchpad_test;

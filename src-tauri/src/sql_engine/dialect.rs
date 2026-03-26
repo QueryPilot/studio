@@ -57,7 +57,6 @@ impl From<&str> for SqlDialect {
             "mssql" | "sqlserver" | "transactsql" => SqlDialect::MsSQL,
             "oracle" => SqlDialect::Oracle,
             "plsql" => SqlDialect::PlSQL,
-            "plsql" | "oracle" => SqlDialect::PlSQL,
             "duckdb" => SqlDialect::DuckDB,
             _ => SqlDialect::PostgreSQL,
         }

@@ -239,6 +239,7 @@ mod db_type_tests {
             DbType::PostgreSQL,
             DbType::MySQL,
             DbType::SQLite,
+            DbType::DuckDB,
             DbType::SQLServer,
             DbType::Oracle,
         ];
@@ -254,6 +255,14 @@ mod db_type_tests {
     fn test_oracle_is_sql_paradigm() {
         assert_eq!(DbType::Oracle.paradigm(), DatabaseParadigm::Sql);
         assert!(DbType::Oracle.is_sql());
+    }
+
+    #[test]
+    fn test_duckdb_is_sql_paradigm() {
+        assert_eq!(DbType::DuckDB.paradigm(), DatabaseParadigm::Sql);
+        assert!(DbType::DuckDB.is_sql());
+        assert!(!DbType::DuckDB.is_document());
+        assert!(!DbType::DuckDB.is_keyvalue());
     }
 }
 

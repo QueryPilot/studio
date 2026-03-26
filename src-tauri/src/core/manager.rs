@@ -155,6 +155,7 @@ impl UnifiedAdapter {
             mysql: None,
             mssql: None,
             sqlite: None,
+            oracle: None,
             duckdb: Some(ptr),
             mongo: None,
             redis: None,
@@ -202,6 +203,7 @@ impl UnifiedAdapter {
             mssql: None,
             sqlite: None,
             oracle: Some(ptr),
+            duckdb: None,
             mongo: None,
             redis: None,
             db_type: DbType::Oracle,
@@ -320,6 +322,8 @@ impl UnifiedAdapter {
 
     pub fn as_oracle(&self) -> Option<&OracleAdapter> {
         self.oracle.map(|p| unsafe { &*p })
+    }
+
     pub fn as_duckdb(&self) -> Option<&DuckDbAdapter> {
         self.duckdb.map(|p| unsafe { &*p })
     }

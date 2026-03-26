@@ -47,6 +47,7 @@ pub enum DbType {
     MySQL,
     MariaDB,
     SQLite,
+    DuckDB,
     SQLServer,
     Oracle,
     // New paradigms
@@ -86,6 +87,7 @@ impl DbType {
             | DbType::MySQL
             | DbType::MariaDB
             | DbType::SQLite
+            | DbType::DuckDB
             | DbType::SQLServer
             | DbType::Oracle => DatabaseParadigm::Sql,
             DbType::MongoDB => DatabaseParadigm::Document,
@@ -330,7 +332,6 @@ impl CellValue {
     pub fn json(value: serde_json::Value) -> Self {
         CellValue::Json(value)
     }
-
 
     /// Check if value is empty (null or empty string)
     pub fn is_empty(&self) -> bool {
@@ -674,7 +675,6 @@ pub enum NullsPosition {
     #[default]
     Last,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
