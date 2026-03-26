@@ -36,6 +36,10 @@ const DEFAULT_INDEX_TYPES: Record<DbType, { types: string[]; default: string }> 
     types: ["btree"],
     default: "btree",
   },
+  [DbType.DuckDB]: {
+    types: ["art"],
+    default: "art",
+  },
   [DbType.SQLServer]: {
     types: ["clustered", "nonclustered", "columnstore"],
     default: "nonclustered",

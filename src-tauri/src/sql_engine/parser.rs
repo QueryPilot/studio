@@ -7,9 +7,9 @@
 //! - CTE (WITH clause) analysis
 //! - Error position tracking
 
-use serde::Serialize;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use serde::Serialize;
 use sqlparser::ast::{self, SetExpr, Statement, TableFactor};
 use sqlparser::parser::Parser;
 
@@ -338,7 +338,9 @@ fn rewrite_comment_on_view_for_parser(stmt_text: &str) -> Option<String> {
 
 fn extract_comment_on_view_value(stmt_text: &str) -> Option<String> {
     let captures = COMMENT_ON_VIEW_SHAPE_RE.captures(stmt_text)?;
-    captures.name("comment").map(|m| m.as_str().trim().to_string())
+    captures
+        .name("comment")
+        .map(|m| m.as_str().trim().to_string())
 }
 
 fn is_single_quoted_literal_from(
@@ -620,8 +622,7 @@ fn split_statements(sql: &str) -> Vec<(usize, usize, String)> {
         // Skip dollar quotes (PostgreSQL)
         if chars[i] == '$' {
             let rest: String = chars[i..].iter().collect();
-            if let Some(m) = dollar_quote_re.find(&rest)
-            {
+            if let Some(m) = dollar_quote_re.find(&rest) {
                 let tag = m.as_str();
                 if let Some(end_pos) = rest[tag.len()..].find(tag) {
                     i += tag.len() + end_pos + tag.len();
@@ -1277,7 +1278,10 @@ fn extract_aliases_from_table_with_joins(
 fn extract_aliases_from_join(join: &ast::Join, aliases: &mut Vec<AliasBinding>) {
     use ast::{JoinConstraint, JoinOperator};
 
-    fn extract_join_constraint_aliases(constraint: &JoinConstraint, aliases: &mut Vec<AliasBinding>) {
+    fn extract_join_constraint_aliases(
+        constraint: &JoinConstraint,
+        aliases: &mut Vec<AliasBinding>,
+    ) {
         if let JoinConstraint::On(expr) = constraint {
             extract_aliases_from_expr(expr, aliases);
         }
@@ -1291,7 +1295,9 @@ fn extract_aliases_from_join(join: &ast::Join, aliases: &mut Vec<AliasBinding>) 
         | JoinOperator::LeftSemi(constraint)
         | JoinOperator::RightSemi(constraint)
         | JoinOperator::LeftAnti(constraint)
-        | JoinOperator::RightAnti(constraint) => extract_join_constraint_aliases(constraint, aliases),
+        | JoinOperator::RightAnti(constraint) => {
+            extract_join_constraint_aliases(constraint, aliases)
+        }
         JoinOperator::AsOf {
             match_condition,
             constraint,
@@ -2084,7 +2090,10 @@ mod tests {
 
     #[test]
     fn test_invalid_comment_on_view_still_reports_parse_error() {
-        let doc = parse_document("COMMENT ON VIEW vw_promotion_by_program", SqlDialect::PostgreSQL);
+        let doc = parse_document(
+            "COMMENT ON VIEW vw_promotion_by_program",
+            SqlDialect::PostgreSQL,
+        );
         assert!(
             !doc.errors.is_empty(),
             "Invalid COMMENT ON VIEW should still produce parse errors"

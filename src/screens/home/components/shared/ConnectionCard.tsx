@@ -23,7 +23,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import { type StoredConnection } from "@/types/connection";
+import { DbType, type StoredConnection } from "@/types/connection";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { windowManager } from "@/services/windowManager";
@@ -50,6 +50,9 @@ export function ConnectionCard({
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
 
   const { profile, metadata } = connection;
+  const isFileBasedConnection =
+    profile.db_type === DbType.SQLite || profile.db_type === DbType.DuckDB;
+  const isDuckDbScratchpad = profile.db_type === DbType.DuckDB;
 
   const handleConnect = async () => {
     try {
@@ -237,6 +240,11 @@ export function ConnectionCard({
                   <span className="text-xs font-medium truncate flex-1">
                     {profile.name}
                   </span>
+                  {isDuckDbScratchpad && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                      Scratchpad
+                    </span>
+                  )}
                   {metadata.is_favorite && (
                     <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
                   )}
@@ -244,15 +252,23 @@ export function ConnectionCard({
 
                 {/* Connection details - single line */}
                 <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="truncate">
-                    {profile.host}:{profile.port}
-                  </span>
-                  {profile.database && (
+                  {isFileBasedConnection ? (
+                    <span className="truncate font-medium text-foreground/60">
+                      {profile.database}
+                    </span>
+                  ) : (
                     <>
-                      <span className="text-muted-foreground/50">·</span>
-                      <span className="truncate font-medium text-foreground/60">
-                        {profile.database}
+                      <span className="truncate">
+                        {profile.host}:{profile.port}
                       </span>
+                      {profile.database && (
+                        <>
+                          <span className="text-muted-foreground/50">·</span>
+                          <span className="truncate font-medium text-foreground/60">
+                            {profile.database}
+                          </span>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
@@ -318,9 +334,16 @@ export function ConnectionCard({
               className="h-4 w-4 shrink-0"
             />
 
-            <span className="text-xs font-medium truncate flex-1 min-w-0">
-              {profile.name}
-            </span>
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <span className="text-xs font-medium truncate min-w-0">
+                {profile.name}
+              </span>
+              {isDuckDbScratchpad && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                  Scratchpad
+                </span>
+              )}
+            </div>
 
             {metadata.is_favorite && (
               <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />

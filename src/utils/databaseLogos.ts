@@ -5,6 +5,7 @@ const DB_LOGO_MAP: Record<DbType, string> = {
   [DbType.MySQL]: "/logos/mysql-icon.svg",
   [DbType.MariaDB]: "/logos/mariadb-icon.svg",
   [DbType.SQLite]: "/logos/sqlite-icon.svg",
+  [DbType.DuckDB]: "/logos/duckdb-logo.svg",
   [DbType.SQLServer]: "/logos/mssql-server-logo.svg",
   [DbType.Oracle]: "/logos/oracle-icon.svg",
   [DbType.MongoDB]: "/logos/mongodb-icon.svg",

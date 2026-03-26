@@ -14,11 +14,9 @@ pub fn get_existing_vault_password() -> Result<String, String> {
         .map_err(|e| format!("Failed to access keychain: {}", e))?;
 
     entry.get_password().map_err(|e| match &e {
-        keyring::Error::NoEntry => {
-            "Vault encryption key not found in keychain. \
+        keyring::Error::NoEntry => "Vault encryption key not found in keychain. \
              If you use iCloud Keychain, ensure it is accessible in System Settings."
-                .to_string()
-        }
+            .to_string(),
         _ => format!(
             "Keychain access denied: {}. \
              Grant Full Disk Access or Keychain permission in System Settings.",

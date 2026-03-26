@@ -717,7 +717,10 @@ pub async fn document_execute(
                     .await
                     .map_err(|e| e.to_string())?
             } else {
-                mongo.list_indexes(&collection).await.map_err(|e| e.to_string())?
+                mongo
+                    .list_indexes(&collection)
+                    .await
+                    .map_err(|e| e.to_string())?
             };
             Ok(DocumentResult::Indexes(indexes))
         }
@@ -948,6 +951,9 @@ mod tests {
         }));
         let explain_json = serde_json::to_value(&explain_result).unwrap();
         assert_eq!(explain_json["type"], "explain");
-        assert_eq!(explain_json["data"]["queryPlanner"]["winningPlan"]["stage"], "IXSCAN");
+        assert_eq!(
+            explain_json["data"]["queryPlanner"]["winningPlan"]["stage"],
+            "IXSCAN"
+        );
     }
 }

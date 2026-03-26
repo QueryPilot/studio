@@ -104,6 +104,20 @@ export function canDelete(selectedTypes: SidebarSelectedTypes): boolean {
   );
 }
 
+export function canSnapshotToDuckDb(selectedTypes: SidebarSelectedTypes): boolean {
+  const total = totalSelected(selectedTypes);
+  if (total !== 1) return false;
+
+  if (selectedTypes.functions > 0) return false;
+
+  return (
+    selectedTypes.tables === 1 ||
+    selectedTypes.views === 1 ||
+    selectedTypes.materializedViews === 1 ||
+    selectedTypes.collections === 1
+  );
+}
+
 export function isImmediateExecution(selectedTypes: SidebarSelectedTypes): boolean {
   return isCollectionsOnly(selectedTypes);
 }

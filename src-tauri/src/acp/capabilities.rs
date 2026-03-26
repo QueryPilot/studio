@@ -142,9 +142,7 @@ async fn handle_get_focused_tab(
 ) -> Result<Value, CapabilityError> {
     let contexts = context_store.get_all_active_contexts().await;
     if contexts.is_empty() {
-        return Err(CapabilityError::NotFound(
-            "No active tabs".to_string(),
-        ));
+        return Err(CapabilityError::NotFound("No active tabs".to_string()));
     }
     // get_all_active_contexts returns sorted by updated_at desc, so first is most recent
     Ok(context_to_tab_context(&contexts[0]))
@@ -228,9 +226,7 @@ async fn handle_query_run(
     let adapter = connection_manager
         .borrow_adapter_with_retry(conn_id, 3)
         .await
-        .map_err(|e| {
-            CapabilityError::ConnectionNotFound(format!("{}: {}", conn_id, e))
-        })?;
+        .map_err(|e| CapabilityError::ConnectionNotFound(format!("{}: {}", conn_id, e)))?;
 
     // 3. Determine paradigm
     let paradigm = match language {
@@ -246,12 +242,8 @@ async fn handle_query_run(
     // 4. Dispatch by paradigm
     match paradigm {
         QueryParadigm::Sql => execute_sql_query(conn_id, query, &adapter, timeout).await,
-        QueryParadigm::Document => {
-            execute_mongo_query(conn_id, query, &adapter, timeout).await
-        }
-        QueryParadigm::KeyValue => {
-            execute_redis_query(conn_id, query, &adapter, timeout).await
-        }
+        QueryParadigm::Document => execute_mongo_query(conn_id, query, &adapter, timeout).await,
+        QueryParadigm::KeyValue => execute_redis_query(conn_id, query, &adapter, timeout).await,
     }
 }
 
@@ -266,9 +258,7 @@ async fn execute_sql_query(
 
     // Get SQL capability
     let sql_adapter = adapter.as_sql().ok_or_else(|| {
-        CapabilityError::QueryError(
-            "Connection does not support SQL queries".to_string(),
-        )
+        CapabilityError::QueryError("Connection does not support SQL queries".to_string())
     })?;
 
     // Execute with timeout
@@ -276,10 +266,7 @@ async fn execute_sql_query(
     let result = tokio::time::timeout(timeout, sql_adapter.execute_query(query))
         .await
         .map_err(|_| {
-            CapabilityError::Timeout(format!(
-                "Query exceeded {}s timeout",
-                timeout.as_secs()
-            ))
+            CapabilityError::Timeout(format!("Query exceeded {}s timeout", timeout.as_secs()))
         })?
         .map_err(|e| CapabilityError::QueryError(e.to_string()))?;
 
@@ -546,17 +533,76 @@ async fn execute_redis_query(
 /// Validate that a Redis command is read-only.
 fn validate_redis_read_only(command: &str) -> Result<(), CapabilityError> {
     const WRITE_COMMANDS: &[&str] = &[
-        "SET", "SETNX", "SETEX", "PSETEX", "MSET", "MSETNX", "SETRANGE", "APPEND", "INCR",
-        "INCRBY", "INCRBYFLOAT", "DECR", "DECRBY", "DEL", "UNLINK", "EXPIRE", "EXPIREAT",
-        "PEXPIRE", "PEXPIREAT", "PERSIST", "RENAME", "RENAMENX", "MOVE", "COPY",
-        "HSET", "HSETNX", "HMSET", "HDEL", "HINCRBY", "HINCRBYFLOAT",
-        "LPUSH", "LPUSHX", "RPUSH", "RPUSHX", "LPOP", "RPOP", "LSET", "LINSERT", "LREM", "LTRIM",
-        "SADD", "SREM", "SPOP", "SMOVE", "SDIFFSTORE", "SINTERSTORE", "SUNIONSTORE",
-        "ZADD", "ZREM", "ZINCRBY", "ZRANGESTORE", "ZDIFFSTORE", "ZINTERSTORE", "ZUNIONSTORE",
-        "XADD", "XDEL", "XTRIM", "XGROUP",
-        "FLUSHDB", "FLUSHALL", "SELECT", "SWAPDB", "SORT",
-        "RESTORE", "DUMP", "MIGRATE", "WAIT",
-        "EVAL", "EVALSHA", "SCRIPT",
+        "SET",
+        "SETNX",
+        "SETEX",
+        "PSETEX",
+        "MSET",
+        "MSETNX",
+        "SETRANGE",
+        "APPEND",
+        "INCR",
+        "INCRBY",
+        "INCRBYFLOAT",
+        "DECR",
+        "DECRBY",
+        "DEL",
+        "UNLINK",
+        "EXPIRE",
+        "EXPIREAT",
+        "PEXPIRE",
+        "PEXPIREAT",
+        "PERSIST",
+        "RENAME",
+        "RENAMENX",
+        "MOVE",
+        "COPY",
+        "HSET",
+        "HSETNX",
+        "HMSET",
+        "HDEL",
+        "HINCRBY",
+        "HINCRBYFLOAT",
+        "LPUSH",
+        "LPUSHX",
+        "RPUSH",
+        "RPUSHX",
+        "LPOP",
+        "RPOP",
+        "LSET",
+        "LINSERT",
+        "LREM",
+        "LTRIM",
+        "SADD",
+        "SREM",
+        "SPOP",
+        "SMOVE",
+        "SDIFFSTORE",
+        "SINTERSTORE",
+        "SUNIONSTORE",
+        "ZADD",
+        "ZREM",
+        "ZINCRBY",
+        "ZRANGESTORE",
+        "ZDIFFSTORE",
+        "ZINTERSTORE",
+        "ZUNIONSTORE",
+        "XADD",
+        "XDEL",
+        "XTRIM",
+        "XGROUP",
+        "FLUSHDB",
+        "FLUSHALL",
+        "SELECT",
+        "SWAPDB",
+        "SORT",
+        "RESTORE",
+        "DUMP",
+        "MIGRATE",
+        "WAIT",
+        "EVAL",
+        "EVALSHA",
+        "SCRIPT",
     ];
 
     if WRITE_COMMANDS.contains(&command) {
@@ -603,9 +649,7 @@ fn redis_value_to_json(value: &crate::core::capabilities::RedisValue) -> Value {
         RedisValue::Integer(i) => json!(i),
         RedisValue::Float(f) => json!(f),
         RedisValue::Boolean(b) => json!(b),
-        RedisValue::Array(arr) => {
-            Value::Array(arr.iter().map(redis_value_to_json).collect())
-        }
+        RedisValue::Array(arr) => Value::Array(arr.iter().map(redis_value_to_json).collect()),
         RedisValue::Map(map) => {
             let obj: serde_json::Map<String, Value> = map
                 .iter()
@@ -650,8 +694,12 @@ mod tests {
     #[tokio::test]
     async fn list_tabs_returns_all_contexts() {
         let (store, cm) = make_deps();
-        store.set_active_context(make_context("tab-1", "Users", 100)).await;
-        store.set_active_context(make_context("tab-2", "Orders", 200)).await;
+        store
+            .set_active_context(make_context("tab-1", "Users", 100))
+            .await;
+        store
+            .set_active_context(make_context("tab-2", "Orders", 200))
+            .await;
 
         let result = handle_capability("workspace.listTabs", &json!({}), &store, &cm)
             .await
@@ -669,8 +717,12 @@ mod tests {
     #[tokio::test]
     async fn get_focused_tab_returns_most_recent() {
         let (store, cm) = make_deps();
-        store.set_active_context(make_context("tab-1", "Users", 100)).await;
-        store.set_active_context(make_context("tab-2", "Orders", 200)).await;
+        store
+            .set_active_context(make_context("tab-1", "Users", 100))
+            .await;
+        store
+            .set_active_context(make_context("tab-2", "Orders", 200))
+            .await;
 
         let result = handle_capability("workspace.getFocusedTab", &json!({}), &store, &cm)
             .await
@@ -687,8 +739,12 @@ mod tests {
     #[tokio::test]
     async fn get_tab_context_by_id() {
         let (store, cm) = make_deps();
-        store.set_active_context(make_context("tab-1", "Users", 100)).await;
-        store.set_active_context(make_context("tab-2", "Orders", 200)).await;
+        store
+            .set_active_context(make_context("tab-1", "Users", 100))
+            .await;
+        store
+            .set_active_context(make_context("tab-2", "Orders", 200))
+            .await;
 
         let result = handle_capability(
             "workspace.getTabContext",
@@ -758,14 +814,9 @@ mod tests {
     async fn query_run_missing_query() {
         let (store, cm) = make_deps();
 
-        let err = handle_capability(
-            "query.run",
-            &json!({"connectionId": "c1"}),
-            &store,
-            &cm,
-        )
-        .await
-        .unwrap_err();
+        let err = handle_capability("query.run", &json!({"connectionId": "c1"}), &store, &cm)
+            .await
+            .unwrap_err();
 
         assert_eq!(err.error_code(), "MISSING_PARAM");
         assert!(err.to_string().contains("query"));
@@ -787,11 +838,7 @@ mod tests {
 
         for sql in &write_queries {
             let result = validate_sql_read_only(sql);
-            assert!(
-                result.is_err(),
-                "Expected read-only violation for: {}",
-                sql
-            );
+            assert!(result.is_err(), "Expected read-only violation for: {}", sql);
             let err = result.unwrap_err();
             assert_eq!(err.error_code(), "READ_ONLY_VIOLATION");
         }

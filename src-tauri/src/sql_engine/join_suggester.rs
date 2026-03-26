@@ -248,17 +248,19 @@ fn check_naming_convention(
     if left_col_lower.ends_with("_id") {
         let prefix = left_col_lower.trim_end_matches("_id");
         if (right_table_lower == prefix || right_table_lower == format!("{}s", prefix))
-            && right_col_lower == "id" {
-                return Some((left_col.to_string(), right_col.to_string(), 75));
-            }
+            && right_col_lower == "id"
+        {
+            return Some((left_col.to_string(), right_col.to_string(), 75));
+        }
     }
 
     if right_col_lower.ends_with("_id") {
         let prefix = right_col_lower.trim_end_matches("_id");
         if (left_table_lower == prefix || left_table_lower == format!("{}s", prefix))
-            && left_col_lower == "id" {
-                return Some((left_col.to_string(), right_col.to_string(), 75));
-            }
+            && left_col_lower == "id"
+        {
+            return Some((left_col.to_string(), right_col.to_string(), 75));
+        }
     }
 
     None

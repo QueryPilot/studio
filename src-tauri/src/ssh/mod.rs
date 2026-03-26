@@ -130,10 +130,7 @@ fn parse_ssh_config_from_file(host: &str) -> Option<SshConfigOverrides> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn parse_ssh_config_overrides_from_text(
-    contents: &str,
-    host: &str,
-) -> Option<SshConfigOverrides> {
+fn parse_ssh_config_overrides_from_text(contents: &str, host: &str) -> Option<SshConfigOverrides> {
     if let Ok(parsed) = ssh_config::SSHConfig::parse_str(contents) {
         if let Some(overrides) = extract_overrides_for_host(parsed.query(host)) {
             return Some(overrides);
@@ -152,22 +149,18 @@ fn parse_ssh_config_overrides_from_text(
 }
 
 #[cfg(not(target_os = "windows"))]
-fn extract_overrides_for_host(
-    host_settings: HashMap<&str, &str>,
-) -> Option<SshConfigOverrides> {
+fn extract_overrides_for_host(host_settings: HashMap<&str, &str>) -> Option<SshConfigOverrides> {
     fn get_case_insensitive<'a>(
         host_settings: &HashMap<&'a str, &'a str>,
         key: &str,
     ) -> Option<&'a str> {
-        host_settings
-            .iter()
-            .find_map(|(existing_key, value)| {
-                if existing_key.eq_ignore_ascii_case(key) {
-                    Some(*value)
-                } else {
-                    None
-                }
-            })
+        host_settings.iter().find_map(|(existing_key, value)| {
+            if existing_key.eq_ignore_ascii_case(key) {
+                Some(*value)
+            } else {
+                None
+            }
+        })
     }
 
     if host_settings.is_empty() {
@@ -178,8 +171,8 @@ fn extract_overrides_for_host(
     if let Some(hostname) = get_case_insensitive(&host_settings, "HostName") {
         overrides.host = Some(hostname.to_string());
     }
-    if let Some(port) = get_case_insensitive(&host_settings, "Port")
-        .and_then(|value| value.parse::<u16>().ok())
+    if let Some(port) =
+        get_case_insensitive(&host_settings, "Port").and_then(|value| value.parse::<u16>().ok())
     {
         overrides.port = Some(port);
     }
@@ -281,12 +274,10 @@ identityfile ~/.ssh/test_key
         assert_eq!(overrides.host.as_deref(), Some("localhost"));
         assert_eq!(overrides.port, Some(2223));
         assert_eq!(overrides.user.as_deref(), Some("sshuser"));
-        assert!(
-            overrides
-                .identity_file
-                .as_deref()
-                .is_some_and(|path| path.ends_with("/.ssh/test_key"))
-        );
+        assert!(overrides
+            .identity_file
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/.ssh/test_key")));
     }
 
     #[test]
@@ -303,12 +294,10 @@ IdentityFile "~/.ssh/real_key"
         assert_eq!(overrides.host.as_deref(), Some("localhost"));
         assert_eq!(overrides.port, Some(2223));
         assert_eq!(overrides.user.as_deref(), Some("sshuser"));
-        assert!(
-            overrides
-                .identity_file
-                .as_deref()
-                .is_some_and(|path| path.ends_with("/.ssh/real_key"))
-        );
+        assert!(overrides
+            .identity_file
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/.ssh/real_key")));
     }
 
     #[test]
@@ -386,12 +375,10 @@ Host ssh-bastion-key
         assert_eq!(overrides.host.as_deref(), Some("localhost"));
         assert_eq!(overrides.port, Some(2223));
         assert_eq!(overrides.user.as_deref(), Some("sshuser"));
-        assert!(
-            overrides
-                .identity_file
-                .as_deref()
-                .is_some_and(|path| path.ends_with("/.ssh/test_key"))
-        );
+        assert!(overrides
+            .identity_file
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/.ssh/test_key")));
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -425,11 +412,9 @@ Host ssh-bastion-key
         assert_eq!(overrides.host.as_deref(), Some("localhost"));
         assert_eq!(overrides.port, Some(2223));
         assert_eq!(overrides.user.as_deref(), Some("sshuser"));
-        assert!(
-            overrides
-                .identity_file
-                .as_deref()
-                .is_some_and(|path| path.ends_with("/.ssh/test_key"))
-        );
+        assert!(overrides
+            .identity_file
+            .as_deref()
+            .is_some_and(|path| path.ends_with("/.ssh/test_key")));
     }
 }

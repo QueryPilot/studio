@@ -1,3 +1,4 @@
+pub mod duckdb;
 pub mod mongodb;
 pub mod mssql;
 pub mod mysql;
@@ -7,6 +8,7 @@ pub mod redis;
 pub mod sqlite;
 
 // Re-export adapters for convenience
+pub use duckdb::DuckDbAdapter;
 pub use mongodb::MongoDbAdapter;
 pub use oracle::OracleAdapter;
 pub use redis::RedisAdapter;

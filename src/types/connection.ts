@@ -23,6 +23,7 @@ export enum DbType {
   MySQL = "MySQL",
   MariaDB = "MariaDB",
   SQLite = "SQLite",
+  DuckDB = "DuckDB",
   SQLServer = "SQLServer",
   Oracle = "Oracle",
   // New paradigms
@@ -42,6 +43,7 @@ export function getParadigm(dbType: DbType): DatabaseParadigm {
     case DbType.MySQL:
     case DbType.MariaDB:
     case DbType.SQLite:
+    case DbType.DuckDB:
     case DbType.SQLServer:
     case DbType.Oracle:
       return 'sql';
@@ -85,6 +87,7 @@ export function isKeyValue(dbType: DbType): boolean {
  * - PostgreSQL: "public"
  * - MySQL/MariaDB: Uses database name as schema (pass null, will use database)
  * - SQLite: "main"
+ * - DuckDB: "main"
  * - SQL Server: "dbo"
  * - MongoDB/Redis: null (no schema concept)
  */
@@ -97,6 +100,7 @@ export function getDefaultSchema(dbType: DbType, database?: string): string | nu
       // MySQL uses database name as schema
       return database || null;
     case DbType.SQLite:
+    case DbType.DuckDB:
       return 'main';
     case DbType.SQLServer:
       return 'dbo';

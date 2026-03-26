@@ -8,7 +8,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
-import { type StoredConnection } from "@/types/connection";
+import { DbType, type StoredConnection } from "@/types/connection";
 import { useHomeScreenStore } from "../../store/homeScreenStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { windowManager } from "@/services/windowManager";
@@ -40,6 +40,9 @@ export function ConnectionRow({
   const deleteConnection = useConnectionStore((s) => s.deleteConnection);
 
   const { profile, metadata } = connection;
+  const isFileBasedConnection =
+    profile.db_type === DbType.SQLite || profile.db_type === DbType.DuckDB;
+  const isDuckDbScratchpad = profile.db_type === DbType.DuckDB;
 
   const handleConnect = async () => {
     try {
@@ -193,13 +196,19 @@ export function ConnectionRow({
             <div className="flex flex-col min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-[13px] font-medium truncate">{profile.name}</span>
+                {isDuckDbScratchpad && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                    Scratchpad
+                  </span>
+                )}
                 {metadata.is_favorite && (
                   <IconStar className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
                 )}
               </div>
               <span className="text-[11px] text-muted-foreground truncate">
-                {profile.host}:{profile.port}
-                {profile.database && ` · ${profile.database}`}
+                {isFileBasedConnection
+                  ? profile.database
+                  : `${profile.host}:${profile.port}${profile.database ? ` · ${profile.database}` : ""}`}
               </span>
             </div>
 

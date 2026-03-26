@@ -237,7 +237,12 @@ fn is_safe_echo_lhs(lhs: &str) -> bool {
         return false;
     }
     // Reject nested command substitution or chaining inside the echo
-    if trimmed.contains("$(") || trimmed.contains('`') || trimmed.contains("&&") || trimmed.contains("||") || trimmed.contains(';') {
+    if trimmed.contains("$(")
+        || trimmed.contains('`')
+        || trimmed.contains("&&")
+        || trimmed.contains("||")
+        || trimmed.contains(';')
+    {
         return false;
     }
     true
@@ -335,8 +340,8 @@ impl Client for QueryPilotClient {
             args.tool_call.fields.raw_input.as_ref(),
         );
 
-        let should_allow = is_allowed_shell
-            || matches!(tool_kind, ToolKind::Think | ToolKind::SwitchMode);
+        let should_allow =
+            is_allowed_shell || matches!(tool_kind, ToolKind::Think | ToolKind::SwitchMode);
 
         if should_allow {
             tracing::info!("Auto-approving {:?} operation: {}", tool_kind, tool_title);
@@ -623,11 +628,7 @@ impl AcpWorker {
         Ok(agent_id)
     }
 
-    async fn create_session(
-        &mut self,
-        agent_id: &str,
-        cwd: &str,
-    ) -> Result<String, String> {
+    async fn create_session(&mut self, agent_id: &str, cwd: &str) -> Result<String, String> {
         let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
         process.is_cancelled.store(false, Ordering::Relaxed);
         let request = NewSessionRequest::new(PathBuf::from(cwd));
@@ -721,7 +722,10 @@ impl AcpWorker {
         let mut process = self.agents.remove(agent_id).ok_or("Agent not found")?;
 
         if let Some(session_id) = process.session_id.clone() {
-            let _ = process.connection.cancel(CancelNotification::new(session_id)).await;
+            let _ = process
+                .connection
+                .cancel(CancelNotification::new(session_id))
+                .await;
         }
 
         if let Err(err) = process.child.start_kill() {
@@ -754,7 +758,10 @@ impl AcpWorker {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(format!("Failed to stop some ACP agents: {}", errors.join("; ")))
+            Err(format!(
+                "Failed to stop some ACP agents: {}",
+                errors.join("; ")
+            ))
         }
     }
 
@@ -769,10 +776,7 @@ impl AcpWorker {
             .ok_or_else(|| "Notification receiver already taken".to_string())
     }
 
-    fn take_permission_receiver(
-        &mut self,
-        agent_id: &str,
-    ) -> Result<PermissionReceiver, String> {
+    fn take_permission_receiver(&mut self, agent_id: &str) -> Result<PermissionReceiver, String> {
         let process = self.agents.get_mut(agent_id).ok_or("Agent not found")?;
         process
             .permission_rx
@@ -898,11 +902,7 @@ impl AcpManager {
     }
 
     /// Create a new session for an agent
-    pub async fn create_session(
-        &self,
-        agent_id: &str,
-        cwd: &str,
-    ) -> Result<String, String> {
+    pub async fn create_session(&self, agent_id: &str, cwd: &str) -> Result<String, String> {
         let (response_tx, response_rx) = oneshot::channel();
         self.command_tx
             .send(AcpCommand::CreateSession {

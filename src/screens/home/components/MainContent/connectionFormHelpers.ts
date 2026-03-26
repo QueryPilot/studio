@@ -40,6 +40,7 @@ const SSL_MODE_OPTIONS_BY_DB: Record<DatabaseType, SslModeOption[]> = {
     { value: SslMode.VerifyFull, label: "Verify Identity" },
   ],
   sqlite: [{ value: SslMode.Disable, label: "Disable" }],
+  duckdb: [{ value: SslMode.Disable, label: "Disable" }],
   mongodb: [
     { value: SslMode.Disable, label: "Disable" },
     { value: SslMode.Require, label: "Require" },
@@ -80,6 +81,7 @@ export function normalizeSslModeForDb(
     case "redis":
       return sslMode === SslMode.Disable ? SslMode.Disable : SslMode.Require;
     case "sqlite":
+    case "duckdb":
       return SslMode.Disable;
     default:
       break;

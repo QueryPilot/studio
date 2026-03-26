@@ -609,11 +609,9 @@ pub async fn acp_respond_permission(
     let sender = pending.lock().await.remove(&request_id);
 
     match sender {
-        Some(tx) => {
-            tx.send(option_id).map_err(|_| {
-                "Permission request expired (agent no longer waiting)".to_string()
-            })
-        }
+        Some(tx) => tx
+            .send(option_id)
+            .map_err(|_| "Permission request expired (agent no longer waiting)".to_string()),
         None => Err(format!(
             "No pending permission request with id: {}",
             request_id
@@ -733,7 +731,11 @@ pub(crate) fn resolve_querypilot_cli_path() -> Result<std::path::PathBuf, String
         let dev_path = current_dir.join("target").join(profile).join(binary_name);
         if is_valid_cli_file(&dev_path) {
             ensure_executable(&dev_path);
-            tracing::info!("Found querypilot CLI ({}) at: {}", profile, dev_path.display());
+            tracing::info!(
+                "Found querypilot CLI ({}) at: {}",
+                profile,
+                dev_path.display()
+            );
             return Ok(dev_path);
         }
     }

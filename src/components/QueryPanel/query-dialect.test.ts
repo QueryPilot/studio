@@ -8,6 +8,7 @@ describe("query dialect resolution", () => {
     expect(resolveDialectFromDbType("MariaDB")).toBe("mysql");
     expect(resolveDialectFromDbType("SQLServer")).toBe("mssql");
     expect(resolveDialectFromDbType("SQLite")).toBe("sqlite");
+    expect(resolveDialectFromDbType("DuckDB")).toBe("postgresql");
   });
 
   it("defaults to postgresql for unknown db types", () => {

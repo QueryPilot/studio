@@ -132,9 +132,8 @@ impl AgentSocketServer {
             })?;
         }
 
-        let listener = UnixListener::bind(&socket_path).map_err(|e| {
-            format!("Failed to bind socket {}: {}", socket_path.display(), e)
-        })?;
+        let listener = UnixListener::bind(&socket_path)
+            .map_err(|e| format!("Failed to bind socket {}: {}", socket_path.display(), e))?;
 
         // Set permissions to 0600 (owner-only)
         #[cfg(unix)]
@@ -221,8 +220,8 @@ async fn handle_connection(
 
     let response = process_request(line, &context_store, &connection_manager).await;
 
-    let mut response_json =
-        serde_json::to_string(&response).map_err(|e| format!("Failed to serialize response: {}", e))?;
+    let mut response_json = serde_json::to_string(&response)
+        .map_err(|e| format!("Failed to serialize response: {}", e))?;
     response_json.push('\n');
 
     writer
@@ -278,7 +277,14 @@ async fn process_request(
     }
 
     // Dispatch to capability handler
-    match handle_capability(&request.capability, &request.params, context_store, connection_manager).await {
+    match handle_capability(
+        &request.capability,
+        &request.params,
+        context_store,
+        connection_manager,
+    )
+    .await
+    {
         Ok(value) => SocketResponse {
             ok: true,
             request_id: request.request_id,
@@ -323,11 +329,7 @@ mod tests {
         use std::sync::atomic::{AtomicU32, Ordering};
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = PathBuf::from(format!(
-            "/tmp/qp-{}-{}.sock",
-            std::process::id(),
-            id
-        ));
+        let path = PathBuf::from(format!("/tmp/qp-{}-{}.sock", std::process::id(), id));
         // Clean up any leftover from a previous run
         let _ = std::fs::remove_file(&path);
         path

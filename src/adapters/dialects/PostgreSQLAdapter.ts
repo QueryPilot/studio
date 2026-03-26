@@ -50,7 +50,7 @@ const ARRAY_TYPE_SUFFIX = '[]';
 const BYTEA_TYPE_NAMES = ['bytea'];
 
 export class PostgreSQLAdapter extends SqlAdapter {
-  readonly dbType = DbType.PostgreSQL;
+  readonly dbType: DbType = DbType.PostgreSQL;
 
   /**
    * Get version features for this connection

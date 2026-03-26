@@ -30,6 +30,29 @@ const baseProps = {
 };
 
 describe("DatabaseSidebarContextMenu export submenus", () => {
+  it("renders snapshot to DuckDB when wired and invokes the handler", () => {
+    const onSnapshotToDuckDb = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <DatabaseSidebarContextMenu
+        {...baseProps}
+        onClose={onClose}
+        onSnapshotToDuckDb={onSnapshotToDuckDb}
+      />,
+    );
+
+    const snapshotAction = screen.getByRole("button", {
+      name: "Snapshot to DuckDB...",
+    });
+    expect(snapshotAction).toBeInTheDocument();
+
+    fireEvent.click(snapshotAction);
+
+    expect(onSnapshotToDuckDb).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it("renders export options inside submenus", () => {
     render(
       <DatabaseSidebarContextMenu

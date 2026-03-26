@@ -339,8 +339,8 @@ impl LintRule for KeywordTypoRule {
                 let end = pos + typo.len();
 
                 // Check word boundaries — must NOT be inside an identifier
-                let before_ok = pos == 0
-                    || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
+                let before_ok =
+                    pos == 0 || (!bytes[pos - 1].is_ascii_alphanumeric() && bytes[pos - 1] != b'_');
                 let after_ok = end >= bytes.len()
                     || (!bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_');
 
@@ -1492,10 +1492,7 @@ mod tests {
         let result = validate_document(&doc, Some(&schema), None);
 
         assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("ordres")),
+            result.errors.iter().any(|e| e.message.contains("ordres")),
             "Expected missing table diagnostic from EXISTS subquery, got {:?}",
             result.errors
         );
@@ -1826,9 +1823,7 @@ mod tests {
             .collect();
 
         assert!(
-            !ambiguous_hints
-                .iter()
-                .any(|h| h.message.contains("'name'")),
+            !ambiguous_hints.iter().any(|h| h.message.contains("'name'")),
             "Unique column 'name' should not be flagged as ambiguous"
         );
         assert!(
@@ -1907,9 +1902,7 @@ mod tests {
             .collect();
 
         assert!(
-            ambiguous_hints
-                .iter()
-                .any(|h| h.message.contains("'id'")),
+            ambiguous_hints.iter().any(|h| h.message.contains("'id'")),
             "Column 'id' that exists in both tables should be flagged as ambiguous"
         );
     }

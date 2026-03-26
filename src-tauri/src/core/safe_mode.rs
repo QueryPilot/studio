@@ -340,10 +340,9 @@ fn find_main_statement_keyword_for_classify(sql: &str) -> Option<String> {
                     ')' => d - 1,
                     _ => d,
                 });
-                if depth == 0
-                    && first_keyword_pos.is_none_or(|(p, _)| abs_pos < p) {
-                        first_keyword_pos = Some((abs_pos, keyword));
-                    }
+                if depth == 0 && first_keyword_pos.is_none_or(|(p, _)| abs_pos < p) {
+                    first_keyword_pos = Some((abs_pos, keyword));
+                }
             }
             search_start = abs_pos + 1;
         }
@@ -847,7 +846,9 @@ mod tests {
             projection: None,
             skip: None,
             limit: None,
-            pipeline: Some(vec![serde_json::json!({ "$match": { "status": "active" } })]),
+            pipeline: Some(vec![
+                serde_json::json!({ "$match": { "status": "active" } }),
+            ]),
         };
         assert_eq!(classify_document_op(&explain), OperationKind::Read);
     }

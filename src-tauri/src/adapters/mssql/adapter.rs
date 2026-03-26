@@ -716,136 +716,120 @@ impl SqlQueryable for MssqlAdapter {
             Self::rewrite_for_unsupported_types(&mut conn, sql).await?
         };
 
-        let query_result =
-            AssertUnwindSafe(async move {
-                if is_showplan {
-                    // SQL Server requires SET SHOWPLAN to be the only statement in its batch.
-                    // Execute as 3 separate queries on the same connection.
-                    let (set_on, inner_query, set_off) =
-                        Self::parse_showplan_batch(sql.as_str()).ok_or_else(|| {
-                            AppError::DatabaseError(
-                                "Invalid SHOWPLAN batch format".to_string(),
-                            )
-                        })?;
-
-                    // Step 1: SET SHOWPLAN_ALL ON
-                    let on_result = conn
-                        .simple_query(set_on.as_str())
-                        .await
-                        .map_err(|e| {
-                            AppError::DatabaseError(format!(
-                                "Failed to enable SHOWPLAN: {}",
-                                e
-                            ))
-                        })?;
-                    let _ = on_result.into_first_result().await;
-
-                    // Step 2: Execute the query
-                    let plan_result = conn
-                        .simple_query(inner_query.as_str())
-                        .await
-                        .map_err(|e| {
-                            AppError::DatabaseError(format!("SHOWPLAN query failed: {}", e))
-                        })?;
-
-                    // For STATISTICS formats (XML/PROFILE), the query executes and
-                    // returns data rows first, then plan rows last.
-                    // For SHOWPLAN formats, the plan is the only (first) result set.
-                    let is_statistics = Self::is_statistics_batch(sql.as_str());
-
-                    let all_results: Vec<Vec<tiberius::Row>> =
-                        plan_result.into_results().await.map_err(|e| {
-                            AppError::DatabaseError(format!(
-                                "Failed to collect plan results: {}",
-                                e
-                            ))
-                        })?;
-
-                    // Pick the right result set: last non-empty for STATISTICS,
-                    // first non-empty for SHOWPLAN
-                    let plan_rows = if is_statistics {
-                        all_results
-                            .into_iter()
-                            .rev()
-                            .find(|rs| !rs.is_empty())
-                            .unwrap_or_default()
-                    } else {
-                        all_results
-                            .into_iter()
-                            .find(|rs| !rs.is_empty())
-                            .unwrap_or_default()
-                    };
-
-                    let columns: Vec<CapabilityColumnMeta> = plan_rows
-                        .first()
-                        .map(|row| {
-                            row.columns()
-                                .iter()
-                                .map(|col| CapabilityColumnMeta {
-                                    name: col.name().to_string(),
-                                    data_type: MssqlTypeConverter::column_type_to_string(
-                                        &col.column_type(),
-                                    ),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    let json_rows: Vec<Vec<serde_json::Value>> =
-                        plan_rows.iter().map(SimpleConverter::row_to_json).collect();
-
-                    // Step 3: SET SHOWPLAN_ALL OFF (cleanup)
-                    if let Ok(off_result) = conn.simple_query(set_off.as_str()).await {
-                        let _ = off_result.into_first_result().await;
-                    }
-
-                    Ok(CapabilityQueryResult {
-                        columns,
-                        rows: json_rows,
-                    })
-                } else {
-                    // Standard path: use columns() + into_first_result()
-                    let mut result = conn
-                        .simple_query(sql.as_str())
-                        .await
-                        .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-
-                    // Get column metadata - columns() is async
-                    let columns_opt = result.columns().await.map_err(|e| {
-                        AppError::DatabaseError(format!("Failed to get columns: {}", e))
+        let query_result = AssertUnwindSafe(async move {
+            if is_showplan {
+                // SQL Server requires SET SHOWPLAN to be the only statement in its batch.
+                // Execute as 3 separate queries on the same connection.
+                let (set_on, inner_query, set_off) = Self::parse_showplan_batch(sql.as_str())
+                    .ok_or_else(|| {
+                        AppError::DatabaseError("Invalid SHOWPLAN batch format".to_string())
                     })?;
 
-                    let columns: Vec<CapabilityColumnMeta> = columns_opt
-                        .map(|cols| {
-                            cols.iter()
-                                .map(|col| CapabilityColumnMeta {
-                                    name: col.name().to_string(),
-                                    data_type: MssqlTypeConverter::column_type_to_string(
-                                        &col.column_type(),
-                                    ),
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                // Step 1: SET SHOWPLAN_ALL ON
+                let on_result = conn.simple_query(set_on.as_str()).await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to enable SHOWPLAN: {}", e))
+                })?;
+                let _ = on_result.into_first_result().await;
 
-                    // Collect rows
-                    let rows: Vec<tiberius::Row> =
-                        result.into_first_result().await.map_err(|e| {
-                            AppError::DatabaseError(format!("Failed to collect rows: {}", e))
-                        })?;
+                // Step 2: Execute the query
+                let plan_result = conn.simple_query(inner_query.as_str()).await.map_err(|e| {
+                    AppError::DatabaseError(format!("SHOWPLAN query failed: {}", e))
+                })?;
 
-                    // Convert to JSON
-                    let json_rows: Vec<Vec<serde_json::Value>> =
-                        rows.iter().map(SimpleConverter::row_to_json).collect();
+                // For STATISTICS formats (XML/PROFILE), the query executes and
+                // returns data rows first, then plan rows last.
+                // For SHOWPLAN formats, the plan is the only (first) result set.
+                let is_statistics = Self::is_statistics_batch(sql.as_str());
 
-                    Ok(CapabilityQueryResult {
-                        columns,
-                        rows: json_rows,
+                let all_results: Vec<Vec<tiberius::Row>> =
+                    plan_result.into_results().await.map_err(|e| {
+                        AppError::DatabaseError(format!("Failed to collect plan results: {}", e))
+                    })?;
+
+                // Pick the right result set: last non-empty for STATISTICS,
+                // first non-empty for SHOWPLAN
+                let plan_rows = if is_statistics {
+                    all_results
+                        .into_iter()
+                        .rev()
+                        .find(|rs| !rs.is_empty())
+                        .unwrap_or_default()
+                } else {
+                    all_results
+                        .into_iter()
+                        .find(|rs| !rs.is_empty())
+                        .unwrap_or_default()
+                };
+
+                let columns: Vec<CapabilityColumnMeta> = plan_rows
+                    .first()
+                    .map(|row| {
+                        row.columns()
+                            .iter()
+                            .map(|col| CapabilityColumnMeta {
+                                name: col.name().to_string(),
+                                data_type: MssqlTypeConverter::column_type_to_string(
+                                    &col.column_type(),
+                                ),
+                            })
+                            .collect()
                     })
+                    .unwrap_or_default();
+
+                let json_rows: Vec<Vec<serde_json::Value>> =
+                    plan_rows.iter().map(SimpleConverter::row_to_json).collect();
+
+                // Step 3: SET SHOWPLAN_ALL OFF (cleanup)
+                if let Ok(off_result) = conn.simple_query(set_off.as_str()).await {
+                    let _ = off_result.into_first_result().await;
                 }
-            })
-            .catch_unwind()
-            .await;
+
+                Ok(CapabilityQueryResult {
+                    columns,
+                    rows: json_rows,
+                })
+            } else {
+                // Standard path: use columns() + into_first_result()
+                let mut result = conn
+                    .simple_query(sql.as_str())
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+
+                // Get column metadata - columns() is async
+                let columns_opt = result.columns().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to get columns: {}", e))
+                })?;
+
+                let columns: Vec<CapabilityColumnMeta> = columns_opt
+                    .map(|cols| {
+                        cols.iter()
+                            .map(|col| CapabilityColumnMeta {
+                                name: col.name().to_string(),
+                                data_type: MssqlTypeConverter::column_type_to_string(
+                                    &col.column_type(),
+                                ),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Collect rows
+                let rows: Vec<tiberius::Row> = result.into_first_result().await.map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to collect rows: {}", e))
+                })?;
+
+                // Convert to JSON
+                let json_rows: Vec<Vec<serde_json::Value>> =
+                    rows.iter().map(SimpleConverter::row_to_json).collect();
+
+                Ok(CapabilityQueryResult {
+                    columns,
+                    rows: json_rows,
+                })
+            }
+        })
+        .catch_unwind()
+        .await;
 
         match query_result {
             Ok(result) => result,

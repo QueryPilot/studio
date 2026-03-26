@@ -167,8 +167,10 @@ impl client::Handler for SshClientHandler {
         match verify_known_hosts(&self.host, self.port, server_public_key) {
             Ok(()) => Ok(true),
             Err(e) => {
-                *self.host_key_error.lock().unwrap_or_else(|p| p.into_inner()) =
-                    Some(e.to_string());
+                *self
+                    .host_key_error
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(e.to_string());
                 Ok(false) // Reject — russh will fail the connection
             }
         }
@@ -205,11 +207,7 @@ fn verify_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) ->
                 )));
             }
             Err(e) => {
-                tracing::warn!(
-                    "Error reading known_hosts {}: {}",
-                    path.display(),
-                    e
-                );
+                tracing::warn!("Error reading known_hosts {}: {}", path.display(), e);
             }
         }
     }
@@ -243,10 +241,9 @@ fn append_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) ->
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&ssh_dir, std::fs::Permissions::from_mode(0o700))
-                .map_err(|e| {
-                    AppError::SshHostKey(format!("Failed to set ~/.ssh permissions: {}", e))
-                })?;
+            std::fs::set_permissions(&ssh_dir, std::fs::Permissions::from_mode(0o700)).map_err(
+                |e| AppError::SshHostKey(format!("Failed to set ~/.ssh permissions: {}", e)),
+            )?;
         }
     }
 
@@ -260,9 +257,9 @@ fn append_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) ->
     };
 
     // Encode the public key in OpenSSH format (e.g. "ssh-ed25519 AAAA...")
-    let openssh_key = server_key.to_openssh().map_err(|e| {
-        AppError::SshHostKey(format!("Failed to encode host key: {}", e))
-    })?;
+    let openssh_key = server_key
+        .to_openssh()
+        .map_err(|e| AppError::SshHostKey(format!("Failed to encode host key: {}", e)))?;
     let encoded = format!("{} {}", host_entry, openssh_key);
 
     use std::io::Write as IoWrite;
@@ -270,14 +267,11 @@ fn append_known_hosts(host: &str, port: u16, server_key: &ssh_key::PublicKey) ->
         .create(true)
         .append(true)
         .open(&known_hosts_path)
-        .map_err(|e| {
-            AppError::SshHostKey(format!("Failed to open known_hosts: {}", e))
-        })?;
+        .map_err(|e| AppError::SshHostKey(format!("Failed to open known_hosts: {}", e)))?;
 
     // Ensure we start on a new line
-    writeln!(file, "{}", encoded).map_err(|e| {
-        AppError::SshHostKey(format!("Failed to write to known_hosts: {}", e))
-    })?;
+    writeln!(file, "{}", encoded)
+        .map_err(|e| AppError::SshHostKey(format!("Failed to write to known_hosts: {}", e)))?;
 
     tracing::info!("Added host key to {}", known_hosts_path.display());
     Ok(())
@@ -462,10 +456,7 @@ async fn authenticate_session(
                     })?;
 
             let identities = agent.request_identities().await.map_err(|e| {
-                AppError::SshAuthFailed(format!(
-                    "SSH agent failed to list identities: {}",
-                    e
-                ))
+                AppError::SshAuthFailed(format!("SSH agent failed to list identities: {}", e))
             })?;
 
             if identities.is_empty() {

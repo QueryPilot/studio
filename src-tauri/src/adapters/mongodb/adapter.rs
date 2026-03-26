@@ -320,17 +320,15 @@ impl MongoDbAdapter {
                     }
                 }
 
-                serde_json::from_value::<IndexOptions>(normalized).map_err(|e| {
-                    AppError::InvalidInput(format!("Invalid index options: {}", e))
-                })
+                serde_json::from_value::<IndexOptions>(normalized)
+                    .map_err(|e| AppError::InvalidInput(format!("Invalid index options: {}", e)))
             })
             .transpose()
     }
 
     fn serialize_index_model(index: IndexModel) -> Result<Value, AppError> {
-        let mut value = serde_json::to_value(index).map_err(|e| {
-            AppError::ParseError(format!("Failed to serialize index model: {}", e))
-        })?;
+        let mut value = serde_json::to_value(index)
+            .map_err(|e| AppError::ParseError(format!("Failed to serialize index model: {}", e)))?;
         let object = value.as_object_mut().ok_or_else(|| {
             AppError::ParseError("Serialized index model was not an object".to_string())
         })?;
@@ -345,17 +343,10 @@ impl MongoDbAdapter {
         stats: Option<crate::core::capabilities::MongoCollectionStatsSummary>,
     ) -> Result<crate::core::capabilities::MongoCollectionMetadata, AppError> {
         let options = serde_json::to_value(&spec.options).map_err(|e| {
-            AppError::ParseError(format!(
-                "Failed to serialize collection options: {}",
-                e
-            ))
+            AppError::ParseError(format!("Failed to serialize collection options: {}", e))
         })?;
 
-        let validator = spec
-            .options
-            .validator
-            .clone()
-            .map(Self::bson_doc_to_json);
+        let validator = spec.options.validator.clone().map(Self::bson_doc_to_json);
 
         Ok(crate::core::capabilities::MongoCollectionMetadata {
             name: spec.name.clone(),
@@ -406,10 +397,7 @@ impl MongoDbAdapter {
             command.insert(
                 "validationLevel",
                 bson::to_bson(&level).map_err(|e| {
-                    AppError::ParseError(format!(
-                        "Failed to serialize validation level: {}",
-                        e
-                    ))
+                    AppError::ParseError(format!("Failed to serialize validation level: {}", e))
                 })?,
             );
         }
@@ -418,10 +406,7 @@ impl MongoDbAdapter {
             command.insert(
                 "validationAction",
                 bson::to_bson(&action).map_err(|e| {
-                    AppError::ParseError(format!(
-                        "Failed to serialize validation action: {}",
-                        e
-                    ))
+                    AppError::ParseError(format!("Failed to serialize validation action: {}", e))
                 })?,
             );
         }
@@ -629,10 +614,7 @@ impl MongoDbAdapter {
             }
             Value::String(s) => {
                 // Only auto-coerce 24-char hex strings to ObjectId for _id fields
-                if is_id_field
-                    && s.len() == 24
-                    && s.chars().all(|c| c.is_ascii_hexdigit())
-                {
+                if is_id_field && s.len() == 24 && s.chars().all(|c| c.is_ascii_hexdigit()) {
                     if let Ok(oid) = bson::oid::ObjectId::parse_str(s) {
                         return Ok(bson::Bson::ObjectId(oid));
                     }
@@ -641,8 +623,10 @@ impl MongoDbAdapter {
             }
             Value::Array(arr) => {
                 // Propagate is_id_field so $in/$nin on _id coerce array elements
-                let bson_arr: Result<Vec<bson::Bson>, AppError> =
-                    arr.iter().map(|v| Self::json_to_bson(v, is_id_field)).collect();
+                let bson_arr: Result<Vec<bson::Bson>, AppError> = arr
+                    .iter()
+                    .map(|v| Self::json_to_bson(v, is_id_field))
+                    .collect();
                 Ok(bson::Bson::Array(bson_arr?))
             }
             Value::Object(map) => {
@@ -824,7 +808,10 @@ impl MongoDbAdapter {
                     // this branch cannot express strict tuple ordering safely.
                     continue 'branch;
                 };
-                branch.insert(prev_field, Self::json_to_bson(prev_value, prev_field == "_id")?);
+                branch.insert(
+                    prev_field,
+                    Self::json_to_bson(prev_value, prev_field == "_id")?,
+                );
             }
 
             let op = if *direction >= 0 { "$gt" } else { "$lt" };
@@ -1384,9 +1371,10 @@ impl MongoDbAdapter {
     ) -> Result<String, AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
-            Some(database) => self
-                .create_index_on_db(database, collection, keys, options)
-                .await,
+            Some(database) => {
+                self.create_index_on_db(database, collection, keys, options)
+                    .await
+            }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
     }
@@ -1418,7 +1406,10 @@ impl MongoDbAdapter {
     pub async fn drop_index(&self, collection: &str, index_name: &str) -> Result<(), AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
-            Some(database) => self.drop_index_on_db(database, collection, index_name).await,
+            Some(database) => {
+                self.drop_index_on_db(database, collection, index_name)
+                    .await
+            }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
     }
@@ -1442,7 +1433,10 @@ impl MongoDbAdapter {
     ) -> Result<crate::core::capabilities::MongoCollectionMetadata, AppError> {
         let db = self.database.read().await;
         match db.as_ref() {
-            Some(database) => self.get_collection_metadata_on_db(database, collection).await,
+            Some(database) => {
+                self.get_collection_metadata_on_db(database, collection)
+                    .await
+            }
             None => Err(AppError::DatabaseError("Not connected".to_string())),
         }
     }
@@ -1545,15 +1539,7 @@ impl MongoDbAdapter {
         match db.as_ref() {
             Some(database) => {
                 self.explain_collection_operation_on_db(
-                    database,
-                    collection,
-                    mode,
-                    filter,
-                    sort,
-                    projection,
-                    skip,
-                    limit,
-                    pipeline,
+                    database, collection, mode, filter, sort, projection, skip, limit, pipeline,
                 )
                 .await
             }
@@ -1575,14 +1561,7 @@ impl MongoDbAdapter {
         pipeline: Option<Vec<Value>>,
     ) -> Result<Value, AppError> {
         let command = Self::build_explain_command(
-            collection,
-            &mode,
-            filter,
-            sort,
-            projection,
-            skip,
-            limit,
-            pipeline,
+            collection, &mode, filter, sort, projection, skip, limit, pipeline,
         )?;
         let result = database
             .run_command(command)
@@ -1835,10 +1814,7 @@ mod tests {
         assert_eq!(serialized["default_language"], "english");
         assert_eq!(serialized["language_override"], "lang");
         assert_eq!(serialized["weights"]["title"], 5);
-        assert_eq!(
-            serialized["partialFilterExpression"]["status"],
-            "active"
-        );
+        assert_eq!(serialized["partialFilterExpression"]["status"], "active");
     }
 
     #[test]
@@ -1895,7 +1871,9 @@ mod tests {
             None,
             None,
             None,
-            Some(vec![serde_json::json!({ "$match": { "status": "active" } })]),
+            Some(vec![
+                serde_json::json!({ "$match": { "status": "active" } }),
+            ]),
         )
         .unwrap();
 

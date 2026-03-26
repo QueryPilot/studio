@@ -227,7 +227,10 @@ pub async fn redis_key_patterns(
     let mut cursor = 0u64;
 
     loop {
-        let result = redis.scan_keys("*", cursor, SCAN_COUNT).await.map_err(|e| e.to_string())?;
+        let result = redis
+            .scan_keys("*", cursor, SCAN_COUNT)
+            .await
+            .map_err(|e| e.to_string())?;
         all_keys.extend(result.keys);
         cursor = result.cursor;
         if cursor == 0 || all_keys.len() >= MAX_KEYS {
@@ -256,7 +259,11 @@ pub async fn redis_key_patterns(
         .into_iter()
         .map(|(pattern, acc)| {
             // Estimate real count based on sample ratio
-            let sample_ratio = if all_keys.is_empty() { 0.0 } else { acc.count as f64 / all_keys.len() as f64 };
+            let sample_ratio = if all_keys.is_empty() {
+                0.0
+            } else {
+                acc.count as f64 / all_keys.len() as f64
+            };
             let estimated_count = (sample_ratio * total_keys as f64).round() as u64;
             RedisKeyPatternInfo {
                 pattern,
@@ -298,26 +305,36 @@ fn extract_key_pattern(key: &str) -> String {
                 // Replace parts that look like IDs (numeric, uuid-like, or long) with *
                 let pattern_parts: Vec<&str> = parts
                     .iter()
-                    .map(|p| {
-                        if looks_like_id(p) { "*" } else { p }
-                    })
+                    .map(|p| if looks_like_id(p) { "*" } else { p })
                     .collect();
                 return pattern_parts.join(&delim.to_string());
             }
         }
     }
     // No delimiter — single key
-    if looks_like_id(key) { "*".to_string() } else { key.to_string() }
+    if looks_like_id(key) {
+        "*".to_string()
+    } else {
+        key.to_string()
+    }
 }
 
 fn looks_like_id(s: &str) -> bool {
-    if s.is_empty() { return false; }
+    if s.is_empty() {
+        return false;
+    }
     // Numeric
-    if s.chars().all(|c| c.is_ascii_digit()) { return true; }
+    if s.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
     // UUID-like (contains hyphens and hex chars, length > 8)
-    if s.len() > 8 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') { return true; }
+    if s.len() > 8 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+        return true;
+    }
     // Long random-looking strings
-    if s.len() > 16 && s.chars().all(|c| c.is_ascii_alphanumeric()) { return true; }
+    if s.len() > 16 && s.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return true;
+    }
     false
 }
 

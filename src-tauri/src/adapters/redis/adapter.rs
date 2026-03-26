@@ -233,8 +233,7 @@ impl RedisAdapter {
         match client.as_ref() {
             Some(c) => {
                 // CONFIG GET databases returns a map: {"databases": "16"}
-                let result: Result<HashMap<String, String>, _> =
-                    c.config_get("databases").await;
+                let result: Result<HashMap<String, String>, _> = c.config_get("databases").await;
                 match result {
                     Ok(map) => map
                         .get("databases")
@@ -1119,7 +1118,6 @@ impl RedisAdapter {
             fred::types::Value::Queued => RedisValue::String("QUEUED".to_string()),
         }
     }
-
 }
 
 #[async_trait]

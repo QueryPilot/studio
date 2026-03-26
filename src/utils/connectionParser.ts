@@ -6,6 +6,7 @@ export type DatabaseType =
   | "mysql"
   | "mariadb"
   | "sqlite"
+  | "duckdb"
   | "mssql"
   | "oracle"
   | "mongodb"
@@ -44,6 +45,8 @@ export interface ParsedUriConfig {
 
 const SQLITE_PATH_PATTERN =
   /^(?:\/|\.\/|\.\.\/|~\/|[a-zA-Z]:[\\/]).+\.(db|sqlite|sqlite3|db3)(?:\?.*)?$/i;
+const DUCKDB_PATH_PATTERN =
+  /^(?:\/|\.\/|\.\.\/|~\/|[a-zA-Z]:[\\/]).+\.(duckdb|ddb)(?:\?.*)?$/i;
 
 function looksLikeSqlitePath(text: string): boolean {
   const trimmed = text.trim();
@@ -52,15 +55,21 @@ function looksLikeSqlitePath(text: string): boolean {
   return SQLITE_PATH_PATTERN.test(trimmed);
 }
 
+function looksLikeDuckDbPath(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return DUCKDB_PATH_PATTERN.test(trimmed);
+}
+
 function looksLikeConnectionUri(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
 
   if (/^jdbc:/i.test(trimmed)) return true;
-  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle):\/\//i.test(trimmed)) {
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle|duckdb):\/\//i.test(trimmed)) {
     return true;
   }
-  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle):/i.test(trimmed)) {
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle|duckdb):/i.test(trimmed)) {
     return true;
   }
   if (/^\(DESCRIPTION\s*=/i.test(trimmed)) {
@@ -77,7 +86,7 @@ function looksLikeConnectionUri(text: string): boolean {
   if (/^(server|data source|address|addr|network address)\s*=/i.test(trimmed)) {
     return true;
   }
-  if (looksLikeSqlitePath(trimmed)) return true;
+  if (looksLikeSqlitePath(trimmed) || looksLikeDuckDbPath(trimmed)) return true;
 
   return false;
 }
@@ -228,6 +237,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
       config.dbType = "oracle";
     } else if (connLower === "sqlite" || connLower === "sqlite3") {
       config.dbType = "sqlite";
+    } else if (connLower === "duckdb" || connLower === "ddb") {
+      config.dbType = "duckdb";
     } else if (connLower === "mongodb" || connLower === "mongo") {
       config.dbType = "mongodb";
     } else if (connLower === "redis") {
@@ -245,6 +256,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     config.dbType = "oracle";
   } else if (hasPrefix("SQLITE_")) {
     config.dbType = "sqlite";
+  } else if (hasPrefix("DUCKDB_")) {
+    config.dbType = "duckdb";
   } else if (hasPrefix("MONGO_") || hasPrefix("MONGODB_")) {
     config.dbType = "mongodb";
   } else if (hasPrefix("REDIS_")) {
@@ -413,6 +426,10 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     "SQLITE_DATABASE",
     "SQLITE_DB",
     "SQLITE_PATH",
+    // DuckDB
+    "DUCKDB_DATABASE",
+    "DUCKDB_DB",
+    "DUCKDB_PATH",
     // MongoDB
     "MONGODB_DATABASE",
     "MONGODB_DB",
@@ -451,6 +468,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     // MySQL/MariaDB
     "MYSQL_URL",
     "MARIADB_URL",
+    // DuckDB
+    "DUCKDB_URL",
     // SQL Server
     "MSSQL_URL",
     "SQLSERVER_URL",
@@ -1201,6 +1220,43 @@ function parseSqliteUri(input: string): ParsedUriConfig {
   return config;
 }
 
+function parseDuckDbUri(input: string): ParsedUriConfig {
+  let trimmed = input.trim();
+  if (/^duckdb:/i.test(trimmed)) {
+    trimmed = trimmed.replace(/^duckdb:/i, "");
+  }
+
+  const splitResult = trimmed.split("?", 2);
+  let path = splitResult[0] ?? "";
+  const queryPart = splitResult[1];
+
+  if (path.startsWith("//")) {
+    path = path.slice(2);
+  }
+
+  if (path.startsWith("/") && /^[a-zA-Z]:\//.test(path.slice(1))) {
+    path = path.slice(1);
+  }
+
+  const config: ParsedUriConfig = {
+    dbType: "duckdb",
+    database: path,
+  };
+
+  if (queryPart) {
+    const params = new URLSearchParams(queryPart);
+    const options: Record<string, string> = {};
+    for (const [key, value] of params.entries()) {
+      options[key] = value;
+    }
+    if (Object.keys(options).length > 0) {
+      config.options = options;
+    }
+  }
+
+  return config;
+}
+
 /**
  * Pre-process URI to encode special characters in password that break URL parsing.
  * Handles common case where password contains unencoded #, ?, or @ characters.
@@ -1401,6 +1457,10 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
     return parseOracleThinConnectString(trimmed);
   }
 
+  if (/^duckdb:/i.test(trimmed) || looksLikeDuckDbPath(trimmed)) {
+    return parseDuckDbUri(trimmed);
+  }
+
   if (/^mongodb(\+srv)?:\/\//i.test(trimmed)) {
     return parseMongoDbUri(trimmed);
   }
@@ -1490,6 +1550,9 @@ export function buildConnectionUri(
   if (db_type === DbType.SQLite) {
     return database || "";
   }
+  if (db_type === DbType.DuckDB) {
+    return database || "";
+  }
 
   // Get the scheme based on database type
   const schemeMap: Record<DbType, string> = {
@@ -1497,6 +1560,7 @@ export function buildConnectionUri(
     [DbType.MySQL]: "mysql",
     [DbType.MariaDB]: "mariadb",
     [DbType.SQLite]: "sqlite",
+    [DbType.DuckDB]: "duckdb",
     [DbType.SQLServer]: "mssql",
     [DbType.Oracle]: "oracle",
     [DbType.MongoDB]: "mongodb",

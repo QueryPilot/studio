@@ -3,6 +3,7 @@
 //! These tests verify that the UnifiedAdapter struct works correctly with
 //! all database types and provides the expected paradigm-specific access.
 
+use crate::adapters::duckdb::DuckDbAdapter;
 use crate::adapters::mongodb::MongoDbAdapter;
 use crate::adapters::mssql::MssqlAdapter;
 use crate::adapters::mysql::MySqlAdapter;
@@ -81,6 +82,23 @@ fn test_unified_adapter_sqlite_construction() {
     assert!(
         unified.as_keyvalue().is_none(),
         "SQLite should not be RichKeyValueOperable"
+    );
+}
+
+#[test]
+fn test_unified_adapter_duckdb_construction() {
+    let adapter = DuckDbAdapter::new();
+    let unified = UnifiedAdapter::duckdb(adapter);
+
+    assert_eq!(unified.db_type(), DbType::DuckDB);
+    assert!(unified.as_sql().is_some(), "DuckDB should be SqlQueryable");
+    assert!(
+        unified.as_document().is_none(),
+        "DuckDB should not be DocumentQueryable"
+    );
+    assert!(
+        unified.as_keyvalue().is_none(),
+        "DuckDB should not be RichKeyValueOperable"
     );
 }
 
@@ -183,6 +201,7 @@ fn test_all_db_types_have_unified_adapter_support() {
         (DbType::MySQL, "sql"),
         (DbType::MariaDB, "sql"),
         (DbType::SQLite, "sql"),
+        (DbType::DuckDB, "sql"),
         (DbType::SQLServer, "sql"),
         (DbType::Oracle, "sql"),
         (DbType::MongoDB, "document"),
@@ -205,6 +224,10 @@ fn test_all_db_types_have_unified_adapter_support() {
             }
             (DbType::SQLite, "sql") => {
                 let unified = UnifiedAdapter::sqlite(SqliteAdapter::new());
+                assert!(unified.as_sql().is_some());
+            }
+            (DbType::DuckDB, "sql") => {
+                let unified = UnifiedAdapter::duckdb(DuckDbAdapter::new());
                 assert!(unified.as_sql().is_some());
             }
             (DbType::SQLServer, "sql") => {

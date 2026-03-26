@@ -7,6 +7,7 @@ import {
   buildRedisSelectCommand,
   canCopyDefinition,
   canDelete,
+  canSnapshotToDuckDb,
   canTruncate,
   getSqlTruncateOptionSupport,
   isImmediateExecution,
@@ -119,6 +120,48 @@ describe("sidebarContextMenuHelpers", () => {
 
     expect(
       canDelete({
+        tables: 0,
+        views: 0,
+        materializedViews: 0,
+        functions: 1,
+        collections: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("enables snapshot to DuckDB only for a single supported object", () => {
+    expect(
+      canSnapshotToDuckDb({
+        tables: 1,
+        views: 0,
+        materializedViews: 0,
+        functions: 0,
+        collections: 0,
+      }),
+    ).toBe(true);
+
+    expect(
+      canSnapshotToDuckDb({
+        tables: 0,
+        views: 0,
+        materializedViews: 0,
+        functions: 0,
+        collections: 1,
+      }),
+    ).toBe(true);
+
+    expect(
+      canSnapshotToDuckDb({
+        tables: 1,
+        views: 1,
+        materializedViews: 0,
+        functions: 0,
+        collections: 0,
+      }),
+    ).toBe(false);
+
+    expect(
+      canSnapshotToDuckDb({
         tables: 0,
         views: 0,
         materializedViews: 0,

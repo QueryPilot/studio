@@ -21,6 +21,7 @@ import {
   IconBolt,
   IconCode,
   IconChevronRight,
+  IconDatabase,
 } from "@tabler/icons-react";
 import {
   ContextMenuSeparator,
@@ -58,6 +59,7 @@ interface ContextMenuProps {
   onViewTriggers?: () => void;
   onViewDefinition?: () => void;
   onRefreshMaterializedView?: () => void | Promise<void>;
+  onSnapshotToDuckDb?: () => void | Promise<void>;
 }
 
 interface MenuPosition {
@@ -96,6 +98,7 @@ export function DatabaseSidebarContextMenu({
   onViewTriggers,
   onViewDefinition,
   onRefreshMaterializedView,
+  onSnapshotToDuckDb,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [openSubmenu, setOpenSubmenu] = useState<"data" | "definition" | null>(
@@ -299,6 +302,18 @@ export function DatabaseSidebarContextMenu({
         </>
       )}
 
+      {onSnapshotToDuckDb && (
+        <MenuItem
+          icon={<IconDatabase />}
+          label={
+            selectedCount === 1
+              ? "Snapshot to DuckDB..."
+              : `Snapshot ${selectedCount} to DuckDB...`
+          }
+          onClick={withClose(onSnapshotToDuckDb)}
+        />
+      )}
+
       {/* Indexes - for tables and materialized views */}
       {hasTablesOrMaterializedViews && onViewIndexes && (
         <MenuItem
@@ -341,6 +356,7 @@ export function DatabaseSidebarContextMenu({
       {/* Separator after all view options */}
       {(hasTablesOrViews ||
         hasCollections ||
+        onSnapshotToDuckDb ||
         hasTablesOrMaterializedViews ||
         hasOnlyTables ||
         hasAnyDatabaseObject) && <ContextMenuSeparator className="mx-0" />}

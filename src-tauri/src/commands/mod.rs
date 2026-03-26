@@ -12,6 +12,7 @@
 pub mod backup;
 pub mod connection;
 pub mod document;
+pub mod duckdb;
 pub mod keyvalue;
 pub mod sql;
 
@@ -19,5 +20,6 @@ pub mod sql;
 pub use backup::*;
 pub use connection::*;
 pub use document::*;
+pub use duckdb::*;
 pub use keyvalue::*;
 pub use sql::*;

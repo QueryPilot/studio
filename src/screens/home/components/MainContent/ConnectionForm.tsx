@@ -12,6 +12,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import type { SafeMode } from "@/types/connection";
 import {
@@ -180,7 +181,7 @@ export function ConnectionForm() {
         "5": "mongodb",
         "6": "redis",
         "7": "oracle",
-        "7": "duckdb",
+        "8": "duckdb",
         postgresql: "postgresql",
         postgres: "postgresql",
         mysql: "mysql",

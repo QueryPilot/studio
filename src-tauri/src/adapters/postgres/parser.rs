@@ -662,11 +662,10 @@ fn parse_array_recursive(input: &str) -> Result<JsonValue> {
                     depth -= 1;
                     if depth > 0 {
                         current.push(ch);
-                    } else if depth == 0
-                        && !current.is_empty() {
-                            elements.push(parse_array_recursive(&current)?);
-                            current.clear();
-                        }
+                    } else if depth == 0 && !current.is_empty() {
+                        elements.push(parse_array_recursive(&current)?);
+                        current.clear();
+                    }
                 }
                 ',' if depth == 1 => {
                     // Separator at current level

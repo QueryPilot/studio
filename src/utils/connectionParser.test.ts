@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildConnectionUri,
   detectConnectionFormat,
   parseConnectionEnv,
   parseConnectionUri,
 } from "./connectionParser";
-import { SslMode } from "@/types/connection";
+import { DbType, SslMode, getDefaultSchema, isSql } from "@/types/connection";
 
 describe("connectionParser", () => {
   describe("detectConnectionFormat", () => {
@@ -52,6 +53,16 @@ describe("connectionParser", () => {
 
       it("should detect SQLite memory database", () => {
         const uri = "sqlite::memory:";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
+
+      it("should detect DuckDB file path", () => {
+        const uri = "./scratchpads/analytics.duckdb";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
+
+      it("should detect DuckDB URI", () => {
+        const uri = "duckdb:///tmp/analytics.duckdb";
         expect(detectConnectionFormat(uri)).toBe("uri");
       });
     });
@@ -194,6 +205,18 @@ MSSQL_DATABASE=master`;
 
         expect(config.dbType).toBe("sqlite");
         expect(config.database).toBe("/path/to/database.db");
+      });
+    });
+
+    describe("DuckDB configurations", () => {
+      it("should parse DUCKDB_ prefix variables", () => {
+        const env = `DB_CONNECTION=duckdb
+DUCKDB_DATABASE=/path/to/scratchpads/analytics.duckdb`;
+
+        const config = parseConnectionEnv(env);
+
+        expect(config.dbType).toBe("duckdb");
+        expect(config.database).toBe("/path/to/scratchpads/analytics.duckdb");
       });
     });
 
@@ -977,6 +1000,41 @@ DB_PORT=5432`;
       const uri = "redis://:p%40ss%21w%23rd@localhost:6379/0";
       const config = parseConnectionUri(uri);
       expect(config.password).toBe("p@ss!w#rd");
+    });
+  });
+
+  describe("DuckDB helpers", () => {
+    it("parses DuckDB file URIs like SQLite-style file connections", () => {
+      expect(parseConnectionUri("./scratchpads/demo.duckdb")).toEqual({
+        dbType: "duckdb",
+        database: "./scratchpads/demo.duckdb",
+      });
+
+      expect(parseConnectionUri("duckdb:///tmp/demo.duckdb?access_mode=read_only")).toEqual({
+        dbType: "duckdb",
+        database: "/tmp/demo.duckdb",
+        options: { access_mode: "read_only" },
+      });
+    });
+
+    it("builds DuckDB connection URIs as file paths", () => {
+      const uri = buildConnectionUri({
+        id: "duckdb-1",
+        name: "Analytics Scratchpad",
+        db_type: DbType.DuckDB,
+        host: "localhost",
+        port: 0,
+        database: "/tmp/analytics.duckdb",
+        username: "",
+        options: {},
+      });
+
+      expect(uri).toBe("/tmp/analytics.duckdb");
+    });
+
+    it("classifies DuckDB as SQL with the default main schema", () => {
+      expect(isSql(DbType.DuckDB)).toBe(true);
+      expect(getDefaultSchema(DbType.DuckDB)).toBe("main");
     });
   });
 });

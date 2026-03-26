@@ -288,8 +288,7 @@ impl SimpleConverter {
             return JsonValue::Array(
                 arr.into_iter()
                     .map(|v| {
-                        serde_json::Number::from_f64(v)
-                            .map_or(JsonValue::Null, JsonValue::Number)
+                        serde_json::Number::from_f64(v).map_or(JsonValue::Null, JsonValue::Number)
                     })
                     .collect(),
             );
@@ -334,10 +333,8 @@ impl SimpleConverter {
         match proto::range_from_sql(&raw.0) {
             Ok(proto::Range::Empty) => JsonValue::String("empty".to_string()),
             Ok(proto::Range::Nonempty(lower, upper)) => {
-                let (lower_str, lower_inclusive) =
-                    Self::format_range_bound(inner_type, lower);
-                let (upper_str, upper_inclusive) =
-                    Self::format_range_bound(inner_type, upper);
+                let (lower_str, lower_inclusive) = Self::format_range_bound(inner_type, lower);
+                let (upper_str, upper_inclusive) = Self::format_range_bound(inner_type, upper);
                 let open = if lower_inclusive { '[' } else { '(' };
                 let close = if upper_inclusive { ']' } else { ')' };
                 JsonValue::String(format!("{}{},{}{}", open, lower_str, upper_str, close))

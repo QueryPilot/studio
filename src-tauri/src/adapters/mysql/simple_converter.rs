@@ -32,22 +32,20 @@ impl SimpleConverter {
         match value {
             None | Some(Value::NULL) => JsonValue::Null,
 
-            Some(Value::Bytes(bytes)) => {
-                match String::from_utf8(bytes.clone()) {
-                    Ok(s) => {
-                        if col_type == ColumnType::MYSQL_TYPE_JSON {
-                            serde_json::from_str(&s).unwrap_or(JsonValue::String(s))
-                        } else {
-                            JsonValue::String(s)
-                        }
-                    }
-                    Err(_) => {
-                        use base64::engine::general_purpose::STANDARD;
-                        use base64::Engine;
-                        JsonValue::String(STANDARD.encode(bytes))
+            Some(Value::Bytes(bytes)) => match String::from_utf8(bytes.clone()) {
+                Ok(s) => {
+                    if col_type == ColumnType::MYSQL_TYPE_JSON {
+                        serde_json::from_str(&s).unwrap_or(JsonValue::String(s))
+                    } else {
+                        JsonValue::String(s)
                     }
                 }
-            }
+                Err(_) => {
+                    use base64::engine::general_purpose::STANDARD;
+                    use base64::Engine;
+                    JsonValue::String(STANDARD.encode(bytes))
+                }
+            },
 
             Some(Value::Int(i)) => {
                 // Handle BIGINT values beyond JavaScript's MAX_SAFE_INTEGER

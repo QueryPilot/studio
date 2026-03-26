@@ -498,9 +498,9 @@ async fn execute_json_backup(
                     })
                     .await
                     .is_err()
-                {
-                    return Err(AppError::InvalidInput("Operation cancelled".into()));
-                }
+            {
+                return Err(AppError::InvalidInput("Operation cancelled".into()));
+            }
         }
 
         cursor = new_cursor;
@@ -767,9 +767,9 @@ async fn execute_json_restore(
                 })
                 .await
                 .is_err()
-            {
-                return Err(AppError::InvalidInput("Operation cancelled".into()));
-            }
+        {
+            return Err(AppError::InvalidInput("Operation cancelled".into()));
+        }
     }
 
     let message = format!(
