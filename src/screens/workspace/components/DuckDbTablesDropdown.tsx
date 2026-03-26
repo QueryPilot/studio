@@ -58,7 +58,7 @@ export function DuckDbTablesDropdown({
           />
         </svg>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+      <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="min-w-[220px]">
         <DropdownMenuItem onClick={onNewTable}>
           <IconTablePlus className="h-4 w-4 mr-2" />
           New Table...

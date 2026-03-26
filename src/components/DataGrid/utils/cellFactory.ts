@@ -93,7 +93,7 @@ function getOrParseColumnMeta(column: GridColumnV2): ParsedColumnMeta {
     isNumericDbType: dbTypeTokens.some((token) => NUMERIC_TYPE_TOKENS.has(token)),
     isArrayDbType: dbType.includes("array") || dbType.startsWith("_") || dbType.endsWith("[]"),
     isBoolDbType: dbType.includes("bool"),
-    isJsonDbType: dbType.includes("json"),
+    isJsonDbType: dbType.includes("json") || dbType.includes("struct") || dbType.includes("map"),
     isMoneyDbType: dbType.includes("money"),
     isTimestampDbType: dbType.includes("timestamptz") || dbType.includes("timestamp"),
     isDateDbType: dbType.includes("date") && !dbType.includes("timestamp") && !dbType.includes("daterange"),
@@ -908,6 +908,11 @@ export function buildGridCellV2(opts: {
   // Geometry/Geography types (PostGIS)
   if (meta.isGeometryDbType) {
     return buildGeometryCell(rawValue, value, column, meta, effectiveReadOnly);
+  }
+
+  // Object values that weren't caught by type detection (e.g. DuckDB STRUCT/MAP/LIST)
+  if (rawValue !== null && typeof rawValue === "object") {
+    return buildJsonCell(rawValue, value, column, meta, effectiveReadOnly);
   }
 
   // Text cells

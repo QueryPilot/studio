@@ -26,6 +26,13 @@ dist-ssr
 *.swo
 *~
 
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Seed data files
+seeds/duckdb/
+
 # Env files
 .env
 .env.local

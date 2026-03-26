@@ -1716,8 +1716,8 @@ export const ConnectionSection = forwardRef<
 
   const handleOpenDuckDbAddFileDialog = async () => {
     const selected = await open({
-      multiple: false,
-      title: "Add file to DuckDB scratchpad",
+      multiple: true,
+      title: "Add file(s) to DuckDB scratchpad",
       filters: [
         {
           name: "Supported data files",
@@ -1726,12 +1726,61 @@ export const ConnectionSection = forwardRef<
       ],
     });
 
-    if (typeof selected !== "string" || !selected) {
+    if (!selected) return;
+
+    // Normalize to array
+    const files = Array.isArray(selected) ? selected : [selected];
+    if (files.length === 0) return;
+
+    if (files.length === 1 && files[0]) {
+      // Single file: show dialog to customize table name
+      setDuckDbImportFilePath(files[0]);
+      setDuckDbAddFileDialogOpen(true);
       return;
     }
 
-    setDuckDbImportFilePath(selected);
-    setDuckDbAddFileDialogOpen(true);
+    // Multiple files: auto-import all with derived table names
+    setIsAddingDuckDbFile(true);
+    const targetSchema = schema || DEFAULT_DUCKDB_SCHEMA;
+    let successCount = 0;
+    const errors: string[] = [];
+
+    const toastId = toast.loading(`Importing 0 of ${files.length} files...`);
+
+    for (const filePath of files) {
+      const targetName = defaultDuckDbTargetNameFromFile(filePath);
+      toast.loading(
+        `Importing ${successCount + errors.length + 1} of ${files.length}: ${targetName}...`,
+        { id: toastId },
+      );
+      try {
+        await DuckDbScratchpadService.importFile(connectionId, {
+          filePath,
+          targetSchema,
+          targetName,
+          sourceId: nanoid(),
+        });
+        successCount++;
+      } catch (error) {
+        errors.push(
+          `${targetName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    if (successCount > 0) {
+      refreshConnectionData(connection);
+      toast.success(`Imported ${successCount} of ${files.length} files`, {
+        id: toastId,
+      });
+    }
+    if (errors.length > 0) {
+      toast.error(`${errors.length} file(s) failed to import`, {
+        id: successCount === 0 ? toastId : undefined,
+        description: errors.join("\n"),
+      });
+    }
+    setIsAddingDuckDbFile(false);
   };
 
   const handleAddDuckDbFile = async (targetName: string) => {
@@ -1740,6 +1789,7 @@ export const ConnectionSection = forwardRef<
     }
 
     setIsAddingDuckDbFile(true);
+    const toastId = toast.loading("Importing file...");
     try {
       await DuckDbScratchpadService.importFile(connectionId, {
         filePath: duckDbImportFilePath,
@@ -1751,11 +1801,12 @@ export const ConnectionSection = forwardRef<
         sourceId: nanoid(),
       });
       refreshConnectionData(connection);
-      toast.success("File imported into DuckDB scratchpad");
+      toast.success("File imported into DuckDB scratchpad", { id: toastId });
       setDuckDbAddFileDialogOpen(false);
       setDuckDbImportFilePath(null);
     } catch (error) {
-      toast.error("Failed to import file into DuckDB scratchpad", {
+      toast.error("Failed to import file", {
+        id: toastId,
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -1764,6 +1815,7 @@ export const ConnectionSection = forwardRef<
   };
 
   const handleImportDuckDbUrl = async (url: string, targetName: string) => {
+    const toastId = toast.loading("Importing from URL...");
     try {
       setIsAddingDuckDbFile(true);
       await DuckDbScratchpadService.importFile(connectionId, {
@@ -1771,11 +1823,14 @@ export const ConnectionSection = forwardRef<
         targetSchema: schema || DEFAULT_DUCKDB_SCHEMA,
         targetName: sanitizeDuckDbObjectName(targetName),
       });
-      toast.success(`Imported "${targetName}" from URL`);
+      toast.success(`Imported "${targetName}" from URL`, { id: toastId });
       refreshConnectionData(connection);
       setDuckDbImportUrlDialogOpen(false);
     } catch (error) {
-      toast.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+      toast.error(`Import failed`, {
+        id: toastId,
+        description: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setIsAddingDuckDbFile(false);
     }

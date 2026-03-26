@@ -12,7 +12,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import type { SafeMode } from "@/types/connection";
 import {
@@ -81,7 +80,7 @@ import {
 import { ENV_COLORS, ENV_KEYS } from "@/lib/envColors";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-const { open } = await import("@tauri-apps/plugin-dialog");
+const { open, save } = await import("@tauri-apps/plugin-dialog");
 
 // Environment tags derived from the shared color definitions
 const ENVIRONMENT_TAGS = ENV_KEYS.map((key) => ({
@@ -112,6 +111,7 @@ function getDefaultPort(type: DatabaseType): string {
     case "oracle":
       return "1521";
     case "sqlite":
+    case "duckdb":
       return "";
     case "mongodb":
       return "27017";
@@ -120,6 +120,10 @@ function getDefaultPort(type: DatabaseType): string {
     default:
       return "";
   }
+}
+
+function isFileBasedDbType(type: DatabaseType): boolean {
+  return type === "sqlite" || type === "duckdb";
 }
 
 /**
@@ -176,11 +180,13 @@ export function ConnectionForm() {
         "5": "mongodb",
         "6": "redis",
         "7": "oracle",
+        "7": "duckdb",
         postgresql: "postgresql",
         postgres: "postgresql",
         mysql: "mysql",
         mariadb: "mariadb",
         sqlite: "sqlite",
+        duckdb: "duckdb",
         mssql: "mssql",
         sqlserver: "mssql",
         oracle: "oracle",
@@ -573,8 +579,11 @@ export function ConnectionForm() {
         multiple: false,
         filters: [
           {
-            name: "SQLite Database",
-            extensions: ["db", "sqlite", "sqlite3"],
+            name: dbType === "duckdb" ? "DuckDB Scratchpad" : "SQLite Database",
+            extensions:
+              dbType === "duckdb"
+                ? ["duckdb", "ddb"]
+                : ["db", "sqlite", "sqlite3"],
           },
           {
             name: "All Files",
@@ -596,6 +605,33 @@ export function ConnectionForm() {
     } catch (error) {
       logger.error("Failed to open file dialog:", error);
       toast.error("Failed to open file picker");
+    }
+  };
+
+  const handleCreateScratchpad = async () => {
+    try {
+      const selected = await save({
+        filters: [
+          {
+            name: "DuckDB Scratchpad",
+            extensions: ["duckdb"],
+          },
+        ],
+        defaultPath: name.trim() ? `${name.trim()}.duckdb` : "scratchpad.duckdb",
+      });
+
+      if (selected && typeof selected === "string") {
+        setDatabase(selected);
+        if (!name) {
+          const fileName = selected.split(/[/\\]/).pop();
+          if (fileName) {
+            setName(fileName.replace(/\.duckdb$/i, ""));
+          }
+        }
+      }
+    } catch (error) {
+      logger.error("Failed to open scratchpad save dialog:", error);
+      toast.error("Failed to create scratchpad path");
     }
   };
 
@@ -731,6 +767,7 @@ export function ConnectionForm() {
   const buildConnectionProfile = (idOverride?: string): ConnectionProfile => {
     const resolvedId =
       idOverride ?? connection?.profile.id ?? `conn-${Date.now()}`;
+    const isFileBased = isFileBasedDbType(dbType);
 
     const profile: ConnectionProfile = {
       id: resolvedId,
@@ -746,18 +783,20 @@ export function ConnectionForm() {
                 ? DbType.SQLite
                 : dbType === "oracle"
                   ? DbType.Oracle
+                : dbType === "duckdb"
+                  ? DbType.DuckDB
                 : dbType === "mongodb"
                   ? DbType.MongoDB
                   : dbType === "redis"
                     ? DbType.Redis
                     : DbType.SQLServer,
-      host: dbType !== "sqlite" ? host : "localhost",
+      host: !isFileBased ? host : "localhost",
       port:
-        dbType !== "sqlite"
+        !isFileBased
           ? parseInt(port, 10) || parseInt(getDefaultPort(dbType), 10)
           : 5432,
-      username: dbType !== "sqlite" ? username : "",
-      password: dbType !== "sqlite" ? password || undefined : undefined,
+      username: !isFileBased ? username : "",
+      password: !isFileBased ? password || undefined : undefined,
       database,
       ssl_mode: sslMode,
       ssl_config:
@@ -983,6 +1022,12 @@ export function ConnectionForm() {
     },
     { value: "sqlite", label: "SQLite", logo: getDatabaseLogo(DbType.SQLite) },
     {
+      value: "duckdb",
+      label: "DuckDB",
+      logo: getDatabaseLogo(DbType.DuckDB),
+      beta: true,
+    },
+    {
       value: "mssql",
       label: "SQL Server",
       logo: getDatabaseLogo(DbType.SQLServer),
@@ -1007,6 +1052,10 @@ export function ConnectionForm() {
   ];
 
   const currentDbType = dbTypeOptions.find((opt) => opt.value === dbType);
+  const isFileBased = isFileBasedDbType(dbType);
+  const fileInputPlaceholder = dbType === "duckdb"
+    ? "/path/to/scratchpad.duckdb"
+    : "/path/to/database.db";
 
   return (
     <div className="h-full flex flex-col">
@@ -1038,7 +1087,6 @@ export function ConnectionForm() {
               />
               <span>{currentDbType?.label}</span>
             </div>
-            <SelectValue>{currentDbType?.label}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {dbTypeOptions.map((opt) => (
@@ -1377,7 +1425,7 @@ export function ConnectionForm() {
           </div>
 
           {/* Connection Details */}
-          {dbType !== "sqlite" ? (
+          {!isFileBased ? (
             <>
               <div className="grid grid-cols-12 gap-3">
                 <div className="col-span-8">
@@ -1631,7 +1679,7 @@ export function ConnectionForm() {
                   onChange={(e) => {
                     setDatabase(e.target.value);
                   }}
-                  placeholder="/path/to/database.db"
+                  placeholder={fileInputPlaceholder}
                   disabled={isTesting}
                 />
                 <Button
@@ -1644,12 +1692,22 @@ export function ConnectionForm() {
                 >
                   <IconFolderOpen className="h-4 w-4" />
                 </Button>
+                {dbType === "duckdb" && (
+                  <Button
+                    variant="outline"
+                    className="h-8 text-xs shrink-0"
+                    onClick={() => void handleCreateScratchpad()}
+                    disabled={isTesting}
+                  >
+                    New Scratchpad...
+                  </Button>
+                )}
               </div>
             </div>
           )}
 
           {/* SSL Mode */}
-          {dbType !== "sqlite" && (
+          {!isFileBased && (
             <div>
               <Label className="flex items-center gap-1.5 text-xs">
                 <IconShield className="h-3 w-3 text-muted-foreground" />
@@ -1818,7 +1876,7 @@ export function ConnectionForm() {
           </div>
 
           {/* Connection Options */}
-          {dbType !== "sqlite" && (
+          {!isFileBased && (
             <div>
               <Label className="flex items-center gap-1.5 text-xs">
                 Connection Options
@@ -1878,7 +1936,7 @@ export function ConnectionForm() {
           )}
 
           {/* SSH Tunnel */}
-          {dbType !== "sqlite" && (
+          {!isFileBased && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label className="flex items-center gap-1.5 text-xs">
