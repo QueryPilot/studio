@@ -129,7 +129,7 @@ fn parse_dialect(dialect: &str) -> SqlDialect {
 
 fn default_schema_name(dialect: &SqlDialect) -> Option<&'static str> {
     match dialect {
-        SqlDialect::SQLite => Some("main"),
+        SqlDialect::SQLite | SqlDialect::DuckDB => Some("main"),
         SqlDialect::MsSQL => Some("dbo"),
         SqlDialect::PostgreSQL | SqlDialect::PlSQL => Some("public"),
         SqlDialect::Oracle => None,

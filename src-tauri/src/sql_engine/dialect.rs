@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use sqlparser::dialect::{
-    Dialect, GenericDialect, MsSqlDialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect,
+    Dialect, DuckDbDialect, GenericDialect, MsSqlDialect, MySqlDialect, PostgreSqlDialect,
+    SQLiteDialect,
 };
 
 /// SQL dialect enum matching frontend types.
@@ -16,6 +17,7 @@ pub enum SqlDialect {
     MsSQL,
     Oracle,
     PlSQL,
+    DuckDB,
 }
 
 impl SqlDialect {
@@ -28,6 +30,7 @@ impl SqlDialect {
             SqlDialect::MsSQL => Box::new(MsSqlDialect {}),
             SqlDialect::Oracle => Box::new(GenericDialect {}),
             SqlDialect::PlSQL => Box::new(GenericDialect {}),
+            SqlDialect::DuckDB => Box::new(DuckDbDialect {}),
         }
     }
 
@@ -40,6 +43,7 @@ impl SqlDialect {
             SqlDialect::MsSQL => "mssql",
             SqlDialect::Oracle => "oracle",
             SqlDialect::PlSQL => "plsql",
+            SqlDialect::DuckDB => "duckdb",
         }
     }
 }
@@ -53,6 +57,8 @@ impl From<&str> for SqlDialect {
             "mssql" | "sqlserver" | "transactsql" => SqlDialect::MsSQL,
             "oracle" => SqlDialect::Oracle,
             "plsql" => SqlDialect::PlSQL,
+            "plsql" | "oracle" => SqlDialect::PlSQL,
+            "duckdb" => SqlDialect::DuckDB,
             _ => SqlDialect::PostgreSQL,
         }
     }
@@ -65,6 +71,7 @@ impl From<crate::types::DbType> for SqlDialect {
             crate::types::DbType::PostgreSQL => SqlDialect::PostgreSQL,
             crate::types::DbType::MySQL | crate::types::DbType::MariaDB => SqlDialect::MySQL,
             crate::types::DbType::SQLite => SqlDialect::SQLite,
+            crate::types::DbType::DuckDB => SqlDialect::DuckDB,
             crate::types::DbType::SQLServer => SqlDialect::MsSQL,
             crate::types::DbType::Oracle => SqlDialect::Oracle,
             // Non-SQL databases default to PostgreSQL dialect (they won't use SQL parsing anyway)
@@ -93,5 +100,18 @@ mod tests {
         assert_eq!(SqlDialect::PostgreSQL.name(), "postgresql");
         assert_eq!(SqlDialect::MySQL.name(), "mysql");
         assert_eq!(SqlDialect::Oracle.name(), "oracle");
+    }
+
+    #[test]
+    fn test_dialect_from_duckdb_db_type() {
+        assert_eq!(
+            SqlDialect::from(crate::types::DbType::DuckDB),
+            SqlDialect::DuckDB
+        );
+    }
+
+    #[test]
+    fn test_dialect_from_str_duckdb() {
+        assert_eq!(SqlDialect::from("duckdb"), SqlDialect::DuckDB);
     }
 }

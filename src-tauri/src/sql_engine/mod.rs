@@ -174,6 +174,8 @@ mod tests {
 
         let oracle: SqlDialect = DbType::Oracle.into();
         assert_eq!(oracle, SqlDialect::Oracle);
+        let duckdb: SqlDialect = DbType::DuckDB.into();
+        assert_eq!(duckdb, SqlDialect::DuckDB);
     }
 
     #[test]
