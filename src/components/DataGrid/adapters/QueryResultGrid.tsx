@@ -7,7 +7,7 @@
  * - Shows query performance metrics
  * - Client-side filtering only
  */
-import { memo, useMemo } from 'react';
+import { memo, useDeferredValue, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { BaseDataGrid } from '../base/BaseDataGrid';
 import type { GridColumnV2, GridRowModel } from '../types';
@@ -71,15 +71,18 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     className,
   } = props;
 
+  // Defer data so React can interrupt re-renders for large result sets
+  const deferredData = useDeferredValue(data);
+
   const rows = useMemo((): GridRowModel[] => {
-    if (!data?.rows) {
+    if (!deferredData?.rows) {
       return [];
     }
 
-    const columnMeta = data.columnMeta;
-    const columnNames = data.columns;
+    const columnMeta = deferredData.columnMeta;
+    const columnNames = deferredData.columns;
 
-    const rawRows = data.rows;
+    const rawRows = deferredData.rows;
     let cache = transformedRowsCache.get(rawRows);
     if (!cache || rawRows.length < cache.transformedCount) {
       cache = { transformed: [], transformedCount: 0 };
@@ -97,9 +100,12 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     }
 
     // Incremental transformation - only transform NEW rows
+    // Cap per-render work to avoid long main-thread blocks
+    const MAX_ROWS_PER_RENDER = 5000;
     const numColumns = columnMeta?.length ?? columnNames.length;
     const startIndex = cache.transformedCount;
-    const newRows = (rawRows as RawCellValue[][]).slice(startIndex);
+    const endIndex = Math.min(rawRows.length, startIndex + MAX_ROWS_PER_RENDER);
+    const newRows = (rawRows as RawCellValue[][]).slice(startIndex, endIndex);
 
     const newTransformed = newRows.map((row) => {
       const tableRow: GridRowModel = {};
@@ -120,15 +126,15 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
 
     // Mutate in place to avoid O(n) copy on each progressive render
     cache.transformed.push(...newTransformed);
-    cache.transformedCount = rawRows.length;
+    cache.transformedCount = endIndex;
 
     return cache.transformed;
-  }, [data]);
+  }, [deferredData]);
 
   // Build columns from metadata
   const columns = useMemo<GridColumnV2[]>(() => {
-    const columnMeta = data?.columnMeta;
-    const columnNames = data?.columns;
+    const columnMeta = deferredData?.columnMeta;
+    const columnNames = deferredData?.columns;
     if (!columnNames) return [];
 
     const metaList = columnMeta ?? columnNames.map((name, idx): ColumnMeta => ({
@@ -150,7 +156,7 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       type: meta.db_type,
       meta,
     }));
-  }, [data?.columnMeta, data?.columns]);
+  }, [deferredData?.columnMeta, deferredData?.columns]);
 
   // Loading state
   if (isLoading && rows.length === 0) {
@@ -182,7 +188,7 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       enableFillOperations={false}
       enableStagedChanges={false}
       isLoadingMore={isStreaming}
-      estimatedTotal={data?.rowCount}
+      estimatedTotal={deferredData?.rowCount}
       toolbarActions={toolbarActions}
       // Performance metrics
       executionTime={executionTime}

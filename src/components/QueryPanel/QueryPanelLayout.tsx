@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { QueryResult } from "@/stores/tabStateStore";
 import type { ViewMode } from "@/types/viewMode";
-import { IconAlertTriangle, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import { QueryEditor } from "./QueryEditor";
 import { QueryOutline } from "./QueryOutline";
 import { QueryToolbar } from "./QueryToolbar";
@@ -66,6 +66,7 @@ interface QueryPanelLayoutProps {
   onRefreshResults?: () => void;
   showplanMode?: string | null;
   resultTabGroupId?: string;
+  isTabSwitching?: boolean;
 }
 
 function getStatementKeyword(statement: string): string {
@@ -127,6 +128,7 @@ export function QueryPanelLayout({
   onRefreshResults,
   showplanMode,
   resultTabGroupId = "query-result-view-mode",
+  isTabSwitching = false,
 }: QueryPanelLayoutProps) {
   const hasModeTabs = activeSupportedModes.length > 0;
   const showResultHeader = batchResults.length > 0 || hasModeTabs;
@@ -182,12 +184,6 @@ export function QueryPanelLayout({
                     minSize="30"
                     className="flex flex-col relative"
                   >
-                    {inTransaction && (
-                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 bg-status-warn/15 text-status-warn text-xs font-medium rounded-md shadow-md backdrop-blur-sm border border-status-warn/30">
-                        <IconAlertTriangle className="w-3 h-3" />
-                        IN TRANSACTION
-                      </div>
-                    )}
                     <QueryEditor
                       ref={editorRef}
                       connectionId={effectiveConnectionId}
@@ -221,6 +217,7 @@ export function QueryPanelLayout({
                       onToggleOutline={onToggleOutline}
                       onDialectChange={onDialectChange}
                       showplanMode={showplanMode}
+                      inTransaction={inTransaction}
                     />
                   </ResizablePanel>
 
@@ -349,7 +346,14 @@ export function QueryPanelLayout({
                           </div>
                         </div>
                       )}
-                      <div className="flex-1 min-h-0">
+                      <div className="flex-1 min-h-0 relative">
+                        {isTabSwitching && (
+                          <div className="absolute inset-0 z-10 bg-background/50 flex items-center justify-center backdrop-blur-[1px] transition-opacity">
+                            <div className="text-xs text-muted-foreground animate-pulse">
+                              Loading result...
+                            </div>
+                          </div>
+                        )}
                         <ResultViewer
                           result={displayedResult}
                           isLoading={isExecuting}

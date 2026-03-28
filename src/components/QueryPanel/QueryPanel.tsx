@@ -4,8 +4,10 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { toast } from "sonner";
 
@@ -221,6 +223,8 @@ export const QueryPanel = memo(function QueryPanel({
   // Ref to track if execution is in progress (prevents double-execution from duplicate events)
   const isExecutingRef = useRef(false);
   const cancelRequestedRef = useRef(false);
+  // Stores full row arrays outside React state to avoid keeping all results in memory
+  const batchResultRowsRef = useRef(new Map<number, unknown[][]>());
   const [singleResultPresentation, setSingleResultPresentation] =
     useState<ResultViewPresentation>(createEmptyResultViewPresentation);
   const singleResultPresentationModeRef = useRef(singleResultPresentation.mode);
@@ -846,6 +850,7 @@ export const QueryPanel = memo(function QueryPanel({
     setBatchResults([]);
     setActiveBatchResultIndex(0);
     setIsBatchExecuting(false);
+    batchResultRowsRef.current.clear();
   }, [setActiveBatchResultIndex, setBatchResults, setIsBatchExecuting]);
 
   const resolveExecutionTargetSql = useCallback(() => {
@@ -881,10 +886,31 @@ export const QueryPanel = memo(function QueryPanel({
       });
 
       const collectedResults: BatchStatementResult[] = [];
+      batchResultRowsRef.current.clear();
       const appendResult = (entry: BatchStatementResult) => {
+        const index = collectedResults.length;
         collectedResults.push(entry);
-        setBatchResults([...collectedResults]);
-        setActiveBatchResultIndex(collectedResults.length - 1);
+        // Store full rows in ref map (outside React state) to reduce memory pressure
+        batchResultRowsRef.current.set(index, entry.result.rows);
+        // Only auto-focus the first result; user navigates manually after that
+        const isFirst = collectedResults.length === 1;
+        // Store lightweight entries in state — strip rows from non-active results
+        const lightweightResults = collectedResults.map((r, i) => {
+          if (i === 0) return r; // Keep active (first) result intact
+          return {
+            ...r,
+            result: {
+              ...r.result,
+              rows: [] as unknown[][],
+            },
+          };
+        });
+        startTransition(() => {
+          setBatchResults(lightweightResults);
+          if (isFirst) {
+            setActiveBatchResultIndex(0);
+          }
+        });
       };
 
       isExecutingRef.current = true;
@@ -1170,6 +1196,17 @@ export const QueryPanel = memo(function QueryPanel({
     }
   }, [isInteractive]);
 
+  // Use transition for tab switching so the old tab stays visible while the new one renders
+  const [isTabSwitching, startTabTransition] = useTransition();
+  const handleBatchTabSwitch = useCallback(
+    (index: number) => {
+      startTabTransition(() => {
+        setActiveBatchResultIndex(index);
+      });
+    },
+    [setActiveBatchResultIndex],
+  );
+
   const resolvedBatchResultIndex =
     activeBatchResultIndex < batchResults.length
       ? activeBatchResultIndex
@@ -1178,7 +1215,15 @@ export const QueryPanel = memo(function QueryPanel({
     resolvedBatchResultIndex >= 0
       ? batchResults[resolvedBatchResultIndex]
       : undefined;
-  const displayedResult = activeBatchResult?.result ?? result;
+  // Restore full rows from ref map for the active batch result
+  const displayedResult = useMemo(() => {
+    if (!activeBatchResult) return result;
+    const storedRows = batchResultRowsRef.current.get(resolvedBatchResultIndex);
+    if (storedRows && activeBatchResult.result.rows.length === 0) {
+      return { ...activeBatchResult.result, rows: storedRows };
+    }
+    return activeBatchResult.result;
+  }, [activeBatchResult, resolvedBatchResultIndex, result]);
   const activeResultPresentation =
     activeBatchResult?.presentation ?? singleResultPresentation;
 
@@ -1273,7 +1318,8 @@ export const QueryPanel = memo(function QueryPanel({
         onCloseOutline={closeOutline}
         batchResults={batchResults}
         activeBatchResultIndex={activeBatchResultIndex}
-        onActiveBatchResultChange={setActiveBatchResultIndex}
+        onActiveBatchResultChange={handleBatchTabSwitch}
+        isTabSwitching={isTabSwitching}
         isBatchExecuting={isBatchExecuting}
         displayedResult={displayedResult}
         isStreaming={isStreaming}

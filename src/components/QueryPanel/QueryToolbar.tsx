@@ -28,6 +28,7 @@ import {
   IconWand,
   IconBinaryTree,
   IconChevronDown,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 import type { SqlDialect } from "@/components/CodeEditor";
 
@@ -68,6 +69,7 @@ interface QueryToolbarProps {
   onToggleOutline?: () => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   showplanMode?: string | null;
+  inTransaction?: boolean;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
@@ -88,6 +90,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onToggleOutline,
   onDialectChange,
   showplanMode,
+  inTransaction = false,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
   const currentDialectLabel =
@@ -158,6 +161,20 @@ export const QueryToolbar = memo(function QueryToolbar({
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
                 {showplanMode.toUpperCase().replace("_", " ")}
+              </div>
+            </>
+          )}
+
+          {/* In Transaction Indicator */}
+          {inTransaction && (
+            <>
+              <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />
+              <div
+                className="flex items-center gap-1 rounded-md bg-status-warn/15 px-2 py-0.5 text-[11px] font-medium text-status-warn border border-status-warn/30"
+                title="Active transaction — COMMIT or ROLLBACK to end"
+              >
+                <IconAlertTriangle className="h-3 w-3" />
+                IN TRANSACTION
               </div>
             </>
           )}
