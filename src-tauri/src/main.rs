@@ -48,6 +48,9 @@ fn main() {
     let manager_for_socket = Arc::clone(&manager);
     let socket_server_for_setup = Arc::clone(&socket_server);
 
+    // Create tunnel state for auth/tunnel profile caching
+    let tunnel_state = Arc::new(commands::TunnelState::new());
+
     // Create app state
     let app_state = AppState {
         ssh_test_rate_limiter: RateLimiter::new(5),
@@ -71,6 +74,7 @@ fn main() {
         .manage(acp_manager)
         .manage(acp::commands::PendingPermissions::default())
         .manage(app_state)
+        .manage(tunnel_state)
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Build and set the application menu
@@ -217,6 +221,11 @@ fn main() {
             ai_context::commands::track_query_execution,
             ai_context::commands::get_ai_query_history,
             ai_context::commands::get_ai_active_context,
+            // Tunnel state commands
+            commands::sync_tunnel_state,
+            commands::get_auth_profile,
+            commands::get_tunnel_profile,
+            commands::check_session_manager_plugin,
         ])
         .build(context)
         .expect("error while building tauri application");

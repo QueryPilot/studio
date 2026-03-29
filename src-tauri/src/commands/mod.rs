@@ -15,6 +15,7 @@ pub mod document;
 pub mod duckdb;
 pub mod keyvalue;
 pub mod sql;
+pub mod tunnel;
 
 // Re-export all commands for easy access
 pub use backup::*;
@@ -23,3 +24,4 @@ pub use document::*;
 pub use duckdb::*;
 pub use keyvalue::*;
 pub use sql::*;
+pub use tunnel::*;
