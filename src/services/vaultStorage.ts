@@ -6,6 +6,7 @@ import {
   type StoredConnection,
   type GroupTag,
 } from "@/types/connection";
+import type { AuthProfile, TunnelProfile } from "@/types/tunnel";
 import type { WorkspaceConfig } from "@/types/workspace";
 import { type VaultData, VAULT_VERSION } from "@/types/vault";
 
@@ -44,6 +45,10 @@ class VaultStorageService {
   private workspacesDirty = false;
   private apiKeysCache: Record<string, string> = {};
   private apiKeysDirty = false;
+  private authProfilesCache: AuthProfile[] = [];
+  private authProfilesDirty = false;
+  private tunnelProfilesCache: TunnelProfile[] = [];
+  private tunnelProfilesDirty = false;
 
   private scheduleSave(): void {
     if (this.saveScheduled) return;
@@ -64,7 +69,9 @@ class VaultStorageService {
       this.deletedIds.size === 0 &&
       !this.groupTagsDirty &&
       !this.workspacesDirty &&
-      !this.apiKeysDirty
+      !this.apiKeysDirty &&
+      !this.authProfilesDirty &&
+      !this.tunnelProfilesDirty
     ) {
       this.saveScheduled = false;
       return;
@@ -89,6 +96,8 @@ class VaultStorageService {
       this.groupTagsDirty = false;
       this.workspacesDirty = false;
       this.apiKeysDirty = false;
+      this.authProfilesDirty = false;
+      this.tunnelProfilesDirty = false;
       this.saveScheduled = false;
     }
   }
@@ -99,6 +108,8 @@ class VaultStorageService {
       connections: Array.from(this.connectionCache.values()),
       groupTags: this.groupTagsCache || [],
       workspaces: this.workspacesCache || [],
+      auth_profiles: this.authProfilesCache,
+      tunnel_profiles: this.tunnelProfilesCache,
       apiKeys: this.apiKeysCache,
       migratedAt: new Date().toISOString(),
     };
@@ -336,6 +347,10 @@ class VaultStorageService {
     this.workspacesDirty = false;
     this.apiKeysCache = {};
     this.apiKeysDirty = false;
+    this.authProfilesCache = [];
+    this.authProfilesDirty = false;
+    this.tunnelProfilesCache = [];
+    this.tunnelProfilesDirty = false;
   }
 
   private async preloadAllInternal(): Promise<void> {
@@ -365,6 +380,8 @@ class VaultStorageService {
           this.groupTagsCache = vaultData.groupTags || [];
           this.workspacesCache = vaultData.workspaces || [];
           this.apiKeysCache = vaultData.apiKeys || {};
+          this.authProfilesCache = vaultData.auth_profiles || [];
+          this.tunnelProfilesCache = vaultData.tunnel_profiles || [];
           if (!this.indexCache) {
             this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
           }
@@ -396,6 +413,12 @@ class VaultStorageService {
       }
       if (!this.workspacesCache) {
         this.workspacesCache = [];
+      }
+      if (!this.authProfilesCache) {
+        this.authProfilesCache = [];
+      }
+      if (!this.tunnelProfilesCache) {
+        this.tunnelProfilesCache = [];
       }
 
       throw new Error("Vault read failed. Keychain access may be required — check System Settings.");
@@ -453,7 +476,9 @@ class VaultStorageService {
       this.deletedIds.size > 0 ||
       this.groupTagsDirty ||
       this.workspacesDirty ||
-      this.apiKeysDirty
+      this.apiKeysDirty ||
+      this.authProfilesDirty ||
+      this.tunnelProfilesDirty
     );
   }
 
@@ -491,6 +516,8 @@ class VaultStorageService {
           this.groupTagsCache = vaultData.groupTags || [];
           this.workspacesCache = vaultData.workspaces || [];
           this.apiKeysCache = vaultData.apiKeys || {};
+          this.authProfilesCache = vaultData.auth_profiles || [];
+          this.tunnelProfilesCache = vaultData.tunnel_profiles || [];
           this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
         }
       }
@@ -641,6 +668,68 @@ class VaultStorageService {
     this.apiKeysCache = rest;
     this.apiKeysDirty = true;
     this.scheduleSave();
+  }
+
+  // ============================================================================
+  // Auth Profiles
+  // ============================================================================
+
+  async listAuthProfiles(): Promise<AuthProfile[]> {
+    await this.ensureInitialized();
+    return this.authProfilesCache ?? [];
+  }
+
+  async saveAuthProfile(profile: AuthProfile): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.authProfilesCache) this.authProfilesCache = [];
+    const idx = this.authProfilesCache.findIndex((p) => p.id === profile.id);
+    if (idx >= 0) {
+      this.authProfilesCache[idx] = profile;
+    } else {
+      this.authProfilesCache.push(profile);
+    }
+    this.authProfilesDirty = true;
+    await this.flushPendingChanges();
+  }
+
+  async deleteAuthProfile(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.authProfilesCache = (this.authProfilesCache ?? []).filter(
+      (p) => p.id !== id,
+    );
+    this.authProfilesDirty = true;
+    await this.flushPendingChanges();
+  }
+
+  // ============================================================================
+  // Tunnel Profiles
+  // ============================================================================
+
+  async listTunnelProfiles(): Promise<TunnelProfile[]> {
+    await this.ensureInitialized();
+    return this.tunnelProfilesCache ?? [];
+  }
+
+  async saveTunnelProfile(profile: TunnelProfile): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.tunnelProfilesCache) this.tunnelProfilesCache = [];
+    const idx = this.tunnelProfilesCache.findIndex((p) => p.id === profile.id);
+    if (idx >= 0) {
+      this.tunnelProfilesCache[idx] = profile;
+    } else {
+      this.tunnelProfilesCache.push(profile);
+    }
+    this.tunnelProfilesDirty = true;
+    await this.flushPendingChanges();
+  }
+
+  async deleteTunnelProfile(id: string): Promise<void> {
+    await this.ensureInitialized();
+    this.tunnelProfilesCache = (this.tunnelProfilesCache ?? []).filter(
+      (p) => p.id !== id,
+    );
+    this.tunnelProfilesDirty = true;
+    await this.flushPendingChanges();
   }
 
 }

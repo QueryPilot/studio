@@ -1,4 +1,5 @@
 import type { StoredConnection, GroupTag } from "./connection";
+import type { AuthProfile, TunnelProfile } from "./tunnel";
 import type { WorkspaceConfig } from "./workspace";
 
 /**
@@ -15,6 +16,10 @@ export interface VaultData {
   groupTags: GroupTag[];
   /** Saved workspace configurations */
   workspaces: WorkspaceConfig[];
+  /** Reusable authentication profiles (e.g. AWS, Azure AD) */
+  auth_profiles?: AuthProfile[];
+  /** Reusable tunnel profiles (SSH, SSM bastion) */
+  tunnel_profiles?: TunnelProfile[];
   /** BYOK provider API keys (provider ID → key) */
   apiKeys?: Record<string, string>;
   /** Timestamp when data was migrated to this format */
