@@ -20,6 +20,7 @@ use crate::core::capabilities::{
 use crate::error::{AppError, Result};
 use crate::ssh::secrets::delete_ssh_passphrase;
 use crate::ssh::SshTunnel;
+use crate::tunnel::{ResolvedTunnel, TunnelManager};
 use crate::types::*;
 
 /// Unified adapter that wraps any database adapter and provides paradigm-specific access.
@@ -372,6 +373,7 @@ pub struct ConnectionManager {
     idle_timeout: Duration,
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
+    tunnel_manager: Option<Arc<TunnelManager>>,
 }
 
 pub struct LiveConnection {
@@ -456,7 +458,12 @@ impl ConnectionManager {
             idle_timeout: Duration::from_secs(1800),
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
+            tunnel_manager: None,
         }
+    }
+
+    pub fn set_tunnel_manager(&mut self, tm: Arc<TunnelManager>) {
+        self.tunnel_manager = Some(tm);
     }
 
     async fn ensure_tunnel(
@@ -464,6 +471,33 @@ impl ConnectionManager {
         conn_id: &str,
         profile: &ConnectionProfile,
     ) -> Result<TunnelStatus> {
+        // New tunnel manager path: tunnel_profile_id or tunnel_inline
+        if profile.tunnel_inline.is_some() || profile.tunnel_profile_id.is_some() {
+            if let Some(ref tm) = self.tunnel_manager {
+                let remote_host = profile
+                    .tunnel_remote_host
+                    .as_deref()
+                    .unwrap_or(&profile.host);
+                let remote_port = profile.tunnel_remote_port.unwrap_or(profile.port);
+
+                let resolved = if let Some(ref inline) = profile.tunnel_inline {
+                    ResolvedTunnel::from_inline(inline, remote_host, remote_port)
+                } else {
+                    // tunnel_profile_id: frontend should resolve to inline before calling connect
+                    tracing::warn!("tunnel_profile_id without tunnel_inline - frontend should resolve the profile");
+                    return Ok(TunnelStatus::NotRequired);
+                };
+
+                let endpoint = tm
+                    .ensure_tunnel(&resolved)
+                    .await
+                    .map_err(|e| AppError::SshTunnelError(format!("Tunnel failed: {}", e)))?;
+                return Ok(TunnelStatus::Created {
+                    local_port: endpoint.local_port,
+                });
+            }
+        }
+
         // Check if bastion is configured (new approach)
         if let Some(ref bastion) = profile.bastion {
             return self.ensure_bastion_tunnel(conn_id, profile, bastion).await;
@@ -1020,6 +1054,11 @@ impl ConnectionManager {
             if let Some((_, tunnel)) = self.tunnels.remove(&key) {
                 let _ = tokio::time::timeout(Duration::from_secs(2), tunnel.close()).await;
             }
+        }
+
+        // Shutdown tunnels managed by TunnelManager
+        if let Some(ref tm) = self.tunnel_manager {
+            tm.shutdown_all().await;
         }
 
         Ok(())

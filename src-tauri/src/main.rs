@@ -29,8 +29,16 @@ fn main() {
     // The frontend will call configure_telemetry on startup to set the actual preference
     let _sentry_guard = sentry_integration::initialize_sentry(false, env!("CARGO_PKG_VERSION"));
 
-    // Create connection manager
-    let manager = Arc::new(core::manager::ConnectionManager::new());
+    // Create auth manager for credential caching (Azure AD SAML, etc.)
+    let auth_manager = Arc::new(crate::tunnel::auth::AuthManager::new());
+
+    // Create tunnel manager (depends on auth_manager)
+    let tunnel_manager = Arc::new(crate::tunnel::TunnelManager::new(auth_manager.clone()));
+
+    // Create connection manager (with tunnel manager wired in)
+    let mut manager = core::manager::ConnectionManager::new();
+    manager.set_tunnel_manager(tunnel_manager.clone());
+    let manager = Arc::new(manager);
 
     // Create shared AI context store for ACP/BYOK runtime context sync
     let ai_context = Arc::new(ai_context::AiContextStore::new());
@@ -50,9 +58,6 @@ fn main() {
 
     // Create tunnel state for auth/tunnel profile caching
     let tunnel_state = Arc::new(commands::TunnelState::new());
-
-    // Create auth manager for credential caching (Azure AD SAML, etc.)
-    let auth_manager = Arc::new(crate::tunnel::auth::AuthManager::new());
 
     // Create app state
     let app_state = AppState {
@@ -79,6 +84,7 @@ fn main() {
         .manage(app_state)
         .manage(tunnel_state)
         .manage(auth_manager)
+        .manage(tunnel_manager)
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Build and set the application menu
@@ -254,6 +260,9 @@ fn main() {
             let conn_manager_opt = app_handle
                 .try_state::<Arc<core::manager::ConnectionManager>>()
                 .map(|s| s.inner().clone());
+            let tunnel_manager_opt = app_handle
+                .try_state::<Arc<crate::tunnel::TunnelManager>>()
+                .map(|s| s.inner().clone());
             let acp_manager = acp_manager_for_cleanup.clone();
 
             // Stop agent socket server
@@ -277,6 +286,12 @@ fn main() {
                         } else {
                             tracing::info!("✅ All database connections closed");
                         }
+                    }
+
+                    // Shutdown standalone tunnel manager (safety net)
+                    if let Some(tm) = tunnel_manager_opt {
+                        tm.shutdown_all().await;
+                        tracing::info!("✅ Tunnel manager shut down");
                     }
                 };
 
