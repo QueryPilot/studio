@@ -10,6 +10,7 @@ pub mod sql_engine;
 pub mod ssh;
 pub mod state;
 pub mod storage;
+pub mod tunnel;
 pub mod types;
 pub mod vault;
 
