@@ -18,6 +18,14 @@ pub struct ConnectionProfile {
     pub ssh_tunnel: Option<SshTunnelConfig>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub bastion: Option<BastionConfig>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tunnel_profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tunnel_inline: Option<InlineTunnelConfig>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tunnel_remote_host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tunnel_remote_port: Option<u16>,
     pub options: HashMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub group: Option<String>,
@@ -187,6 +195,67 @@ impl TryFrom<SshAuthMethodRaw> for SshAuthMethod {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BastionConfig {
     Ssh(SshTunnelConfig),
+}
+
+// ============================================================================
+// TUNNEL MANAGER TYPES
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthProfile {
+    pub id: String,
+    pub name: String,
+    pub provider: AuthProvider,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthProvider {
+    AzureAdSaml {
+        tenant_id: String,
+        app_id_uri: String,
+        default_username: Option<String>,
+        session_duration_hours: u32,
+        default_role_arn: Option<String>,
+    },
+    StaticAwsCredentials {
+        access_key_id: String,
+        secret_access_key: String,
+        region: String,
+    },
+    EnvironmentAwsCredentials {
+        region: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TunnelProfile {
+    pub id: String,
+    pub name: String,
+    pub tunnel_type: TunnelType,
+    pub auth_profile_id: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TunnelType {
+    SshTunnel {
+        host: String,
+        port: u16,
+        user: String,
+        auth: SshAuthMethod,
+    },
+    SsmBastion {
+        cluster_name: Option<String>,
+        task_definition: Option<String>,
+        region: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InlineTunnelConfig {
+    pub tunnel_type: TunnelType,
+    pub auth_profile_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
