@@ -1,3 +1,5 @@
+import type { SshAuthMethod } from "./connection";
+
 export interface AuthProfile {
   id: string;
   name: string;
@@ -42,7 +44,7 @@ export type TunnelType =
         host: string;
         port: number;
         user: string;
-        auth: import("./connection").SshAuthMethod;
+        auth: SshAuthMethod;
       };
     }
   | {

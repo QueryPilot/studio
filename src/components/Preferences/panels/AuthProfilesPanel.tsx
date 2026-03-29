@@ -252,16 +252,15 @@ function FieldRow({
 // ---------- Main panel ----------
 
 export function AuthProfilesPanel() {
-  const { authProfiles, fetchProfiles, saveAuthProfile, deleteAuthProfile } =
-    useTunnelStore();
+  const authProfiles = useTunnelStore((s) => s.authProfiles);
 
   const [editing, setEditing] = useState<string | null>(null); // profile id or "new"
   const [form, setForm] = useState<FormState>(newFormState);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    void fetchProfiles();
-  }, [fetchProfiles]);
+    void useTunnelStore.getState().fetchProfiles();
+  }, []);
 
   const startEdit = useCallback((profile: AuthProfile) => {
     setEditing(profile.id);
@@ -300,19 +299,16 @@ export function AuthProfilesPanel() {
     };
     setSaving(true);
     try {
-      await saveAuthProfile(profile);
+      await useTunnelStore.getState().saveAuthProfile(profile);
       setEditing(null);
     } finally {
       setSaving(false);
     }
-  }, [editing, form, authProfiles, saveAuthProfile]);
+  }, [editing, form, authProfiles]);
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      await deleteAuthProfile(id);
-    },
-    [deleteAuthProfile],
-  );
+  const handleDelete = useCallback(async (id: string) => {
+    await useTunnelStore.getState().deleteAuthProfile(id);
+  }, []);
 
   const isFormValid = (): boolean => {
     if (!form.name.trim()) return false;
