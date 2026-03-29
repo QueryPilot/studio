@@ -2,7 +2,7 @@ use crate::tunnel::auth::azure_ad;
 use crate::tunnel::auth::AuthManager;
 use crate::types::{AuthProfile, TunnelProfile};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::RwLock;
 
 /// Shared state for auth and tunnel profiles (in-memory cache).
@@ -110,4 +110,32 @@ pub async fn check_auth_status(
     auth_manager: State<'_, Arc<AuthManager>>,
 ) -> Result<bool, String> {
     Ok(auth_manager.has_valid_credentials(&auth_profile_id))
+}
+
+#[tauri::command]
+pub async fn open_auth_webview(
+    url: String,
+    auth_profile_id: String,
+    app: AppHandle,
+) -> Result<(), String> {
+    let label = format!(
+        "auth-{}",
+        &auth_profile_id[..8.min(auth_profile_id.len())]
+    );
+
+    // Close existing auth window if open
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.close();
+    }
+
+    let parsed_url: tauri::Url = url.parse().map_err(|e| format!("Invalid URL: {e}"))?;
+
+    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
+        .title("Authenticate — Azure AD")
+        .inner_size(500.0, 700.0)
+        .center()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }

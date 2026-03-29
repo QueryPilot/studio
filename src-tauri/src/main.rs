@@ -241,6 +241,7 @@ fn main() {
             commands::handle_saml_response,
             commands::parse_saml_roles,
             commands::check_auth_status,
+            commands::open_auth_webview,
         ])
         .build(context)
         .expect("error while building tauri application");
