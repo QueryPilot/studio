@@ -1,8 +1,17 @@
 pub mod auth;
+pub mod ssh;
 
+use crate::ssh::SshTunnel;
+use crate::types::{InlineTunnelConfig, TunnelProfile, TunnelType};
+use anyhow::{bail, Result};
+use auth::AuthManager;
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
-/// AWS credentials obtained from any auth provider.
+// ── Credential types ─────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct AwsCredentials {
     pub access_key_id: String,
@@ -25,9 +34,202 @@ impl AwsCredentials {
     }
 }
 
-/// Local endpoint after a tunnel is established.
+// ── Tunnel endpoint ──────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct TunnelEndpoint {
     pub local_host: String,
     pub local_port: u16,
+}
+
+// ── Resolved tunnel config ───────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ResolvedTunnel {
+    pub tunnel_type: TunnelType,
+    pub auth_profile_id: Option<String>,
+    pub remote_host: String,
+    pub remote_port: u16,
+}
+
+impl ResolvedTunnel {
+    pub fn from_profile(profile: &TunnelProfile, remote_host: &str, remote_port: u16) -> Self {
+        Self {
+            tunnel_type: profile.tunnel_type.clone(),
+            auth_profile_id: profile.auth_profile_id.clone(),
+            remote_host: remote_host.to_string(),
+            remote_port,
+        }
+    }
+
+    pub fn from_inline(inline: &InlineTunnelConfig, remote_host: &str, remote_port: u16) -> Self {
+        Self {
+            tunnel_type: inline.tunnel_type.clone(),
+            auth_profile_id: inline.auth_profile_id.clone(),
+            remote_host: remote_host.to_string(),
+            remote_port,
+        }
+    }
+
+    pub fn dedup_key(&self) -> String {
+        match &self.tunnel_type {
+            TunnelType::SshTunnel {
+                host, port, user, ..
+            } => {
+                format!(
+                    "ssh:{}:{}:{}:{}:{}",
+                    host, port, user, self.remote_host, self.remote_port
+                )
+            }
+            TunnelType::SsmBastion {
+                region,
+                task_definition,
+                ..
+            } => {
+                let td = task_definition.as_deref().unwrap_or("ecs-ssm-bastion");
+                format!(
+                    "ssm:{}:{}:{}:{}",
+                    region, td, self.remote_host, self.remote_port
+                )
+            }
+        }
+    }
+}
+
+// ── Active tunnel variants ───────────────────────────────────
+
+enum ActiveTunnel {
+    Ssh(SshTunnel),
+    // Ssm variant will be added in Task 9
+}
+
+impl ActiveTunnel {
+    fn local_port(&self) -> u16 {
+        match self {
+            Self::Ssh(t) => t.local_port(),
+        }
+    }
+
+    async fn health_check(&self) -> Result<()> {
+        match self {
+            Self::Ssh(t) => Ok(t.health_check().await?),
+        }
+    }
+
+    async fn close(self) -> Result<()> {
+        match self {
+            Self::Ssh(t) => Ok(t.close().await?),
+        }
+    }
+}
+
+// ── Managed tunnel entry with ref counting ───────────────────
+
+struct ManagedTunnelEntry {
+    tunnel: ActiveTunnel,
+    ref_count: AtomicUsize,
+}
+
+// ── Tunnel Manager ───────────────────────────────────────────
+
+pub struct TunnelManager {
+    tunnels: Arc<DashMap<String, ManagedTunnelEntry>>,
+    pub auth_manager: Arc<AuthManager>,
+}
+
+impl TunnelManager {
+    pub fn new(auth_manager: Arc<AuthManager>) -> Self {
+        Self {
+            tunnels: Arc::new(DashMap::new()),
+            auth_manager,
+        }
+    }
+
+    pub async fn ensure_tunnel(&self, resolved: &ResolvedTunnel) -> Result<TunnelEndpoint> {
+        let key = resolved.dedup_key();
+
+        // Check for existing healthy tunnel
+        if let Some(entry) = self.tunnels.get(&key) {
+            if entry.tunnel.health_check().await.is_ok() {
+                entry.ref_count.fetch_add(1, Ordering::SeqCst);
+                return Ok(TunnelEndpoint {
+                    local_host: "127.0.0.1".to_string(),
+                    local_port: entry.tunnel.local_port(),
+                });
+            }
+            drop(entry);
+            if let Some((_, old)) = self.tunnels.remove(&key) {
+                let _ = old.tunnel.close().await;
+            }
+        }
+
+        // Create new tunnel
+        let tunnel = match &resolved.tunnel_type {
+            TunnelType::SshTunnel {
+                host,
+                port,
+                user,
+                auth,
+            } => {
+                let config = crate::types::SshTunnelConfig {
+                    host: host.clone(),
+                    port: *port,
+                    user: user.clone(),
+                    auth: auth.clone(),
+                };
+                let ssh_tunnel =
+                    ssh::establish(&config, &resolved.remote_host, resolved.remote_port).await?;
+                ActiveTunnel::Ssh(ssh_tunnel)
+            }
+            TunnelType::SsmBastion { .. } => {
+                bail!("SSM bastion tunnels not yet implemented");
+            }
+        };
+
+        let local_port = tunnel.local_port();
+        self.tunnels.insert(
+            key,
+            ManagedTunnelEntry {
+                tunnel,
+                ref_count: AtomicUsize::new(1),
+            },
+        );
+
+        Ok(TunnelEndpoint {
+            local_host: "127.0.0.1".to_string(),
+            local_port,
+        })
+    }
+
+    pub async fn release_tunnel(&self, dedup_key: &str) {
+        if let Some(entry) = self.tunnels.get(dedup_key) {
+            let prev = entry.ref_count.fetch_sub(1, Ordering::SeqCst);
+            if prev <= 1 {
+                drop(entry);
+                let tunnels = Arc::clone(&self.tunnels);
+                let key = dedup_key.to_string();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+                    if let Some(entry) = tunnels.get(&key) {
+                        if entry.ref_count.load(Ordering::SeqCst) == 0 {
+                            drop(entry);
+                            if let Some((_, removed)) = tunnels.remove(&key) {
+                                let _ = removed.tunnel.close().await;
+                                tracing::info!("Tunnel {} closed after grace period", key);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    pub async fn shutdown_all(&self) {
+        let keys: Vec<String> = self.tunnels.iter().map(|e| e.key().clone()).collect();
+        for key in keys {
+            if let Some((_, entry)) = self.tunnels.remove(&key) {
+                let _ = entry.tunnel.close().await;
+            }
+        }
+    }
 }
