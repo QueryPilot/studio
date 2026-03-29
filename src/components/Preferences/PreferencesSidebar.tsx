@@ -9,6 +9,8 @@ import {
   IconSparkles,
   IconActivity,
   IconPlug,
+  IconKey,
+  IconNetwork,
 } from "@tabler/icons-react";
 
 const categories = [
@@ -36,6 +38,16 @@ const categories = [
     id: "integrations" as PreferenceCategory,
     label: "Integrations",
     icon: IconPlug,
+  },
+  {
+    id: "auth-profiles" as PreferenceCategory,
+    label: "Auth Profiles",
+    icon: IconKey,
+  },
+  {
+    id: "tunnel-profiles" as PreferenceCategory,
+    label: "Tunnel Profiles",
+    icon: IconNetwork,
   },
 ];
 

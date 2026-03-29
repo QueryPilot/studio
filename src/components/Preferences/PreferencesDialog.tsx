@@ -10,6 +10,16 @@ import { IconLoader2 } from "@tabler/icons-react";
 const ShortcutsPanel = lazy(() => import("./panels/KeyboardShortcutsPanel"));
 const AIPreferencesPanel = lazy(() => import("./panels/AIPreferencesPanel"));
 const IntegrationsPanel = lazy(() => import("./panels/IntegrationsPanel"));
+const AuthProfilesPanel = lazy(() =>
+  import("./panels/AuthProfilesPanel").then((m) => ({
+    default: m.AuthProfilesPanel,
+  })),
+);
+const TunnelProfilesPanel = lazy(() =>
+  import("./panels/TunnelProfilesPanel").then((m) => ({
+    default: m.TunnelProfilesPanel,
+  })),
+);
 
 interface PreferencesDialogProps {
   open?: boolean;
@@ -71,6 +81,30 @@ export function PreferencesDialog({
             }
           >
             <IntegrationsPanel />
+          </Suspense>
+        );
+      case "auth-profiles":
+        return (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <AuthProfilesPanel />
+          </Suspense>
+        );
+      case "tunnel-profiles":
+        return (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <TunnelProfilesPanel />
           </Suspense>
         );
       default:
