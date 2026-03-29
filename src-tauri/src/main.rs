@@ -51,6 +51,9 @@ fn main() {
     // Create tunnel state for auth/tunnel profile caching
     let tunnel_state = Arc::new(commands::TunnelState::new());
 
+    // Create auth manager for credential caching (Azure AD SAML, etc.)
+    let auth_manager = Arc::new(crate::tunnel::auth::AuthManager::new());
+
     // Create app state
     let app_state = AppState {
         ssh_test_rate_limiter: RateLimiter::new(5),
@@ -75,6 +78,7 @@ fn main() {
         .manage(acp::commands::PendingPermissions::default())
         .manage(app_state)
         .manage(tunnel_state)
+        .manage(auth_manager)
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Build and set the application menu
@@ -226,6 +230,11 @@ fn main() {
             commands::get_auth_profile,
             commands::get_tunnel_profile,
             commands::check_session_manager_plugin,
+            // SAML auth commands
+            commands::build_saml_login_url,
+            commands::handle_saml_response,
+            commands::parse_saml_roles,
+            commands::check_auth_status,
         ])
         .build(context)
         .expect("error while building tauri application");

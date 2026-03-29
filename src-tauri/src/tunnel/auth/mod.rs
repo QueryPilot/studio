@@ -1,3 +1,4 @@
+pub mod azure_ad;
 pub mod env_creds;
 pub mod static_creds;
 

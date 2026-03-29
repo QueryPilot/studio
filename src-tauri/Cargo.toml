@@ -75,7 +75,14 @@ bigdecimal = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1.33", features = ["db-postgres", "serde"] }
 bit-vec = "0.6"
 time = { version = "0.3", features = ["serde"] }
-base64 = "0.21"
+base64 = "0.22"
+
+# AWS (for tunnel auth)
+aws-sdk-sts = "1"
+aws-config = "1"
+aws-credential-types = "1"
+flate2 = "1"
+urlencoding = "2"
 
 # SQL Parsing
 sqlparser = { version = "0.52", features = ["serde"] }

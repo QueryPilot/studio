@@ -1,3 +1,5 @@
+use crate::tunnel::auth::azure_ad;
+use crate::tunnel::auth::AuthManager;
 use crate::types::{AuthProfile, TunnelProfile};
 use std::sync::Arc;
 use tauri::State;
@@ -64,4 +66,48 @@ pub async fn check_session_manager_plugin() -> Result<bool, String> {
         .output()
         .await;
     Ok(output.is_ok())
+}
+
+#[tauri::command]
+pub async fn build_saml_login_url(
+    tenant_id: String,
+    app_id_uri: String,
+) -> Result<String, String> {
+    azure_ad::build_saml_login_url(&tenant_id, &app_id_uri).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn handle_saml_response(
+    saml_response: String,
+    role_arn: String,
+    principal_arn: String,
+    duration_hours: u32,
+    region: String,
+    auth_profile_id: String,
+    auth_manager: State<'_, Arc<AuthManager>>,
+) -> Result<(), String> {
+    let creds = azure_ad::assume_role_with_saml(
+        &saml_response,
+        &role_arn,
+        &principal_arn,
+        duration_hours,
+        &region,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    auth_manager.store_credentials(&auth_profile_id, creds);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn parse_saml_roles(saml_response: String) -> Result<Vec<(String, String)>, String> {
+    azure_ad::parse_saml_roles(&saml_response).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn check_auth_status(
+    auth_profile_id: String,
+    auth_manager: State<'_, Arc<AuthManager>>,
+) -> Result<bool, String> {
+    Ok(auth_manager.has_valid_credentials(&auth_profile_id))
 }
