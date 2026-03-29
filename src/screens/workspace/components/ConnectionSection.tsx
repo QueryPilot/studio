@@ -2786,6 +2786,17 @@ export const ConnectionSection = forwardRef<
             )}
             title={status}
           />
+          {(profile.tunnel_profile_id || profile.tunnel_inline) && (
+            <span className="text-[10px] text-muted-foreground ml-1.5 shrink-0">
+              via{" "}
+              {profile.tunnel_inline &&
+              "SsmBastion" in profile.tunnel_inline.tunnel_type
+                ? "SSM"
+                : profile.tunnel_profile_id
+                  ? "Tunnel"
+                  : "SSH"}
+            </span>
+          )}
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem
