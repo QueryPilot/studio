@@ -12,6 +12,10 @@ export interface ConnectionProfile {
   ssl_config?: SslConfig;
   ssh_tunnel?: SshTunnelConfig;
   bastion?: BastionConfig;
+  tunnel_profile_id?: string;
+  tunnel_inline?: import("./tunnel").InlineTunnelConfig;
+  tunnel_remote_host?: string;
+  tunnel_remote_port?: number;
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
   default_schema?: string; // Default schema for PostgreSQL/SQLServer (e.g., "myschema" instead of "public")
