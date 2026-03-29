@@ -1,0 +1,290 @@
+import { useEffect } from "react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { IconInfoCircle } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { useTunnelStore } from "@/stores/tunnelStore";
+
+export type TunnelMode = "none" | "ssh" | "ssm" | "profile";
+
+interface TunnelSectionProps {
+  tunnelMode: TunnelMode;
+  onTunnelModeChange: (mode: TunnelMode) => void;
+  ssmAuthProfileId: string;
+  onSsmAuthProfileIdChange: (id: string) => void;
+  ssmRegion: string;
+  onSsmRegionChange: (region: string) => void;
+  remoteHost: string;
+  onRemoteHostChange: (host: string) => void;
+  remotePort: string;
+  onRemotePortChange: (port: string) => void;
+  tunnelProfileId: string;
+  onTunnelProfileIdChange: (id: string) => void;
+  saveAsProfile: boolean;
+  onSaveAsProfileChange: (save: boolean) => void;
+  disabled?: boolean;
+}
+
+const AWS_REGIONS = [
+  "us-east-1",
+  "us-east-2",
+  "us-west-1",
+  "us-west-2",
+  "ap-southeast-1",
+  "ap-southeast-2",
+  "ap-northeast-1",
+  "ap-northeast-2",
+  "ap-south-1",
+  "eu-west-1",
+  "eu-west-2",
+  "eu-central-1",
+  "ca-central-1",
+  "sa-east-1",
+];
+
+export function TunnelSection({
+  tunnelMode,
+  onTunnelModeChange,
+  ssmAuthProfileId,
+  onSsmAuthProfileIdChange,
+  ssmRegion,
+  onSsmRegionChange,
+  remoteHost,
+  onRemoteHostChange,
+  remotePort,
+  onRemotePortChange,
+  tunnelProfileId,
+  onTunnelProfileIdChange,
+  saveAsProfile,
+  onSaveAsProfileChange,
+  disabled,
+}: TunnelSectionProps) {
+  const authProfiles = useTunnelStore((s) => s.authProfiles);
+  const tunnelProfiles = useTunnelStore((s) => s.tunnelProfiles);
+
+  useEffect(() => {
+    void useTunnelStore.getState().fetchProfiles();
+  }, []);
+
+  const modeOptions: { value: TunnelMode; label: string }[] = [
+    { value: "none", label: "None" },
+    { value: "ssh", label: "SSH" },
+    { value: "ssm", label: "SSM Bastion" },
+    { value: "profile", label: "Saved Profile" },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <Label className="flex items-center gap-1.5 text-xs">
+        Tunnel
+      </Label>
+      <RadioGroup
+        value={tunnelMode}
+        onValueChange={(value) => {
+          onTunnelModeChange(value as TunnelMode);
+        }}
+        className="flex flex-wrap gap-x-4 gap-y-1"
+      >
+        {modeOptions.map((option) => {
+          const id = `tunnel-mode-${option.value}`;
+          return (
+            <Label
+              key={option.value}
+              htmlFor={id}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                tunnelMode === option.value && "text-primary",
+              )}
+            >
+              <RadioGroupItem id={id} value={option.value} />
+              {option.label}
+            </Label>
+          );
+        })}
+      </RadioGroup>
+
+      {tunnelMode === "ssm" && (
+        <>
+          <div className="grid grid-cols-12 gap-3">
+            <div className="col-span-6">
+              <Label htmlFor="ssm-auth-profile" className="text-xs">
+                Auth Profile
+              </Label>
+              <Select
+                value={ssmAuthProfileId}
+                onValueChange={(v) => {
+                  if (v) onSsmAuthProfileIdChange(v);
+                }}
+              >
+                <SelectTrigger className="mt-1 h-8 text-xs">
+                  <SelectValue placeholder="Select auth profile..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {authProfiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id} className="text-xs">
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-6">
+              <Label htmlFor="ssm-region" className="text-xs">
+                Region
+              </Label>
+              <Select
+                value={ssmRegion}
+                onValueChange={(v) => {
+                  if (v) onSsmRegionChange(v);
+                }}
+              >
+                <SelectTrigger className="mt-1 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AWS_REGIONS.map((r) => (
+                    <SelectItem key={r} value={r} className="text-xs">
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-12 gap-3">
+            <div className="col-span-8">
+              <Label htmlFor="tunnel-remote-host" className="text-xs">
+                Remote Host
+              </Label>
+              <Input
+                id="tunnel-remote-host"
+                className="mt-1 h-8 text-xs"
+                value={remoteHost}
+                onChange={(e) => {
+                  onRemoteHostChange(e.target.value);
+                }}
+                placeholder="db.internal.example.com"
+                disabled={disabled}
+              />
+            </div>
+            <div className="col-span-4">
+              <Label htmlFor="tunnel-remote-port" className="text-xs">
+                Remote Port
+              </Label>
+              <Input
+                id="tunnel-remote-port"
+                className="mt-1 h-8 text-xs"
+                value={remotePort}
+                onChange={(e) => {
+                  onRemotePortChange(e.target.value);
+                }}
+                placeholder="5432"
+                disabled={disabled}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="save-as-tunnel-profile"
+              checked={saveAsProfile}
+              onCheckedChange={(checked) => {
+                onSaveAsProfileChange(checked);
+              }}
+            />
+            <Label
+              htmlFor="save-as-tunnel-profile"
+              className="cursor-pointer text-xs"
+            >
+              Save as tunnel profile
+            </Label>
+          </div>
+
+          {remoteHost && remotePort && (
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <IconInfoCircle className="h-3 w-3" />
+              Tunnel will forward localhost:(auto) &rarr; {remoteHost}:{remotePort}
+            </p>
+          )}
+        </>
+      )}
+
+      {tunnelMode === "profile" && (
+        <>
+          <div>
+            <Label htmlFor="tunnel-profile" className="text-xs">
+              Tunnel Profile
+            </Label>
+            <Select
+              value={tunnelProfileId}
+              onValueChange={(v) => {
+                if (v) onTunnelProfileIdChange(v);
+              }}
+            >
+              <SelectTrigger className="mt-1 h-8 text-xs">
+                <SelectValue placeholder="Select tunnel profile..." />
+              </SelectTrigger>
+              <SelectContent>
+                {tunnelProfiles.map((p) => (
+                  <SelectItem key={p.id} value={p.id} className="text-xs">
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-12 gap-3">
+            <div className="col-span-8">
+              <Label htmlFor="tunnel-profile-remote-host" className="text-xs">
+                Remote Host
+              </Label>
+              <Input
+                id="tunnel-profile-remote-host"
+                className="mt-1 h-8 text-xs"
+                value={remoteHost}
+                onChange={(e) => {
+                  onRemoteHostChange(e.target.value);
+                }}
+                placeholder="db.internal.example.com"
+                disabled={disabled}
+              />
+            </div>
+            <div className="col-span-4">
+              <Label htmlFor="tunnel-profile-remote-port" className="text-xs">
+                Remote Port
+              </Label>
+              <Input
+                id="tunnel-profile-remote-port"
+                className="mt-1 h-8 text-xs"
+                value={remotePort}
+                onChange={(e) => {
+                  onRemotePortChange(e.target.value);
+                }}
+                placeholder="5432"
+                disabled={disabled}
+              />
+            </div>
+          </div>
+
+          {remoteHost && remotePort && (
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <IconInfoCircle className="h-3 w-3" />
+              Tunnel will forward localhost:(auto) &rarr; {remoteHost}:{remotePort}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

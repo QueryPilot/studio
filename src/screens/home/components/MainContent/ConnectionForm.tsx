@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -33,7 +32,6 @@ import {
   IconCircleCheckFilled,
   IconChevronDown,
   IconShield,
-  IconServer,
   IconPlus,
   IconCheck,
   IconClipboardText,
@@ -79,6 +77,7 @@ import {
   validateSshTunnelInputs,
 } from "./connectionFormHelpers";
 import { ENV_COLORS, ENV_KEYS } from "@/lib/envColors";
+import { TunnelSection, type TunnelMode } from "./TunnelSection";
 
 const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 const { open, save } = await import("@tauri-apps/plugin-dialog");
@@ -273,9 +272,40 @@ export function ConnectionForm() {
   const [workspacesCommandOpen, setWorkspacesCommandOpen] = useState(false);
   const [workspaceSearchValue, setWorkspaceSearchValue] = useState("");
 
+  // Tunnel state
+  const [tunnelMode, setTunnelMode] = useState<TunnelMode>(() => {
+    if (connection?.profile.tunnel_profile_id) return "profile";
+    if (connection?.profile.tunnel_inline) return "ssm";
+    if (connection?.profile.ssh_tunnel) return "ssh";
+    return "none";
+  });
+  const [ssmAuthProfileId, setSsmAuthProfileId] = useState(
+    connection?.profile.tunnel_inline?.auth_profile_id || "",
+  );
+  const [ssmRegion, setSsmRegion] = useState(() => {
+    const inline = connection?.profile.tunnel_inline;
+    if (inline && "SsmBastion" in inline.tunnel_type) {
+      return inline.tunnel_type.SsmBastion.region;
+    }
+    return "ap-southeast-2";
+  });
+  const [tunnelRemoteHost, setTunnelRemoteHost] = useState(
+    connection?.profile.tunnel_remote_host || "",
+  );
+  const [tunnelRemotePort, setTunnelRemotePort] = useState(
+    connection?.profile.tunnel_remote_port?.toString() || "",
+  );
+  const [tunnelProfileId, setTunnelProfileId] = useState(
+    connection?.profile.tunnel_profile_id || "",
+  );
+  const [saveAsTunnelProfile, setSaveAsTunnelProfile] = useState(false);
+
   // SSH tunnel state
   const existingSshTunnel = connection?.profile.ssh_tunnel;
-  const [useSSH, setUseSSH] = useState(!!existingSshTunnel);
+  const useSSH = tunnelMode === "ssh";
+  const setUseSSH = (v: boolean) => {
+    setTunnelMode(v ? "ssh" : "none");
+  };
   const [sshHost, setSshHost] = useState(existingSshTunnel?.host || "");
   const [sshPort, setSshPort] = useState(
     existingSshTunnel?.port.toString() || "22",
@@ -834,6 +864,23 @@ export function ConnectionForm() {
       },
       default_schema: defaultSchema || undefined,
       safe_mode: safeMode,
+      tunnel_profile_id:
+        tunnelMode === "profile" ? tunnelProfileId || undefined : undefined,
+      tunnel_inline:
+        tunnelMode === "ssm"
+          ? {
+              tunnel_type: { SsmBastion: { region: ssmRegion } },
+              auth_profile_id: ssmAuthProfileId || undefined,
+            }
+          : undefined,
+      tunnel_remote_host:
+        tunnelMode === "ssm" || tunnelMode === "profile"
+          ? tunnelRemoteHost || undefined
+          : undefined,
+      tunnel_remote_port:
+        tunnelMode === "ssm" || tunnelMode === "profile"
+          ? parseInt(tunnelRemotePort) || undefined
+          : undefined,
     };
 
     if (useSSH) {
@@ -1936,22 +1983,30 @@ export function ConnectionForm() {
             </div>
           )}
 
-          {/* SSH Tunnel */}
+          {/* Tunnel */}
           {!isFileBased && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="flex items-center gap-1.5 text-xs">
-                  <IconServer className="h-3 w-3 text-muted-foreground" />
-                  SSH Tunnel
-                  <Badge variant="outline" size="xs">
-                    Beta
-                  </Badge>
-                </Label>
-                <Switch checked={useSSH} onCheckedChange={setUseSSH} />
-              </div>
+            <TunnelSection
+              tunnelMode={tunnelMode}
+              onTunnelModeChange={setTunnelMode}
+              ssmAuthProfileId={ssmAuthProfileId}
+              onSsmAuthProfileIdChange={setSsmAuthProfileId}
+              ssmRegion={ssmRegion}
+              onSsmRegionChange={setSsmRegion}
+              remoteHost={tunnelRemoteHost}
+              onRemoteHostChange={setTunnelRemoteHost}
+              remotePort={tunnelRemotePort}
+              onRemotePortChange={setTunnelRemotePort}
+              tunnelProfileId={tunnelProfileId}
+              onTunnelProfileIdChange={setTunnelProfileId}
+              saveAsProfile={saveAsTunnelProfile}
+              onSaveAsProfileChange={setSaveAsTunnelProfile}
+              disabled={isTesting}
+            />
+          )}
 
-              {useSSH && (
-                <>
+          {/* SSH Tunnel Fields */}
+          {!isFileBased && tunnelMode === "ssh" && (
+            <div className="space-y-3">
                   <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-8">
                       <Label htmlFor="ssh-host" className="text-xs">
@@ -2107,8 +2162,6 @@ export function ConnectionForm() {
                       </>
                     )}
                   </div>
-                </>
-              )}
             </div>
           )}
         </div>
