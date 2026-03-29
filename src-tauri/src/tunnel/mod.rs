@@ -1,9 +1,10 @@
 pub mod auth;
 pub mod ssh;
+pub mod ssm;
 
 use crate::ssh::SshTunnel;
 use crate::types::{InlineTunnelConfig, TunnelProfile, TunnelType};
-use anyhow::{bail, Result};
+use anyhow::{Context, Result};
 use auth::AuthManager;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
@@ -100,25 +101,28 @@ impl ResolvedTunnel {
 
 enum ActiveTunnel {
     Ssh(SshTunnel),
-    // Ssm variant will be added in Task 9
+    Ssm(ssm::SsmBastionTunnel),
 }
 
 impl ActiveTunnel {
     fn local_port(&self) -> u16 {
         match self {
             Self::Ssh(t) => t.local_port(),
+            Self::Ssm(t) => t.local_port(),
         }
     }
 
     async fn health_check(&self) -> Result<()> {
         match self {
             Self::Ssh(t) => Ok(t.health_check().await?),
+            Self::Ssm(t) => t.health_check().await,
         }
     }
 
     async fn close(self) -> Result<()> {
         match self {
             Self::Ssh(t) => Ok(t.close().await?),
+            Self::Ssm(t) => t.close().await,
         }
     }
 }
@@ -181,8 +185,27 @@ impl TunnelManager {
                     ssh::establish(&config, &resolved.remote_host, resolved.remote_port).await?;
                 ActiveTunnel::Ssh(ssh_tunnel)
             }
-            TunnelType::SsmBastion { .. } => {
-                bail!("SSM bastion tunnels not yet implemented");
+            TunnelType::SsmBastion {
+                cluster_name,
+                task_definition,
+                region,
+            } => {
+                let creds = self
+                    .auth_manager
+                    .get_cached_credentials(
+                        resolved.auth_profile_id.as_deref().unwrap_or(""),
+                    )
+                    .context("SSM bastion requires authenticated AWS credentials")?;
+                let ssm_tunnel = ssm::establish(
+                    &creds,
+                    cluster_name.as_deref(),
+                    task_definition.as_deref(),
+                    region,
+                    &resolved.remote_host,
+                    resolved.remote_port,
+                )
+                .await?;
+                ActiveTunnel::Ssm(ssm_tunnel)
             }
         };
 
