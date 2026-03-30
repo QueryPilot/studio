@@ -2,13 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useTunnelStore } from "@/stores/tunnelStore";
 import type { AuthProfile, AuthProvider } from "@/types/tunnel";
 import { getProviderType } from "@/types/tunnel";
@@ -24,10 +18,29 @@ type ProviderKey =
   | "StaticAwsCredentials"
   | "EnvironmentAwsCredentials";
 
+const PROVIDER_OPTIONS: { value: ProviderKey; label: string; desc: string }[] =
+  [
+    {
+      value: "AzureAdSaml",
+      label: "Azure AD SAML",
+      desc: "Authenticate via Azure AD with SAML 2.0",
+    },
+    {
+      value: "StaticAwsCredentials",
+      label: "Static AWS Credentials",
+      desc: "Use a fixed access key and secret",
+    },
+    {
+      value: "EnvironmentAwsCredentials",
+      label: "Environment Variables",
+      desc: "Read AWS credentials from shell environment",
+    },
+  ];
+
 const PROVIDER_LABELS: Record<ProviderKey, string> = {
   AzureAdSaml: "Azure AD SAML",
   StaticAwsCredentials: "Static AWS Credentials",
-  EnvironmentAwsCredentials: "Environment AWS Credentials",
+  EnvironmentAwsCredentials: "Environment Variables",
 };
 
 function defaultProvider(type: ProviderKey): AuthProvider {
@@ -51,11 +64,7 @@ function defaultProvider(type: ProviderKey): AuthProvider {
         },
       };
     case "EnvironmentAwsCredentials":
-      return {
-        EnvironmentAwsCredentials: {
-          region: "",
-        },
-      };
+      return { EnvironmentAwsCredentials: { region: "" } };
   }
 }
 
@@ -81,7 +90,7 @@ function newFormState(): FormState {
   };
 }
 
-// ---------- Sub-forms per provider ----------
+// ---------- Provider sub-forms ----------
 
 function AzureAdSamlFields({
   provider,
@@ -90,67 +99,81 @@ function AzureAdSamlFields({
   provider: Extract<AuthProvider, { AzureAdSaml: unknown }>;
   onChange: (p: AuthProvider) => void;
 }) {
-  const data = provider.AzureAdSaml;
-  const set = (patch: Partial<typeof data>) => {
-    onChange({ AzureAdSaml: { ...data, ...patch } });
+  const d = provider.AzureAdSaml;
+  const set = (patch: Partial<typeof d>) => {
+    onChange({ AzureAdSaml: { ...d, ...patch } });
   };
-
   return (
-    <>
-      <FieldRow label="Tenant ID" required>
-        <Input
-          value={data.tenant_id}
-          onChange={(e) => {
-            set({ tenant_id: e.target.value });
-          }}
-          className="h-8 text-xs"
-          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        />
-      </FieldRow>
-      <FieldRow label="App ID URI" required>
-        <Input
-          value={data.app_id_uri}
-          onChange={(e) => {
-            set({ app_id_uri: e.target.value });
-          }}
-          className="h-8 text-xs"
-          placeholder="https://myapp.example.com"
-        />
-      </FieldRow>
-      <FieldRow label="Default Username">
-        <Input
-          value={data.default_username ?? ""}
-          onChange={(e) => {
-            set({ default_username: e.target.value || undefined });
-          }}
-          className="h-8 text-xs"
-          placeholder="user@example.com"
-        />
-      </FieldRow>
-      <FieldRow label="Session Duration (hours)" required>
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">
+            Tenant ID <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={d.tenant_id}
+            onChange={(e) => {
+              set({ tenant_id: e.target.value });
+            }}
+            className="mt-1 h-8 text-xs font-mono"
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">
+            App ID URI <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={d.app_id_uri}
+            onChange={(e) => {
+              set({ app_id_uri: e.target.value });
+            }}
+            className="mt-1 h-8 text-xs"
+            placeholder="https://signin.aws.amazon.com/saml"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">Default Username</Label>
+          <Input
+            value={d.default_username ?? ""}
+            onChange={(e) => {
+              set({ default_username: e.target.value || undefined });
+            }}
+            className="mt-1 h-8 text-xs"
+            placeholder="user@example.com"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">Default Role ARN</Label>
+          <Input
+            value={d.default_role_arn ?? ""}
+            onChange={(e) => {
+              set({ default_role_arn: e.target.value || undefined });
+            }}
+            className="mt-1 h-8 text-xs font-mono"
+            placeholder="arn:aws:iam::123456789012:role/Role"
+          />
+        </div>
+      </div>
+      <div className="w-32">
+        <Label className="text-xs">
+          Session (hours) <span className="text-destructive">*</span>
+        </Label>
         <Input
           type="number"
           min={1}
           max={12}
-          value={data.session_duration_hours}
+          value={d.session_duration_hours}
           onChange={(e) => {
             const v = parseInt(e.target.value, 10);
             if (!isNaN(v) && v > 0) set({ session_duration_hours: v });
           }}
-          className="h-8 text-xs w-24"
+          className="mt-1 h-8 text-xs w-20"
         />
-      </FieldRow>
-      <FieldRow label="Default Role ARN">
-        <Input
-          value={data.default_role_arn ?? ""}
-          onChange={(e) => {
-            set({ default_role_arn: e.target.value || undefined });
-          }}
-          className="h-8 text-xs"
-          placeholder="arn:aws:iam::123456789012:role/MyRole"
-        />
-      </FieldRow>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -161,44 +184,54 @@ function StaticAwsFields({
   provider: Extract<AuthProvider, { StaticAwsCredentials: unknown }>;
   onChange: (p: AuthProvider) => void;
 }) {
-  const data = provider.StaticAwsCredentials;
-  const set = (patch: Partial<typeof data>) => {
-    onChange({ StaticAwsCredentials: { ...data, ...patch } });
+  const d = provider.StaticAwsCredentials;
+  const set = (patch: Partial<typeof d>) => {
+    onChange({ StaticAwsCredentials: { ...d, ...patch } });
   };
-
   return (
-    <>
-      <FieldRow label="Access Key ID" required>
-        <Input
-          value={data.access_key_id}
-          onChange={(e) => {
-            set({ access_key_id: e.target.value });
-          }}
-          className="h-8 text-xs"
-          placeholder="AKIAIOSFODNN7EXAMPLE"
-        />
-      </FieldRow>
-      <FieldRow label="Secret Access Key" required>
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">
+            Access Key ID <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={d.access_key_id}
+            onChange={(e) => {
+              set({ access_key_id: e.target.value });
+            }}
+            className="mt-1 h-8 text-xs font-mono"
+            placeholder="AKIAIOSFODNN7EXAMPLE"
+          />
+        </div>
+        <div>
+          <Label className="text-xs">
+            Region <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            value={d.region}
+            onChange={(e) => {
+              set({ region: e.target.value });
+            }}
+            className="mt-1 h-8 text-xs"
+            placeholder="ap-southeast-2"
+          />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs">
+          Secret Access Key <span className="text-destructive">*</span>
+        </Label>
         <Input
           type="password"
-          value={data.secret_access_key}
+          value={d.secret_access_key}
           onChange={(e) => {
             set({ secret_access_key: e.target.value });
           }}
-          className="h-8 text-xs"
+          className="mt-1 h-8 text-xs"
         />
-      </FieldRow>
-      <FieldRow label="Region" required>
-        <Input
-          value={data.region}
-          onChange={(e) => {
-            set({ region: e.target.value });
-          }}
-          className="h-8 text-xs"
-          placeholder="us-east-1"
-        />
-      </FieldRow>
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -209,42 +242,28 @@ function EnvAwsFields({
   provider: Extract<AuthProvider, { EnvironmentAwsCredentials: unknown }>;
   onChange: (p: AuthProvider) => void;
 }) {
-  const data = provider.EnvironmentAwsCredentials;
-
+  const d = provider.EnvironmentAwsCredentials;
   return (
-    <FieldRow label="Region (optional)">
-      <Input
-        value={data.region ?? ""}
-        onChange={(e) => {
-          onChange({
-            EnvironmentAwsCredentials: {
-              region: e.target.value || undefined,
-            },
-          });
-        }}
-        className="h-8 text-xs"
-        placeholder="us-east-1"
-      />
-    </FieldRow>
-  );
-}
-
-function FieldRow({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium">
-        {label}
-        {required && <span className="text-destructive ml-0.5">*</span>}
-      </Label>
-      {children}
+    <div className="space-y-3">
+      <div className="w-48">
+        <Label className="text-xs">Region Override</Label>
+        <Input
+          value={d.region ?? ""}
+          onChange={(e) => {
+            onChange({
+              EnvironmentAwsCredentials: {
+                region: e.target.value || undefined,
+              },
+            });
+          }}
+          className="mt-1 h-8 text-xs"
+          placeholder="ap-southeast-2"
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN
+        from the shell environment at app launch.
+      </p>
     </div>
   );
 }
@@ -253,8 +272,7 @@ function FieldRow({
 
 export function AuthProfilesPanel() {
   const authProfiles = useTunnelStore((s) => s.authProfiles);
-
-  const [editing, setEditing] = useState<string | null>(null); // profile id or "new"
+  const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(newFormState);
   const [saving, setSaving] = useState(false);
 
@@ -324,11 +342,10 @@ export function AuthProfilesPanel() {
       const d = form.provider.StaticAwsCredentials;
       return !!(d.access_key_id && d.secret_access_key && d.region);
     }
-    // EnvironmentAwsCredentials has no required fields beyond name
     return true;
   };
 
-  // ---------- Edit / New view ----------
+  // ---------- Edit / New ----------
   if (editing !== null) {
     return (
       <div className="flex flex-col h-full">
@@ -343,45 +360,61 @@ export function AuthProfilesPanel() {
           <h2 className="text-base font-semibold">
             {editing === "new" ? "New Auth Profile" : "Edit Auth Profile"}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            Configure authentication credentials for tunnel connections
-          </p>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-4 space-y-4">
-          <FieldRow label="Profile Name" required>
+        <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-4 space-y-5">
+          {/* Name */}
+          <div>
+            <Label className="text-xs">
+              Profile Name <span className="text-destructive">*</span>
+            </Label>
             <Input
               value={form.name}
               onChange={(e) => {
                 setForm((f) => ({ ...f, name: e.target.value }));
               }}
-              className="h-8 text-xs"
-              placeholder="My Auth Profile"
+              className="mt-1 h-8 text-xs"
+              placeholder="e.g., Azure AD - UAT"
               autoFocus
             />
-          </FieldRow>
+          </div>
 
-          <FieldRow label="Provider Type" required>
-            <Select
+          {/* Provider Type as RadioGroup */}
+          <div>
+            <Label className="text-xs">
+              Provider Type <span className="text-destructive">*</span>
+            </Label>
+            <RadioGroup
               value={form.providerType}
               onValueChange={(v) => {
                 handleProviderTypeChange(v as ProviderKey);
               }}
+              className="mt-2 space-y-1.5"
             >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(PROVIDER_LABELS) as ProviderKey[]).map((key) => (
-                  <SelectItem key={key} value={key} className="text-xs">
-                    {PROVIDER_LABELS[key]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FieldRow>
+              {PROVIDER_OPTIONS.map((opt) => (
+                <Label
+                  key={opt.value}
+                  htmlFor={`provider-${opt.value}`}
+                  className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/50 data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
+                >
+                  <RadioGroupItem
+                    id={`provider-${opt.value}`}
+                    value={opt.value}
+                    className="mt-0.5"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium">{opt.label}</span>
+                    <p className="text-[11px] text-muted-foreground leading-tight">
+                      {opt.desc}
+                    </p>
+                  </div>
+                </Label>
+              ))}
+            </RadioGroup>
+          </div>
 
-          <div className="border-t pt-4 space-y-4">
+          {/* Provider-specific fields */}
+          <div className="border-t pt-4">
             {form.providerType === "AzureAdSaml" &&
               "AzureAdSaml" in form.provider && (
                 <AzureAdSamlFields
@@ -411,7 +444,8 @@ export function AuthProfilesPanel() {
               )}
           </div>
 
-          <div className="flex items-center gap-2 pt-4 border-t">
+          {/* Actions */}
+          <div className="flex items-center gap-2 pt-2 border-t">
             <Button
               size="sm"
               onClick={() => void handleSave()}
@@ -428,7 +462,7 @@ export function AuthProfilesPanel() {
     );
   }
 
-  // ---------- List view ----------
+  // ---------- List ----------
   return (
     <div className="flex flex-col h-full">
       <div className="shrink-0 px-8 pt-6 pb-3 sticky top-0 bg-background z-10 flex items-start justify-between">
@@ -458,7 +492,7 @@ export function AuthProfilesPanel() {
               >
                 <div className="space-y-0.5 min-w-0">
                   <p className="text-xs font-medium truncate">{profile.name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     {PROVIDER_LABELS[getProviderType(profile.provider)]}
                   </p>
                 </div>
