@@ -445,7 +445,7 @@ export function AuthProfilesPanel() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 pt-2 border-t">
+          <div className="flex items-center justify-end gap-2 pt-2 border-t">
             <Button
               size="sm"
               onClick={() => void handleSave()}
