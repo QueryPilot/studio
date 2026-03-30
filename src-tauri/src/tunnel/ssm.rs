@@ -10,6 +10,7 @@ pub struct SsmBastionTunnel {
     ssh_process: Child,
     #[allow(dead_code)]
     region: String,
+    _key_dir: tempfile::TempDir,
 }
 
 impl SsmBastionTunnel {
@@ -220,7 +221,7 @@ pub async fn establish(
             key_path.to_str().unwrap(),
             "-N",
             "-L",
-            &format!("0.0.0.0:{}:{}:{}", local_port, remote_host, remote_port),
+            &format!("127.0.0.1:{}:{}:{}", local_port, remote_host, remote_port),
             &format!("root@{}", ssm_instance_id),
         ])
         .env("AWS_ACCESS_KEY_ID", &credentials.access_key_id)
@@ -251,15 +252,13 @@ pub async fn establish(
 
     tracing::info!("SSM bastion tunnel established on port {}", local_port);
 
-    // Keep temp dir alive by leaking it (cleaned up on process exit)
-    std::mem::forget(key_dir);
-
     Ok(SsmBastionTunnel {
         local_port,
         ecs_task_arn: task_arn,
         ssm_instance_id,
         ssh_process,
         region: region.to_string(),
+        _key_dir: key_dir,
     })
 }
 

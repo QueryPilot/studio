@@ -482,9 +482,15 @@ impl ConnectionManager {
 
                 let resolved = if let Some(ref inline) = profile.tunnel_inline {
                     ResolvedTunnel::from_inline(inline, remote_host, remote_port)
+                } else if let Some(ref profile_id) = profile.tunnel_profile_id {
+                    match tm.get_tunnel_profile(profile_id).await {
+                        Some(tp) => ResolvedTunnel::from_profile(&tp, remote_host, remote_port),
+                        None => {
+                            tracing::warn!("tunnel_profile_id {} not found", profile_id);
+                            return Ok(TunnelStatus::NotRequired);
+                        }
+                    }
                 } else {
-                    // tunnel_profile_id: frontend should resolve to inline before calling connect
-                    tracing::warn!("tunnel_profile_id without tunnel_inline - frontend should resolve the profile");
                     return Ok(TunnelStatus::NotRequired);
                 };
 

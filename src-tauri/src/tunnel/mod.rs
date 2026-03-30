@@ -139,6 +139,7 @@ struct ManagedTunnelEntry {
 pub struct TunnelManager {
     tunnels: Arc<DashMap<String, ManagedTunnelEntry>>,
     pub auth_manager: Arc<AuthManager>,
+    tunnel_profiles: tokio::sync::RwLock<Vec<TunnelProfile>>,
 }
 
 impl TunnelManager {
@@ -146,7 +147,18 @@ impl TunnelManager {
         Self {
             tunnels: Arc::new(DashMap::new()),
             auth_manager,
+            tunnel_profiles: tokio::sync::RwLock::new(Vec::new()),
         }
+    }
+
+    pub async fn set_tunnel_profiles(&self, profiles: Vec<TunnelProfile>) {
+        let mut tp = self.tunnel_profiles.write().await;
+        *tp = profiles;
+    }
+
+    pub async fn get_tunnel_profile(&self, id: &str) -> Option<TunnelProfile> {
+        let profiles = self.tunnel_profiles.read().await;
+        profiles.iter().find(|p| p.id == id).cloned()
     }
 
     pub async fn ensure_tunnel(&self, resolved: &ResolvedTunnel) -> Result<TunnelEndpoint> {
@@ -226,7 +238,21 @@ impl TunnelManager {
 
     pub async fn release_tunnel(&self, dedup_key: &str) {
         if let Some(entry) = self.tunnels.get(dedup_key) {
-            let prev = entry.ref_count.fetch_sub(1, Ordering::SeqCst);
+            let prev = loop {
+                let current = entry.ref_count.load(Ordering::SeqCst);
+                if current == 0 {
+                    break 0;
+                }
+                match entry.ref_count.compare_exchange(
+                    current,
+                    current - 1,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    Ok(v) => break v,
+                    Err(_) => continue,
+                }
+            };
             if prev <= 1 {
                 drop(entry);
                 let tunnels = Arc::clone(&self.tunnels);
