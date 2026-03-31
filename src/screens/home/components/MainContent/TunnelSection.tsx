@@ -143,7 +143,10 @@ export function TunnelSection({
                   }}
                 >
                   <SelectTrigger className="mt-1 h-8 text-xs">
-                    <SelectValue placeholder="Select auth profile..." />
+                    <SelectValue placeholder="Select auth profile...">
+                      {authProfiles.find((p) => p.id === ssmAuthProfileId)
+                        ?.name ?? "Select auth profile..."}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {authProfiles.map((p) => (
@@ -264,7 +267,10 @@ export function TunnelSection({
                 }}
               >
                 <SelectTrigger className="mt-1 h-8 text-xs">
-                  <SelectValue placeholder="Select tunnel profile..." />
+                  <SelectValue placeholder="Select tunnel profile...">
+                    {tunnelProfiles.find((p) => p.id === tunnelProfileId)
+                      ?.name ?? "Select tunnel profile..."}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {tunnelProfiles.map((p) => (
