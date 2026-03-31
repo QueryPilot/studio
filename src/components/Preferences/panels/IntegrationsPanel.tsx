@@ -56,6 +56,48 @@ interface DriverState {
 
 const DRIVER_CONFIGS: DriverConfig[] = [
   {
+    name: "AWS Session Manager Plugin",
+    description:
+      "Required for SSM Bastion tunnels. Enables secure connections to databases in private VPCs via AWS Systems Manager.",
+    installMethods: [
+      {
+        label: "Homebrew",
+        command: "brew install --cask session-manager-plugin",
+        platforms: ["mac"],
+        executable: true,
+        brewPackage: "session-manager-plugin",
+      },
+      {
+        label: "Manual (macOS)",
+        command:
+          "curl https://s3.amazonaws.com/session-manager-downloads/plugin/latest/mac_arm64/session-manager-plugin.pkg -o session-manager-plugin.pkg && sudo installer -pkg session-manager-plugin.pkg -target /",
+        notes: "For Apple Silicon. Use mac instead of mac_arm64 for Intel.",
+        platforms: ["mac"],
+      },
+      {
+        label: "DEB (x86_64)",
+        command:
+          "curl https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb -o session-manager-plugin.deb && sudo dpkg -i session-manager-plugin.deb",
+        platforms: ["linux"],
+      },
+      {
+        label: "RPM (x86_64)",
+        command:
+          "curl https://s3.amazonaws.com/session-manager-downloads/plugin/latest/linux_64bit/session-manager-plugin.rpm -o session-manager-plugin.rpm && sudo yum install -y session-manager-plugin.rpm",
+        platforms: ["linux"],
+      },
+      {
+        label: "MSI (Windows)",
+        command:
+          "Download from https://s3.amazonaws.com/session-manager-downloads/plugin/latest/windows/SessionManagerPluginSetup.exe and run the installer",
+        platforms: ["windows"],
+      },
+    ],
+    learnMoreUrl:
+      "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html",
+    checkCommand: "check_session_manager_plugin",
+  },
+  {
     name: "Oracle Instant Client",
     description:
       "Required to connect to Oracle databases. Provides OCI libraries used by the Oracle adapter.",
@@ -437,19 +479,21 @@ export default function IntegrationsPanel() {
                 </div>
               )}
 
-              {/* Docker tip */}
-              <div
-                className={cn(
-                  "text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2",
-                  driver.status === "installed" && "mt-1",
-                )}
-              >
-                <span className="font-medium">Tip:</span> Oracle database is
-                available via{" "}
-                <code className="text-[11px]">docker compose up oracle</code>{" "}
-                on port 11521. The OCI client libraries are still needed for
-                Query Pilot to connect.
-              </div>
+              {/* Docker tip (Oracle only) */}
+              {driver.config.name === "Oracle Instant Client" && (
+                <div
+                  className={cn(
+                    "text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2",
+                    driver.status === "installed" && "mt-1",
+                  )}
+                >
+                  <span className="font-medium">Tip:</span> Oracle database is
+                  available via{" "}
+                  <code className="text-[11px]">docker compose up oracle</code>{" "}
+                  on port 11521. The OCI client libraries are still needed for
+                  Query Pilot to connect.
+                </div>
+              )}
             </div>
           );
         })}

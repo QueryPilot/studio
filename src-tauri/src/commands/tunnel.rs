@@ -60,12 +60,23 @@ pub async fn get_tunnel_profile(
 }
 
 #[tauri::command]
-pub async fn check_session_manager_plugin() -> Result<bool, String> {
-    let output = tokio::process::Command::new("session-manager-plugin")
+pub async fn check_session_manager_plugin() -> Result<serde_json::Value, String> {
+    match tokio::process::Command::new("session-manager-plugin")
         .arg("--version")
         .output()
-        .await;
-    Ok(output.is_ok())
+        .await
+    {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(serde_json::json!({
+                "available": true,
+                "version": if version.is_empty() { None::<String> } else { Some(version) },
+            }))
+        }
+        _ => Ok(serde_json::json!({
+            "available": false,
+        })),
+    }
 }
 
 #[tauri::command]
