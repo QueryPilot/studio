@@ -98,6 +98,9 @@ export function TunnelSection({
       <Label className="flex items-center gap-1.5 text-xs">
         <IconNetwork className="h-3 w-3 text-muted-foreground" />
         Tunnel
+        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium leading-none text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          BETA
+        </span>
       </Label>
 
       {/* Mode selector — matches SSL Mode radio row */}
@@ -130,8 +133,8 @@ export function TunnelSection({
       {tunnelMode === "ssm" && (
         <div className="mt-3 space-y-3">
           {/* Auth Profile + Region row */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
+          <div className="grid grid-cols-12 gap-3">
+            <div className="col-span-8">
               <Label htmlFor="ssm-auth-profile" className="text-xs">
                 Auth Profile
               </Label>
@@ -169,7 +172,7 @@ export function TunnelSection({
                 </Button>
               )}
             </div>
-            <div>
+            <div className="col-span-4">
               <Label htmlFor="ssm-region" className="text-xs">
                 Region
               </Label>

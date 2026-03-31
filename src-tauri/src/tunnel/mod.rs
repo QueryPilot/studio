@@ -3,7 +3,7 @@ pub mod ssh;
 pub mod ssm;
 
 use crate::ssh::SshTunnel;
-use crate::types::{InlineTunnelConfig, TunnelProfile, TunnelType};
+use crate::types::{AuthProfile, InlineTunnelConfig, TunnelProfile, TunnelType};
 use anyhow::{Context, Result};
 use auth::AuthManager;
 use chrono::{DateTime, Utc};
@@ -140,6 +140,7 @@ pub struct TunnelManager {
     tunnels: Arc<DashMap<String, ManagedTunnelEntry>>,
     pub auth_manager: Arc<AuthManager>,
     tunnel_profiles: tokio::sync::RwLock<Vec<TunnelProfile>>,
+    auth_profiles: tokio::sync::RwLock<Vec<AuthProfile>>,
 }
 
 impl TunnelManager {
@@ -148,7 +149,32 @@ impl TunnelManager {
             tunnels: Arc::new(DashMap::new()),
             auth_manager,
             tunnel_profiles: tokio::sync::RwLock::new(Vec::new()),
+            auth_profiles: tokio::sync::RwLock::new(Vec::new()),
         }
+    }
+
+    pub async fn set_auth_profiles(&self, profiles: Vec<AuthProfile>) {
+        let mut ap = self.auth_profiles.write().await;
+        *ap = profiles;
+    }
+
+    pub async fn get_auth_profile(&self, id: &str) -> Option<AuthProfile> {
+        let profiles = self.auth_profiles.read().await;
+        profiles.iter().find(|p| p.id == id).cloned()
+    }
+
+    /// Resolve auth credentials for a tunnel. Must be called before ensure_tunnel for SSM.
+    pub async fn resolve_auth(&self, auth_profile_id: &str) -> Result<()> {
+        if self.auth_manager.has_valid_credentials(auth_profile_id) {
+            return Ok(());
+        }
+        let profile = self.get_auth_profile(auth_profile_id).await
+            .context(format!("Auth profile '{}' not found. Please sync profiles from Settings.", auth_profile_id))?;
+        let result = self.auth_manager.get_credentials(auth_profile_id, &profile.provider).await?;
+        if result.is_none() {
+            anyhow::bail!("Azure AD SAML requires interactive login. This is not yet supported — use Environment Variables auth profile instead.");
+        }
+        Ok(())
     }
 
     pub async fn set_tunnel_profiles(&self, profiles: Vec<TunnelProfile>) {
@@ -202,12 +228,15 @@ impl TunnelManager {
                 task_definition,
                 region,
             } => {
+                // Resolve auth before establishing tunnel
+                let auth_id = resolved.auth_profile_id.as_deref().unwrap_or("");
+                if !auth_id.is_empty() {
+                    self.resolve_auth(auth_id).await?;
+                }
                 let creds = self
                     .auth_manager
-                    .get_cached_credentials(
-                        resolved.auth_profile_id.as_deref().unwrap_or(""),
-                    )
-                    .context("SSM bastion requires authenticated AWS credentials")?;
+                    .get_cached_credentials(auth_id)
+                    .context("SSM bastion requires authenticated AWS credentials. Create an Environment Variables auth profile in Settings and link it to the tunnel.")?;
                 let ssm_tunnel = ssm::establish(
                     &creds,
                     cluster_name.as_deref(),

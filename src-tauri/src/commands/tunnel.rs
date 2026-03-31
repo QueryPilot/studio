@@ -33,11 +33,19 @@ pub async fn sync_tunnel_state(
     auth_profiles: Vec<AuthProfile>,
     tunnel_profiles: Vec<TunnelProfile>,
     state: State<'_, Arc<TunnelState>>,
+    tunnel_manager: State<'_, Arc<crate::tunnel::TunnelManager>>,
 ) -> Result<(), String> {
+    // Sync to TunnelState (legacy)
     let mut ap = state.auth_profiles.write().await;
-    *ap = auth_profiles;
+    *ap = auth_profiles.clone();
     let mut tp = state.tunnel_profiles.write().await;
-    *tp = tunnel_profiles;
+    *tp = tunnel_profiles.clone();
+    drop(ap);
+    drop(tp);
+
+    // Sync to TunnelManager (needed for auth resolution during connect)
+    tunnel_manager.set_auth_profiles(auth_profiles).await;
+    tunnel_manager.set_tunnel_profiles(tunnel_profiles).await;
     Ok(())
 }
 

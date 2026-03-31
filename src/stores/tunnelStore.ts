@@ -1,6 +1,22 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import { vaultStorage } from "@/services/vaultStorage";
 import type { AuthProfile, TunnelProfile } from "@/types/tunnel";
+
+/** Sync profiles to the Rust backend so TunnelManager can resolve auth during connect */
+async function syncToBackend(
+  authProfiles: AuthProfile[],
+  tunnelProfiles: TunnelProfile[],
+) {
+  try {
+    await invoke("sync_tunnel_state", {
+      authProfiles,
+      tunnelProfiles,
+    });
+  } catch (e) {
+    console.warn("Failed to sync tunnel state to backend:", e);
+  }
+}
 
 interface TunnelStore {
   authProfiles: AuthProfile[];
@@ -33,6 +49,7 @@ export const useTunnelStore = create<TunnelStore>((set, get) => ({
         vaultStorage.listTunnelProfiles(),
       ]);
       set({ authProfiles, tunnelProfiles });
+      void syncToBackend(authProfiles, tunnelProfiles);
     } finally {
       set({ loading: false });
     }
@@ -45,13 +62,18 @@ export const useTunnelStore = create<TunnelStore>((set, get) => ({
       const updated = [...s.authProfiles];
       if (idx >= 0) updated[idx] = profile;
       else updated.push(profile);
+      void syncToBackend(updated, s.tunnelProfiles);
       return { authProfiles: updated };
     });
   },
 
   async deleteAuthProfile(id) {
     await vaultStorage.deleteAuthProfile(id);
-    set((s) => ({ authProfiles: s.authProfiles.filter((p) => p.id !== id) }));
+    set((s) => {
+      const updated = s.authProfiles.filter((p) => p.id !== id);
+      void syncToBackend(updated, s.tunnelProfiles);
+      return { authProfiles: updated };
+    });
   },
 
   async saveTunnelProfile(profile) {
@@ -61,15 +83,18 @@ export const useTunnelStore = create<TunnelStore>((set, get) => ({
       const updated = [...s.tunnelProfiles];
       if (idx >= 0) updated[idx] = profile;
       else updated.push(profile);
+      void syncToBackend(s.authProfiles, updated);
       return { tunnelProfiles: updated };
     });
   },
 
   async deleteTunnelProfile(id) {
     await vaultStorage.deleteTunnelProfile(id);
-    set((s) => ({
-      tunnelProfiles: s.tunnelProfiles.filter((p) => p.id !== id),
-    }));
+    set((s) => {
+      const updated = s.tunnelProfiles.filter((p) => p.id !== id);
+      void syncToBackend(s.authProfiles, updated);
+      return { tunnelProfiles: updated };
+    });
   },
 
   getAuthProfile(id) {
