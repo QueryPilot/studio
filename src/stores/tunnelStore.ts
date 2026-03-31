@@ -62,18 +62,20 @@ export const useTunnelStore = create<TunnelStore>((set, get) => ({
       const updated = [...s.authProfiles];
       if (idx >= 0) updated[idx] = profile;
       else updated.push(profile);
-      void syncToBackend(updated, s.tunnelProfiles);
       return { authProfiles: updated };
     });
+    const s = get();
+    void syncToBackend(s.authProfiles, s.tunnelProfiles);
   },
 
   async deleteAuthProfile(id) {
     await vaultStorage.deleteAuthProfile(id);
     set((s) => {
       const updated = s.authProfiles.filter((p) => p.id !== id);
-      void syncToBackend(updated, s.tunnelProfiles);
       return { authProfiles: updated };
     });
+    const s = get();
+    void syncToBackend(s.authProfiles, s.tunnelProfiles);
   },
 
   async saveTunnelProfile(profile) {
@@ -83,18 +85,20 @@ export const useTunnelStore = create<TunnelStore>((set, get) => ({
       const updated = [...s.tunnelProfiles];
       if (idx >= 0) updated[idx] = profile;
       else updated.push(profile);
-      void syncToBackend(s.authProfiles, updated);
       return { tunnelProfiles: updated };
     });
+    const s = get();
+    void syncToBackend(s.authProfiles, s.tunnelProfiles);
   },
 
   async deleteTunnelProfile(id) {
     await vaultStorage.deleteTunnelProfile(id);
     set((s) => {
       const updated = s.tunnelProfiles.filter((p) => p.id !== id);
-      void syncToBackend(s.authProfiles, updated);
       return { tunnelProfiles: updated };
     });
+    const s = get();
+    void syncToBackend(s.authProfiles, s.tunnelProfiles);
   },
 
   getAuthProfile(id) {

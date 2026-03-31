@@ -174,7 +174,7 @@ impl TunnelManager {
 
     /// Resolve auth credentials for a tunnel. Must be called before ensure_tunnel for SSM.
     /// For Azure AD SAML, opens a webview and waits for the user to complete login.
-    pub async fn resolve_auth(&self, auth_profile_id: &str) -> Result<()> {
+    pub async fn resolve_auth(&self, auth_profile_id: &str, tunnel_region: Option<&str>) -> Result<()> {
         if self.auth_manager.has_valid_credentials(auth_profile_id) {
             return Ok(());
         }
@@ -196,9 +196,10 @@ impl TunnelManager {
             ..
         } = profile.provider
         {
-            let app_handle = self.app_handle.read().await;
-            let app = app_handle.as_ref()
-                .context("App handle not set — cannot open auth webview")?;
+            let app = {
+                let guard = self.app_handle.read().await;
+                guard.as_ref().context("App handle not set — cannot open auth webview")?.clone()
+            };
 
             // Build login URL
             let login_url = auth::azure_ad::build_saml_login_url(tenant_id, app_id_uri)?;
@@ -212,7 +213,7 @@ impl TunnelManager {
             let parsed_url: tauri::Url = login_url.parse()
                 .map_err(|e| anyhow::anyhow!("Invalid SAML URL: {}", e))?;
 
-            let profile_id_js = auth_profile_id.replace('\'', "\\'");
+            let profile_id_json = serde_json::to_string(auth_profile_id).unwrap_or_default();
             let init_script = format!(
                 r#"
                 (function() {{
@@ -220,7 +221,7 @@ impl TunnelManager {
                         const samlInput = document.querySelector('input[name="SAMLResponse"]');
                         if (samlInput && samlInput.value) {{
                             window.__TAURI__.event.emit('saml-response', {{
-                                authProfileId: '{pid}',
+                                authProfileId: {pid_json},
                                 samlResponse: samlInput.value,
                             }});
                             observer.disconnect();
@@ -234,18 +235,18 @@ impl TunnelManager {
                         const samlInput = document.querySelector('input[name="SAMLResponse"]');
                         if (samlInput && samlInput.value) {{
                             window.__TAURI__.event.emit('saml-response', {{
-                                authProfileId: '{pid}',
+                                authProfileId: {pid_json},
                                 samlResponse: samlInput.value,
                             }});
                         }}
                     }});
                 }})();
                 "#,
-                pid = profile_id_js
+                pid_json = profile_id_json
             );
 
             use tauri::{WebviewUrl, WebviewWindowBuilder};
-            WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed_url))
+            WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
                 .title("Authenticate — Azure AD")
                 .inner_size(500.0, 700.0)
                 .center()
@@ -258,7 +259,7 @@ impl TunnelManager {
             let tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(tx)));
             let expected_id = auth_profile_id.to_string();
 
-            let _listener = app.listen("saml-response", move |event| {
+            let listener_id = app.listen("saml-response", move |event| {
                 if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
                     let pid = payload.get("authProfileId").and_then(|v| v.as_str()).unwrap_or("");
                     let saml = payload.get("samlResponse").and_then(|v| v.as_str()).unwrap_or("");
@@ -275,13 +276,17 @@ impl TunnelManager {
                 }
             });
 
-            let (_, saml_response) = tokio::time::timeout(
+            let result = tokio::time::timeout(
                 std::time::Duration::from_secs(300),
                 rx,
-            )
-            .await
-            .map_err(|_| anyhow::anyhow!("Azure AD login timed out (5 minutes)"))?
-            .map_err(|_| anyhow::anyhow!("Auth webview was closed before completing login"))?;
+            ).await;
+
+            // Always unlisten
+            app.unlisten(listener_id);
+
+            let (_, saml_response) = result
+                .map_err(|_| anyhow::anyhow!("Azure AD login timed out (5 minutes)"))?
+                .map_err(|_| anyhow::anyhow!("Auth webview was closed before completing login"))?;
 
             // Close the webview
             if let Some(win) = app.get_webview_window(&label) {
@@ -305,12 +310,8 @@ impl TunnelManager {
                 roles[0].clone()
             };
 
-            // Get the region from the SAML endpoint URL or default
-            let region = if app_id_uri.contains("us-east") {
-                "us-east-1"
-            } else {
-                "ap-southeast-2"
-            };
+            // Use the region from the SSM tunnel config, or fall back to a default
+            let region = tunnel_region.unwrap_or("ap-southeast-2");
 
             // Assume role
             let creds = auth::azure_ad::assume_role_with_saml(
@@ -383,7 +384,11 @@ impl TunnelManager {
                 // Resolve auth before establishing tunnel
                 let auth_id = resolved.auth_profile_id.as_deref().unwrap_or("");
                 if !auth_id.is_empty() {
-                    self.resolve_auth(auth_id).await?;
+                    let tunnel_region = match &resolved.tunnel_type {
+                        TunnelType::SsmBastion { region, .. } => Some(region.as_str()),
+                        _ => None,
+                    };
+                    self.resolve_auth(auth_id, tunnel_region).await?;
                 }
                 let creds = self
                     .auth_manager
