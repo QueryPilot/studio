@@ -12,7 +12,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { logger } from "@/lib/logger";
 import { cn } from "@/lib/utils";
-import { detectPlatform, type RuntimePlatform } from "@/lib/platform";
+import { detectPlatform, detectArch, type RuntimePlatform, type CpuArch } from "@/lib/platform";
 
 // ============================================================================
 // Types
@@ -26,6 +26,8 @@ interface InstallMethod {
   command: string;
   notes?: string;
   platforms: RuntimePlatform[];
+  /** If set, only show on this architecture */
+  arch?: CpuArch;
   /** If true, the command can be executed via the Install button */
   executable?: boolean;
   /** brew package name for executable methods */
@@ -105,16 +107,20 @@ const DRIVER_CONFIGS: DriverConfig[] = [
       {
         label: "DMG (ARM64)",
         command:
-          "Download the Basic Package DMG from oracle.com, open it, and copy all .dylib files to /opt/homebrew/lib/",
+          "Download the Basic Package DMG from oracle.com, open it, and copy all .dylib files to /usr/local/lib/",
         notes: "For Apple Silicon Macs (M1/M2/M3/M4)",
         platforms: ["mac"],
+        arch: "arm64",
       },
       {
-        label: "Homebrew (Intel only)",
+        label: "Homebrew",
         command:
           "brew tap InstantClientTap/instantclient && brew install instantclient-basic",
-        notes: "Intel Macs only — does NOT work on Apple Silicon",
+        notes: "Intel Macs only",
         platforms: ["mac"],
+        arch: "x86_64",
+        executable: true,
+        brewPackage: "InstantClientTap/instantclient/instantclient-basic",
       },
       {
         label: "apt (x86_64)",
@@ -154,6 +160,7 @@ const DRIVER_CONFIGS: DriverConfig[] = [
 
 export default function IntegrationsPanel() {
   const platform = detectPlatform();
+  const [arch, setArch] = useState<CpuArch>("unknown");
   const [drivers, setDrivers] = useState<DriverState[]>(() =>
     DRIVER_CONFIGS.map((config) => ({
       config,
@@ -165,11 +172,19 @@ export default function IntegrationsPanel() {
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
   const outputRef = useRef<HTMLPreElement>(null);
 
-  // Filter install methods by platform
+  useEffect(() => {
+    void detectArch().then(setArch);
+  }, []);
+
+  // Filter install methods by platform and architecture
   const getMethodsForPlatform = useCallback(
     (methods: InstallMethod[]) =>
-      methods.filter((m) => m.platforms.includes(platform)),
-    [platform],
+      methods.filter(
+        (m) =>
+          m.platforms.includes(platform) &&
+          (!m.arch || m.arch === arch),
+      ),
+    [platform, arch],
   );
 
   // ---- Driver status check ----

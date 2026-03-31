@@ -235,6 +235,7 @@ fn main() {
             commands::sync_tunnel_state,
             commands::get_auth_profile,
             commands::get_tunnel_profile,
+            commands::get_system_arch,
             commands::check_session_manager_plugin,
             // SAML auth commands
             commands::build_saml_login_url,

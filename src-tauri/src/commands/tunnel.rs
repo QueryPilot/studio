@@ -60,6 +60,11 @@ pub async fn get_tunnel_profile(
 }
 
 #[tauri::command]
+pub fn get_system_arch() -> String {
+    std::env::consts::ARCH.to_string()
+}
+
+#[tauri::command]
 pub async fn check_session_manager_plugin() -> Result<serde_json::Value, String> {
     match tokio::process::Command::new("session-manager-plugin")
         .arg("--version")
