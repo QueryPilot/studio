@@ -87,6 +87,15 @@ fn main() {
         .manage(tunnel_manager)
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
+            // Set app handle on tunnel manager for webview auth
+            if let Some(tm) = app.try_state::<Arc<crate::tunnel::TunnelManager>>() {
+                let handle = app.handle().clone();
+                let tm = tm.inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    tm.set_app_handle(handle).await;
+                });
+            }
+
             // Build and set the application menu
             let menu = query_pilot::menu::build_menu(app.handle()).expect("Failed to build menu");
             app.set_menu(menu).expect("Failed to set menu");

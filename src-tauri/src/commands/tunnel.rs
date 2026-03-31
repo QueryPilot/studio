@@ -154,10 +154,48 @@ pub async fn open_auth_webview(
 
     let parsed_url: tauri::Url = url.parse().map_err(|e| format!("Invalid URL: {e}"))?;
 
+    // JS to inject: watches for SAMLResponse in form fields or URL params.
+    // Azure AD POSTs the SAML assertion to the AWS SAML endpoint — we intercept
+    // by monitoring for the SAMLResponse hidden input field on the AWS relay page.
+    let profile_id = auth_profile_id.clone();
+    let init_script = format!(
+        r#"
+        (function() {{
+            const observer = new MutationObserver(function() {{
+                // Check for SAMLResponse hidden input (AWS SAML relay page)
+                const samlInput = document.querySelector('input[name="SAMLResponse"]');
+                if (samlInput && samlInput.value) {{
+                    window.__TAURI__.event.emit('saml-response', {{
+                        authProfileId: '{}',
+                        samlResponse: samlInput.value,
+                    }});
+                    observer.disconnect();
+                }}
+            }});
+            observer.observe(document.documentElement, {{
+                childList: true,
+                subtree: true,
+            }});
+            // Also check on page load
+            window.addEventListener('load', function() {{
+                const samlInput = document.querySelector('input[name="SAMLResponse"]');
+                if (samlInput && samlInput.value) {{
+                    window.__TAURI__.event.emit('saml-response', {{
+                        authProfileId: '{}',
+                        samlResponse: samlInput.value,
+                    }});
+                }}
+            }});
+        }})();
+        "#,
+        profile_id, profile_id
+    );
+
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
         .title("Authenticate — Azure AD")
         .inner_size(500.0, 700.0)
         .center()
+        .initialization_script(&init_script)
         .build()
         .map_err(|e| e.to_string())?;
 
