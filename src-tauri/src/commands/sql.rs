@@ -2374,6 +2374,116 @@ fn find_oracle_client_library() -> Option<String> {
     None
 }
 
+/// Install Oracle Instant Client on macOS ARM64 by downloading the DMG,
+/// mounting it, copying dylibs to /usr/local/lib, and unmounting.
+#[tauri::command]
+pub async fn install_oracle_client_dmg() -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Err("DMG installation is only available on macOS".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use tokio::process::Command;
+
+        let dmg_url = "https://download.oracle.com/otn_software/mac/instantclient/233023/instantclient-basic-macos.arm64-23.3.0.23.09.dmg";
+        let tmp_dir = std::env::temp_dir();
+        let dmg_path = tmp_dir.join("oracle-instantclient.dmg");
+        let mount_point = tmp_dir.join("oracle_dmg_mount");
+
+        // Step 1: Download DMG
+        let output = Command::new("curl")
+            .args([
+                "-L", "-o",
+                dmg_path.to_str().unwrap(),
+                "--progress-bar",
+                dmg_url,
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to download: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Download failed: {}", stderr));
+        }
+
+        // Step 2: Mount DMG
+        let _ = std::fs::create_dir_all(&mount_point);
+        let output = Command::new("hdiutil")
+            .args([
+                "attach",
+                dmg_path.to_str().unwrap(),
+                "-mountpoint",
+                mount_point.to_str().unwrap(),
+                "-nobrowse",
+                "-quiet",
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to mount DMG: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Mount failed: {}", stderr));
+        }
+
+        // Step 3: Find and copy dylibs
+        let dest = std::path::Path::new("/usr/local/lib");
+        if !dest.exists() {
+            // Create /usr/local/lib if it doesn't exist (needs sudo on some systems)
+            let output = Command::new("sudo")
+                .args(["mkdir", "-p", "/usr/local/lib"])
+                .output()
+                .await
+                .map_err(|e| format!("Failed to create /usr/local/lib: {}", e))?;
+
+            if !output.status.success() {
+                let _ = Command::new("hdiutil")
+                    .args(["detach", mount_point.to_str().unwrap(), "-quiet"])
+                    .output()
+                    .await;
+                return Err("Failed to create /usr/local/lib — you may need to grant permission".to_string());
+            }
+        }
+
+        // Copy all .dylib and .dylib.* files
+        let output = Command::new("sh")
+            .args([
+                "-c",
+                &format!(
+                    "sudo cp -f {}/*.dylib* /usr/local/lib/ 2>&1",
+                    mount_point.to_str().unwrap()
+                ),
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to copy libraries: {}", e))?;
+
+        let copy_output = String::from_utf8_lossy(&output.stdout).to_string()
+            + &String::from_utf8_lossy(&output.stderr);
+
+        // Step 4: Unmount DMG
+        let _ = Command::new("hdiutil")
+            .args(["detach", mount_point.to_str().unwrap(), "-quiet"])
+            .output()
+            .await;
+
+        // Step 5: Clean up downloaded DMG
+        let _ = std::fs::remove_file(&dmg_path);
+
+        if output.status.success() {
+            Ok("Oracle Instant Client installed to /usr/local/lib/".to_string())
+        } else {
+            Err(format!(
+                "Failed to copy libraries to /usr/local/lib/:\n{}",
+                copy_output.trim()
+            ))
+        }
+    }
+}
+
 // ============================================================================
 // Tests
 // ============================================================================

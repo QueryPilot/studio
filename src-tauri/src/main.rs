@@ -210,6 +210,7 @@ fn main() {
             commands::install_tool_via_brew,
             // Integration probe commands
             commands::check_oracle_client,
+            commands::install_oracle_client_dmg,
             // ACP (AI agent) commands
             acp::commands::acp_list_agents,
             acp::commands::acp_fetch_agent_models,

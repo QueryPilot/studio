@@ -32,6 +32,8 @@ interface InstallMethod {
   executable?: boolean;
   /** brew package name for executable methods */
   brewPackage?: string;
+  /** Custom Tauri command to invoke instead of brew */
+  customInstallCommand?: string;
 }
 
 interface DriverConfig {
@@ -105,12 +107,14 @@ const DRIVER_CONFIGS: DriverConfig[] = [
       "Required to connect to Oracle databases. Provides OCI libraries used by the Oracle adapter.",
     installMethods: [
       {
-        label: "DMG (ARM64)",
+        label: "Auto-install (ARM64)",
         command:
-          "Download the Basic Package DMG from oracle.com, open it, and copy all .dylib files to /usr/local/lib/",
-        notes: "For Apple Silicon Macs (M1/M2/M3/M4)",
+          "Downloads DMG, mounts it, copies .dylib files to /usr/local/lib/",
+        notes: "For Apple Silicon Macs — may ask for password (sudo)",
         platforms: ["mac"],
         arch: "arm64",
+        executable: true,
+        customInstallCommand: "install_oracle_client_dmg",
       },
       {
         label: "Homebrew",
@@ -236,10 +240,10 @@ export default function IntegrationsPanel() {
     checkAllDrivers();
   }, [checkAllDrivers]);
 
-  // ---- Install via brew ----
+  // ---- Install ----
 
   const handleInstall = useCallback(
-    async (driverName: string, brewPackage: string) => {
+    async (driverName: string, method: InstallMethod) => {
       setDrivers((prev) =>
         prev.map((d) =>
           d.config.name === driverName
@@ -249,9 +253,11 @@ export default function IntegrationsPanel() {
       );
 
       try {
-        const output = await invoke<string>("install_tool_via_brew", {
-          packageName: brewPackage,
-        });
+        const output = method.customInstallCommand
+          ? await invoke<string>(method.customInstallCommand)
+          : await invoke<string>("install_tool_via_brew", {
+              packageName: method.brewPackage ?? "",
+            });
         setDrivers((prev) =>
           prev.map((d) =>
             d.config.name === driverName
@@ -398,7 +404,7 @@ export default function IntegrationsPanel() {
                         onClick={() =>
                           void handleInstall(
                             driver.config.name,
-                            executableMethod.brewPackage ?? "",
+                            executableMethod,
                           )
                         }
                       >
