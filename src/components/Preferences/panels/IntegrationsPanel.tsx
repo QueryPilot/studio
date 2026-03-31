@@ -115,8 +115,6 @@ const DRIVER_CONFIGS: DriverConfig[] = [
           "brew tap InstantClientTap/instantclient && brew install instantclient-basic",
         notes: "Intel Macs only — does NOT work on Apple Silicon",
         platforms: ["mac"],
-        executable: true,
-        brewPackage: "InstantClientTap/instantclient/instantclient-basic",
       },
       {
         label: "apt (x86_64)",
