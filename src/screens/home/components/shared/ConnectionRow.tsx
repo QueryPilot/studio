@@ -100,7 +100,7 @@ export function ConnectionRow({
 
   const handleCopyUri = async () => {
     try {
-      const uri = buildConnectionUri(profile);
+      const uri = buildConnectionUri(profile, true);
       await navigator.clipboard.writeText(uri);
       toast.success("URI copied to clipboard");
     } catch (error) {

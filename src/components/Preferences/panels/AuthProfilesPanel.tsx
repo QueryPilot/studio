@@ -467,7 +467,12 @@ export function AuthProfilesPanel() {
     <div className="flex flex-col h-full">
       <div className="shrink-0 px-8 pt-6 pb-3 sticky top-0 bg-background z-10 flex items-start justify-between">
         <div>
-          <h2 className="text-base font-semibold">Auth Profiles</h2>
+          <h2 className="text-base font-semibold">
+            Auth Profiles
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              BETA
+            </span>
+          </h2>
           <p className="text-xs text-muted-foreground">
             Manage authentication profiles for tunnel connections
           </p>

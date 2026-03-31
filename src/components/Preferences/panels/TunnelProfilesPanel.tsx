@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -17,10 +18,32 @@ import {
   IconPlus,
   IconPencil,
   IconTrash,
-  IconNetwork,
+  IconArrowLeft,
 } from "@tabler/icons-react";
 
 type TunnelTypeKey = "SshTunnel" | "SsmBastion";
+
+const TUNNEL_TYPE_OPTIONS: {
+  value: TunnelTypeKey;
+  label: string;
+  desc: string;
+}[] = [
+  {
+    value: "SshTunnel",
+    label: "SSH Tunnel",
+    desc: "Connect through an SSH bastion host",
+  },
+  {
+    value: "SsmBastion",
+    label: "SSM Bastion",
+    desc: "Connect via AWS Systems Manager Session Manager",
+  },
+];
+
+const TUNNEL_TYPE_LABELS: Record<TunnelTypeKey, string> = {
+  SshTunnel: "SSH Tunnel",
+  SsmBastion: "SSM Bastion",
+};
 
 interface FormState {
   id: string;
@@ -107,7 +130,7 @@ export function TunnelProfilesPanel() {
   const tunnelProfiles = useTunnelStore((s) => s.tunnelProfiles);
   const authProfiles = useTunnelStore((s) => s.authProfiles);
 
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
@@ -115,19 +138,18 @@ export function TunnelProfilesPanel() {
     void useTunnelStore.getState().fetchProfiles();
   }, []);
 
-  const handleNew = useCallback(() => {
+  const startNew = useCallback(() => {
+    setEditing("new");
     setForm({ ...EMPTY_FORM });
-    setEditing(true);
   }, []);
 
-  const handleEdit = useCallback((profile: TunnelProfile) => {
+  const startEdit = useCallback((profile: TunnelProfile) => {
+    setEditing(profile.id);
     setForm(formFromProfile(profile));
-    setEditing(true);
   }, []);
 
-  const handleCancel = useCallback(() => {
-    setEditing(false);
-    setForm(EMPTY_FORM);
+  const cancel = useCallback(() => {
+    setEditing(null);
   }, []);
 
   const handleDelete = useCallback(async (id: string) => {
@@ -138,159 +160,205 @@ export function TunnelProfilesPanel() {
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      await useTunnelStore.getState().saveTunnelProfile(formToProfile(form));
-      setEditing(false);
-      setForm(EMPTY_FORM);
+      const profile = formToProfile(form);
+      if (editing !== "new" && editing !== null) {
+        profile.id = editing;
+        const existing = useTunnelStore
+          .getState()
+          .tunnelProfiles.find((p) => p.id === editing);
+        if (existing) {
+          profile.created_at = existing.created_at;
+        }
+      }
+      await useTunnelStore.getState().saveTunnelProfile(profile);
+      setEditing(null);
     } finally {
       setSaving(false);
     }
-  }, [form]);
+  }, [editing, form]);
 
   const updateForm = useCallback((patch: Partial<FormState>) => {
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  // ---- Render ----
+  const handleTunnelTypeChange = useCallback((type: TunnelTypeKey) => {
+    setForm((prev) => ({
+      ...prev,
+      tunnelTypeKey: type,
+    }));
+  }, []);
 
-  if (editing) {
+  // ---------- Edit / New ----------
+  if (editing !== null) {
     return (
       <div className="flex flex-col h-full">
         <div className="shrink-0 px-8 pt-6 pb-3 sticky top-0 bg-background z-10">
+          <button
+            onClick={cancel}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-2"
+          >
+            <IconArrowLeft className="h-3.5 w-3.5" />
+            Back to list
+          </button>
           <h2 className="text-base font-semibold">
-            {form.id ? "Edit Tunnel Profile" : "New Tunnel Profile"}
+            {editing === "new" ? "New Tunnel Profile" : "Edit Tunnel Profile"}
           </h2>
-          <p className="text-xs text-muted-foreground">
-            Configure a reusable tunnel for database connections.
-          </p>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-4 space-y-5">
           {/* Name */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Profile Name</Label>
+          <div>
+            <Label className="text-xs">
+              Profile Name <span className="text-destructive">*</span>
+            </Label>
             <Input
               value={form.name}
-              onChange={(e) => { updateForm({ name: e.target.value }); }}
-              placeholder="e.g. Production SSH Bastion"
-              className="h-8 text-xs"
+              onChange={(e) => {
+                updateForm({ name: e.target.value });
+              }}
+              className="mt-1 h-8 text-xs"
+              placeholder="e.g., Production SSH Bastion"
+              autoFocus
             />
           </div>
 
-          {/* Tunnel Type */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">Tunnel Type</Label>
-            <Select
+          {/* Tunnel Type as RadioGroup */}
+          <div>
+            <Label className="text-xs">
+              Tunnel Type <span className="text-destructive">*</span>
+            </Label>
+            <RadioGroup
               value={form.tunnelTypeKey}
               onValueChange={(v) => {
-                if (v) updateForm({ tunnelTypeKey: v as TunnelTypeKey });
+                handleTunnelTypeChange(v as TunnelTypeKey);
               }}
+              className="mt-2 space-y-1.5"
             >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="SshTunnel" className="text-xs">
-                  SSH Tunnel
-                </SelectItem>
-                <SelectItem value="SsmBastion" className="text-xs">
-                  SSM Bastion
-                </SelectItem>
-              </SelectContent>
-            </Select>
+              {TUNNEL_TYPE_OPTIONS.map((opt) => (
+                <Label
+                  key={opt.value}
+                  htmlFor={`tunnel-${opt.value}`}
+                  className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors hover:bg-muted/50 data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary"
+                >
+                  <RadioGroupItem
+                    id={`tunnel-${opt.value}`}
+                    value={opt.value}
+                    className="mt-0.5"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium">{opt.label}</span>
+                    <p className="text-[11px] text-muted-foreground leading-tight">
+                      {opt.desc}
+                    </p>
+                  </div>
+                </Label>
+              ))}
+            </RadioGroup>
           </div>
 
-          {/* SSH Fields */}
-          {form.tunnelTypeKey === "SshTunnel" && (
-            <div className="space-y-3 border rounded-lg p-4">
-              <p className="text-xs font-medium text-muted-foreground">
-                SSH Connection
-              </p>
-              <div className="grid grid-cols-[1fr_80px] gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Host</Label>
-                  <Input
-                    value={form.sshHost}
-                    onChange={(e) => { updateForm({ sshHost: e.target.value }); }}
-                    placeholder="bastion.example.com"
-                    className="h-8 text-xs"
-                  />
+          {/* Type-specific fields */}
+          <div className="border-t pt-4">
+            {/* SSH Fields */}
+            {form.tunnelTypeKey === "SshTunnel" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-[1fr_80px] gap-3">
+                  <div>
+                    <Label className="text-xs">
+                      Host <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      value={form.sshHost}
+                      onChange={(e) => {
+                        updateForm({ sshHost: e.target.value });
+                      }}
+                      className="mt-1 h-8 text-xs"
+                      placeholder="bastion.example.com"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Port</Label>
+                    <Input
+                      type="number"
+                      value={form.sshPort}
+                      onChange={(e) => {
+                        updateForm({
+                          sshPort: parseInt(e.target.value, 10) || 22,
+                        });
+                      }}
+                      className="mt-1 h-8 text-xs"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Port</Label>
+                <div>
+                  <Label className="text-xs">
+                    User <span className="text-destructive">*</span>
+                  </Label>
                   <Input
-                    type="number"
-                    value={form.sshPort}
+                    value={form.sshUser}
                     onChange={(e) => {
-                      updateForm({ sshPort: parseInt(e.target.value, 10) || 22 });
+                      updateForm({ sshUser: e.target.value });
                     }}
-                    className="h-8 text-xs"
+                    className="mt-1 h-8 text-xs"
+                    placeholder="ec2-user"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Authentication defaults to SSH Agent.
+                </p>
+              </div>
+            )}
+
+            {/* SSM Fields */}
+            {form.tunnelTypeKey === "SsmBastion" && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">
+                    Region <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    value={form.ssmRegion}
+                    onChange={(e) => {
+                      updateForm({ ssmRegion: e.target.value });
+                    }}
+                    className="mt-1 h-8 text-xs"
+                    placeholder="us-east-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">
+                    Cluster Name{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    value={form.ssmClusterName}
+                    onChange={(e) => {
+                      updateForm({ ssmClusterName: e.target.value });
+                    }}
+                    className="mt-1 h-8 text-xs"
+                    placeholder="my-ecs-cluster"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">
+                    Task Definition{" "}
+                    <span className="text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    value={form.ssmTaskDefinition}
+                    onChange={(e) => {
+                      updateForm({ ssmTaskDefinition: e.target.value });
+                    }}
+                    className="mt-1 h-8 text-xs"
+                    placeholder="bastion-task"
                   />
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">User</Label>
-                <Input
-                  value={form.sshUser}
-                  onChange={(e) => { updateForm({ sshUser: e.target.value }); }}
-                  placeholder="ec2-user"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Authentication defaults to SSH Agent.
-              </p>
-            </div>
-          )}
-
-          {/* SSM Fields */}
-          {form.tunnelTypeKey === "SsmBastion" && (
-            <div className="space-y-3 border rounded-lg p-4">
-              <p className="text-xs font-medium text-muted-foreground">
-                SSM Bastion
-              </p>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Region</Label>
-                <Input
-                  value={form.ssmRegion}
-                  onChange={(e) => { updateForm({ ssmRegion: e.target.value }); }}
-                  placeholder="us-east-1"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  Cluster Name{" "}
-                  <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  value={form.ssmClusterName}
-                  onChange={(e) => {
-                    updateForm({ ssmClusterName: e.target.value });
-                  }}
-                  placeholder="my-ecs-cluster"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  Task Definition{" "}
-                  <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  value={form.ssmTaskDefinition}
-                  onChange={(e) => {
-                    updateForm({ ssmTaskDefinition: e.target.value });
-                  }}
-                  placeholder="bastion-task"
-                  className="h-8 text-xs"
-                />
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Auth Profile */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">
+          <div>
+            <Label className="text-xs">
               Auth Profile{" "}
               <span className="text-muted-foreground">(optional)</span>
             </Label>
@@ -300,8 +368,8 @@ export function TunnelProfilesPanel() {
                 updateForm({ authProfileId: !v || v === "__none__" ? "" : v });
               }}
             >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue />
+              <SelectTrigger className="mt-1 h-8 text-xs">
+                <SelectValue placeholder="None" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs">
@@ -317,7 +385,7 @@ export function TunnelProfilesPanel() {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex items-center justify-end gap-2 pt-2 border-t">
             <Button
               size="sm"
               onClick={() => void handleSave()}
@@ -325,7 +393,7 @@ export function TunnelProfilesPanel() {
             >
               {saving ? "Saving..." : "Save"}
             </Button>
-            <Button size="sm" variant="outline" onClick={handleCancel}>
+            <Button size="sm" variant="outline" onClick={cancel}>
               Cancel
             </Button>
           </div>
@@ -334,69 +402,73 @@ export function TunnelProfilesPanel() {
     );
   }
 
-  // ---- List View ----
-
+  // ---------- List ----------
   return (
     <div className="flex flex-col h-full">
       <div className="shrink-0 px-8 pt-6 pb-3 sticky top-0 bg-background z-10 flex items-start justify-between">
         <div>
-          <h2 className="text-base font-semibold">Tunnel Profiles</h2>
+          <h2 className="text-base font-semibold">
+            Tunnel Profiles
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              BETA
+            </span>
+          </h2>
           <p className="text-xs text-muted-foreground">
             Reusable SSH and SSM tunnel configurations for database connections.
           </p>
         </div>
-        <Button size="sm" className="gap-1.5 shrink-0" onClick={handleNew}>
-          <IconPlus className="h-3.5 w-3.5" />
+        <Button size="sm" onClick={startNew}>
+          <IconPlus className="h-3.5 w-3.5 mr-1.5" />
           New
         </Button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-4 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 pb-8 pt-4">
         {tunnelProfiles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <IconNetwork className="h-10 w-10 text-muted-foreground/40 mb-3" />
-            <p className="text-sm text-muted-foreground">
-              No tunnel profiles yet.
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Create one to reuse across connections.
-            </p>
+          <div className="text-center py-12 text-sm text-muted-foreground">
+            No tunnel profiles yet. Create one to get started.
           </div>
         ) : (
-          tunnelProfiles.map((profile) => {
-            const typeKey = getTunnelTypeKey(profile.tunnel_type);
-            const typeLabel =
-              typeKey === "SshTunnel" ? "SSH Tunnel" : "SSM Bastion";
-            return (
-              <div
-                key={profile.id}
-                className="flex items-center justify-between border rounded-lg px-4 py-3 group"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{profile.name}</p>
-                  <p className="text-xs text-muted-foreground">{typeLabel}</p>
+          <div className="space-y-2">
+            {tunnelProfiles.map((profile) => {
+              const typeKey = getTunnelTypeKey(profile.tunnel_type);
+              return (
+                <div
+                  key={profile.id}
+                  className="flex items-center justify-between py-3 border rounded-xl px-4"
+                >
+                  <div className="space-y-0.5 min-w-0">
+                    <p className="text-xs font-medium truncate">
+                      {profile.name}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {TUNNEL_TYPE_LABELS[typeKey]}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        startEdit(profile);
+                      }}
+                    >
+                      <IconPencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => void handleDelete(profile.id)}
+                    >
+                      <IconTrash className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => { handleEdit(profile); }}
-                  >
-                    <IconPencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                    onClick={() => void handleDelete(profile.id)}
-                  >
-                    <IconTrash className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

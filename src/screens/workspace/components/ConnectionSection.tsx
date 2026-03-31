@@ -2814,7 +2814,7 @@ export const ConnectionSection = forwardRef<
           </ContextMenuItem>
           <ContextMenuItem
             onClick={() => {
-              const uri = buildConnectionUri(profile, false);
+              const uri = buildConnectionUri(profile, true);
               void writeClipboardText(uri);
               toast.success("Connection URI copied to clipboard");
             }}
