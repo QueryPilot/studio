@@ -148,6 +148,7 @@ fn main() {
             commands::test_connection,
             commands::test_ssh_connection,
             commands::update_safe_mode,
+            commands::update_active_schema,
             commands::duckdb_add_file,
             commands::duckdb_replace_managed_object,
             commands::duckdb_list_managed_objects,

@@ -1362,9 +1362,14 @@ mod tests {
             ssl_config: None,
             ssh_tunnel: None,
             bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
             options: HashMap::new(),
             group: None,
             safe_mode: None,
+            pooler_mode: None,
         };
 
         let config = RedisAdapter::build_config(&profile);
@@ -1396,9 +1401,14 @@ mod tests {
             ssl_config: None,
             ssh_tunnel: None,
             bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
             options: HashMap::new(),
             group: None,
             safe_mode: None,
+            pooler_mode: None,
         };
 
         let adapter = RedisAdapter::new();

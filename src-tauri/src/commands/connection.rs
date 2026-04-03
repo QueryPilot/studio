@@ -30,11 +30,16 @@ pub async fn connect(
         .await
         .map_err(|e| e.to_string())?;
 
+    let pooler_mode = manager
+        .get_stored_profile(&conn_id)
+        .and_then(|stored| stored.pooler_mode);
+
     Ok(ConnectionInfo {
         id: conn_id,
         db_type: profile.db_type,
         database: profile.database,
         version: None,
+        pooler_mode,
     })
 }
 
@@ -95,12 +100,17 @@ pub async fn test_connection(
 
     let result = adapter.test_connection().await.map_err(|e| e.to_string())?;
 
+    let pooler_mode = manager
+        .get_stored_profile(&conn_id)
+        .and_then(|stored| stored.pooler_mode);
+
     Ok(ConnectionTestResult {
         success: result.success,
         message: result.message,
         version: result.server_version,
         warnings: vec![],
         detected_db_type: Some(adapter.db_type()),
+        pooler_mode,
     })
 }
 
@@ -174,6 +184,17 @@ pub async fn update_safe_mode(
 ) -> std::result::Result<(), String> {
     manager
         .update_safe_mode(&conn_id, safe_mode)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn update_active_schema(
+    conn_id: String,
+    schema: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> std::result::Result<(), String> {
+    manager
+        .update_active_schema(&conn_id, schema)
         .map_err(|e| e.to_string())
 }
 

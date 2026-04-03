@@ -12,6 +12,19 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   readText: clipboardMock.readText,
 }));
 
+vi.mock("@/services/vaultStorage", () => ({
+  vaultStorage: {
+    listGroupTags: vi.fn().mockResolvedValue([]),
+    storeGroupTag: vi.fn().mockResolvedValue(undefined),
+    listAuthProfiles: vi.fn().mockResolvedValue([]),
+    listTunnelProfiles: vi.fn().mockResolvedValue([]),
+    saveAuthProfile: vi.fn().mockResolvedValue(undefined),
+    deleteAuthProfile: vi.fn().mockResolvedValue(undefined),
+    saveTunnelProfile: vi.fn().mockResolvedValue(undefined),
+    deleteTunnelProfile: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 describe("ConnectionForm", () => {
   beforeEach(() => {
     clipboardMock.readText.mockReset();
@@ -103,5 +116,16 @@ SSL_CA_FILE=/tmp/ca.pem`,
     expect(
       await screen.findByRole("button", { name: "Browse SSL CA cert file" }),
     ).toBeInTheDocument();
+  });
+
+  it("shows pooler mode as a tri-state override", async () => {
+    render(<ConnectionForm />);
+
+    expect(await screen.findByText("Connection Pooler")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Auto-detect (recommended)"),
+    ).toBeInTheDocument();
+    expect(await screen.findByLabelText("Enabled")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Disabled")).toBeInTheDocument();
   });
 });

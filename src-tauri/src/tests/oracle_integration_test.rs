@@ -22,6 +22,10 @@ fn make_oracle_profile() -> ConnectionProfile {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: {
             let mut opts = HashMap::new();
             opts.insert(
@@ -32,6 +36,7 @@ fn make_oracle_profile() -> ConnectionProfile {
         },
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     }
 }
 

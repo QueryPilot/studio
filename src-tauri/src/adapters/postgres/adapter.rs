@@ -5,6 +5,7 @@ use deadpool_postgres::{
 use native_tls::{Certificate, TlsConnector};
 use postgres_native_tls::MakeTlsConnector;
 use std::sync::Arc;
+use std::sync::RwLock as StdRwLock;
 use tokio::sync::RwLock;
 use tokio_postgres::NoTls;
 
@@ -18,13 +19,74 @@ use crate::types::*;
 
 pub struct PostgresAdapter {
     pool: Arc<RwLock<Option<Pool>>>,
+    pooler_mode: Arc<StdRwLock<Option<bool>>>,
+    current_schema: Arc<StdRwLock<Option<String>>>,
 }
 
 impl PostgresAdapter {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(RwLock::new(None)),
+            pooler_mode: Arc::new(StdRwLock::new(None)),
+            current_schema: Arc::new(StdRwLock::new(None)),
         }
+    }
+
+    fn current_schema_from_profile(profile: &ConnectionProfile) -> Option<String> {
+        profile
+            .options
+            .get("postgres_current_schema")
+            .cloned()
+            .filter(|schema| !schema.trim().is_empty())
+    }
+
+    fn quote_identifier(identifier: &str) -> String {
+        format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn search_path_sql(schema: &str) -> String {
+        let quoted_schema = Self::quote_identifier(schema);
+        if schema.eq_ignore_ascii_case("public") {
+            format!("SET search_path TO {}", quoted_schema)
+        } else {
+            format!("SET search_path TO {}, public", quoted_schema)
+        }
+    }
+
+    pub fn decorate_simple_query_sql(&self, sql: &str) -> String {
+        let schema = self.current_schema.read().ok().and_then(|guard| guard.clone());
+        match schema {
+            Some(schema) => format!("{}; {}", Self::search_path_sql(&schema), sql),
+            None => sql.to_string(),
+        }
+    }
+
+    fn is_pooler_mode_error(error: &tokio_postgres::Error) -> bool {
+        let message = error.to_string().to_lowercase();
+        message.contains("pgbouncer")
+            || message.contains("transaction pooling")
+            || message.contains("prepared statement")
+    }
+
+    fn should_pin_single_session(profile: &ConnectionProfile) -> bool {
+        is_tab_scoped_connection_id(&profile.id) || profile.pooler_mode == Some(true)
+    }
+
+    pub fn pooler_mode(&self) -> Option<bool> {
+        self.pooler_mode
+            .read()
+            .ok()
+            .and_then(|guard| *guard)
+    }
+
+    pub fn set_current_schema(&self, schema: Option<String>) {
+        if let Ok(mut guard) = self.current_schema.write() {
+            *guard = schema.filter(|value| !value.trim().is_empty());
+        }
+    }
+
+    pub async fn get_client_with_schema(&self) -> Result<deadpool_postgres::Client, AppError> {
+        self.get_client().await
     }
 
     fn create_pool(cfg: &Config, profile: &ConnectionProfile) -> Result<Pool, AppError> {
@@ -112,9 +174,124 @@ impl PostgresAdapter {
             .get_pool()
             .await
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        pool.get()
+        let client = pool
+            .get()
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))
+            .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
+
+        if self.pooler_mode() != Some(true) {
+            let schema = self.current_schema.read().ok().and_then(|guard| guard.clone());
+            if let Some(schema) = schema {
+                client
+                    .batch_execute(Self::search_path_sql(&schema).as_str())
+                    .await
+                    .map_err(|e| {
+                        AppError::DatabaseError(format!(
+                            "Failed to apply PostgreSQL search_path: {}",
+                            e
+                        ))
+                    })?;
+            }
+        }
+
+        Ok(client)
+    }
+
+    async fn resolve_pooler_mode(
+        client: &deadpool_postgres::Client,
+        requested_mode: Option<bool>,
+    ) -> Result<bool, AppError> {
+        match requested_mode {
+            Some(value) => Ok(value),
+            None => match client.prepare("SELECT 1").await {
+                Ok(_) => Ok(false),
+                Err(error) if Self::is_pooler_mode_error(&error) => {
+                    tracing::warn!(
+                        "Detected PostgreSQL pooler mode during prepare probe: {}",
+                        error
+                    );
+                    Ok(true)
+                }
+                Err(error) => Err(AppError::DatabaseError(format!(
+                    "PostgreSQL pooler probe failed: {}",
+                    error
+                ))),
+            },
+        }
+    }
+
+    async fn execute_simple_query(
+        &self,
+        sql: &str,
+    ) -> Result<CapabilityQueryResult, AppError> {
+        let client = self.get_client().await?;
+        let sql = self.decorate_simple_query_sql(sql);
+        let messages = client
+            .simple_query(&sql)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Simple query failed: {}", e)))?;
+
+        let mut columns = Vec::new();
+        let mut rows = Vec::new();
+
+        for message in messages {
+            match message {
+                tokio_postgres::SimpleQueryMessage::RowDescription(description) => {
+                    columns = description
+                        .iter()
+                        .map(|column| CapabilityColumnMeta {
+                            name: column.name().to_string(),
+                            data_type: "text".to_string(),
+                        })
+                        .collect();
+                }
+                tokio_postgres::SimpleQueryMessage::Row(row) => {
+                    if columns.is_empty() {
+                        columns = row
+                            .columns()
+                            .iter()
+                            .map(|column| CapabilityColumnMeta {
+                                name: column.name().to_string(),
+                                data_type: "text".to_string(),
+                            })
+                            .collect();
+                    }
+
+                    rows.push(
+                        (0..row.len())
+                            .map(|index| match row.get(index) {
+                                Some(value) => serde_json::Value::String(value.to_string()),
+                                None => serde_json::Value::Null,
+                            })
+                            .collect(),
+                    );
+                }
+                tokio_postgres::SimpleQueryMessage::CommandComplete(_) => {}
+                _ => {}
+            }
+        }
+
+        Ok(CapabilityQueryResult { columns, rows })
+    }
+
+    async fn execute_simple_statement(&self, sql: &str) -> Result<u64, AppError> {
+        let client = self.get_client().await?;
+        let sql = self.decorate_simple_query_sql(sql);
+        let messages = client
+            .simple_query(&sql)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Simple query failed: {}", e)))?;
+
+        let affected = messages
+            .into_iter()
+            .filter_map(|message| match message {
+                tokio_postgres::SimpleQueryMessage::CommandComplete(count) => Some(count),
+                _ => None,
+            })
+            .last()
+            .unwrap_or(0);
+
+        Ok(affected)
     }
 }
 
@@ -122,6 +299,7 @@ fn is_tab_scoped_connection_id(conn_id: &str) -> bool {
     conn_id.contains(':')
 }
 
+#[cfg(test)]
 fn pool_max_size_for_connection_id(conn_id: &str) -> Option<usize> {
     if is_tab_scoped_connection_id(conn_id) {
         Some(1)
@@ -161,8 +339,13 @@ impl BaseCapability for PostgresAdapter {
         cfg.manager = Some(ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
         });
-        if let Some(max_size) = pool_max_size_for_connection_id(&profile.id) {
-            cfg.pool = Some(PoolConfig::new(max_size));
+        if Self::should_pin_single_session(profile) {
+            cfg.pool = Some(PoolConfig::new(1));
+        }
+
+        self.set_current_schema(Self::current_schema_from_profile(profile));
+        if let Ok(mut guard) = self.pooler_mode.write() {
+            *guard = profile.pooler_mode;
         }
 
         // Handle options
@@ -184,7 +367,7 @@ impl BaseCapability for PostgresAdapter {
 
         // Test connection with timeout to prevent indefinite hangs on unreachable hosts
         let connect_timeout = std::time::Duration::from_secs(15);
-        let _ = tokio::time::timeout(connect_timeout, pool.get())
+        let client = tokio::time::timeout(connect_timeout, pool.get())
             .await
             .map_err(|_| {
                 AppError::ConnectionClosed(format!(
@@ -193,6 +376,11 @@ impl BaseCapability for PostgresAdapter {
                 ))
             })?
             .map_err(|e| AppError::Internal(format!("Failed to connect: {}", e)))?;
+
+        let resolved_pooler_mode = Self::resolve_pooler_mode(&client, profile.pooler_mode).await?;
+        if let Ok(mut guard) = self.pooler_mode.write() {
+            *guard = Some(resolved_pooler_mode);
+        }
 
         *self.pool.write().await = Some(pool);
         Ok(())
@@ -211,14 +399,35 @@ impl BaseCapability for PostgresAdapter {
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
         let test_fn = async {
             let client = self.get_client().await?;
-            let row = client
-                .query_one("SELECT version(), current_database(), current_user", &[])
-                .await
-                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+            let (version, database, user) = if self.pooler_mode() == Some(true) {
+                let messages = client
+                    .simple_query("SELECT version(), current_database(), current_user")
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+                let row = messages
+                    .into_iter()
+                    .find_map(|message| match message {
+                        tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        AppError::DatabaseError(
+                            "PostgreSQL test query returned no row".to_string(),
+                        )
+                    })?;
 
-            let version: String = row.get(0);
-            let database: String = row.get(1);
-            let user: String = row.get(2);
+                (
+                    row.get(0).unwrap_or_default().to_string(),
+                    row.get(1).unwrap_or_default().to_string(),
+                    row.get(2).unwrap_or_default().to_string(),
+                )
+            } else {
+                let row = client
+                    .query_one("SELECT version(), current_database(), current_user", &[])
+                    .await
+                    .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+                (row.get(0), row.get(1), row.get(2))
+            };
 
             Ok(CapabilityTestResult {
                 success: true,
@@ -249,6 +458,10 @@ impl BaseCapability for PostgresAdapter {
 #[async_trait]
 impl SqlQueryable for PostgresAdapter {
     async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
+        if self.pooler_mode() == Some(true) {
+            return self.execute_simple_query(sql).await;
+        }
+
         let client = self.get_client().await?;
         let stmt = client
             .prepare(sql)
@@ -278,6 +491,10 @@ impl SqlQueryable for PostgresAdapter {
     }
 
     async fn execute_statement(&self, sql: &str) -> Result<u64, AppError> {
+        if self.pooler_mode() == Some(true) {
+            return self.execute_simple_statement(sql).await;
+        }
+
         let client = self.get_client().await?;
         let affected = client
             .execute(sql, &[])
@@ -289,7 +506,9 @@ impl SqlQueryable for PostgresAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::pool_max_size_for_connection_id;
+    use super::{pool_max_size_for_connection_id, PostgresAdapter};
+    use crate::types::{ConnectionProfile, DbType};
+    use std::collections::HashMap;
 
     #[test]
     fn tab_scoped_connections_are_pinned_to_single_postgres_session() {
@@ -299,5 +518,33 @@ mod tests {
     #[test]
     fn base_connections_keep_default_postgres_pool_size() {
         assert_eq!(pool_max_size_for_connection_id("conn-1"), None);
+    }
+
+    #[test]
+    fn manual_pooler_mode_is_pinned_to_single_session() {
+        let profile = ConnectionProfile {
+            id: "conn-1".to_string(),
+            name: "test".to_string(),
+            db_type: DbType::PostgreSQL,
+            host: "localhost".to_string(),
+            port: 5432,
+            database: "postgres".to_string(),
+            username: "postgres".to_string(),
+            password: None,
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
+            options: HashMap::new(),
+            group: None,
+            safe_mode: None,
+            pooler_mode: Some(true),
+        };
+
+        assert!(PostgresAdapter::should_pin_single_session(&profile));
     }
 }

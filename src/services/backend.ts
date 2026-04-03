@@ -33,6 +33,7 @@ export interface ConnectionInfo {
   db_type: DbType;
   database: string;
   version?: string;
+  pooler_mode?: boolean | null;
 }
 
 export interface ConnectionTestResult {
@@ -42,6 +43,7 @@ export interface ConnectionTestResult {
   warnings: string[];
   /** Detected database type (e.g., MariaDB detected from MySQL connection) */
   detected_db_type?: DbType;
+  pooler_mode?: boolean | null;
 }
 
 export interface ConnectionHealth {
@@ -442,6 +444,10 @@ export class BackendAPI {
 
   static async testConnection(connId: string): Promise<ConnectionTestResult> {
     return invoke("test_connection", { connId });
+  }
+
+  static async updateActiveSchema(connId: string, schema: string): Promise<void> {
+    return invoke("update_active_schema", { connId, schema });
   }
 
   static async getConnectionHealth(connId: string): Promise<ConnectionHealth> {

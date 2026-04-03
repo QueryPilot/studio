@@ -215,6 +215,17 @@ export function ConnectionForm() {
   const [safeMode, setSafeMode] = useState<SafeMode>(
     connection?.profile.safe_mode || "full_access",
   );
+  const [poolerMode, setPoolerMode] = useState<
+    "auto" | "enabled" | "disabled"
+  >(() => {
+    if (connection?.profile.pooler_mode === true) {
+      return "enabled";
+    }
+    if (connection?.profile.pooler_mode === false) {
+      return "disabled";
+    }
+    return "auto";
+  });
   const sslModeOptions = getSslModeOptionsForDb(dbType);
   const showsSslKeyFiles = supportsSslKeyFiles(dbType);
   const sslModeGridClassName = "mt-2 flex flex-wrap gap-x-4 gap-y-1";
@@ -864,6 +875,12 @@ export function ConnectionForm() {
       },
       default_schema: defaultSchema || undefined,
       safe_mode: safeMode,
+      pooler_mode:
+        dbType === "postgresql"
+          ? poolerMode === "auto"
+            ? null
+            : poolerMode === "enabled"
+          : undefined,
       tunnel_profile_id:
         tunnelMode === "profile" ? tunnelProfileId || undefined : undefined,
       tunnel_inline:
@@ -1883,6 +1900,51 @@ export function ConnectionForm() {
                   <IconX className="h-4 w-4" />
                 </Button>
               </div>
+            </div>
+          )}
+
+          {dbType === "postgresql" && (
+            <div>
+              <Label className="text-xs">Connection Pooler</Label>
+              <RadioGroup
+                value={poolerMode}
+                onValueChange={(value) => {
+                  setPoolerMode(
+                    value as "auto" | "enabled" | "disabled",
+                  );
+                }}
+                className="mt-2 flex flex-wrap gap-x-4 gap-y-1"
+              >
+                {[
+                  {
+                    value: "auto",
+                    label: "Auto-detect (recommended)",
+                  },
+                  {
+                    value: "enabled",
+                    label: "Enabled",
+                  },
+                  {
+                    value: "disabled",
+                    label: "Disabled",
+                  },
+                ].map((option) => {
+                  const id = `pooler-mode-${option.value}`;
+                  return (
+                    <Label
+                      key={option.value}
+                      htmlFor={id}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                        poolerMode === option.value && "text-primary",
+                      )}
+                    >
+                      <RadioGroupItem id={id} value={option.value} />
+                      {option.label}
+                    </Label>
+                  );
+                })}
+              </RadioGroup>
             </div>
           )}
 

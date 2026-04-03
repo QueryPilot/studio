@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { databaseService } from "../databaseService";
-import { vaultStorage } from "../vaultStorage";
 import { DbType, type ConnectionProfile } from "@/types/connection";
+
+const vaultStorageMock = vi.hoisted(() => ({
+  getConnection: vi.fn(),
+  updateConnection: vi.fn(),
+}));
 
 vi.mock("@/utils/tauri", () => ({
   isTauri: vi.fn(() => true),
@@ -10,10 +14,7 @@ vi.mock("@/utils/tauri", () => ({
 }));
 
 vi.mock("../vaultStorage", () => ({
-  vaultStorage: {
-    getConnection: vi.fn(),
-    updateConnection: vi.fn(),
-  },
+  vaultStorage: vaultStorageMock,
 }));
 
 describe("databaseService.switchSchema", () => {
@@ -35,7 +36,7 @@ describe("databaseService.switchSchema", () => {
       },
     };
 
-    (vaultStorage.getConnection as unknown as Mock).mockResolvedValue({
+    (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
       profile,
       metadata: {
         favorite: false,
@@ -45,7 +46,7 @@ describe("databaseService.switchSchema", () => {
         lastUsed: null,
       },
     });
-    (vaultStorage.updateConnection as unknown as Mock).mockResolvedValue(undefined);
+    (vaultStorageMock.updateConnection as unknown as Mock).mockResolvedValue(undefined);
 
     vi.spyOn(databaseService, "isConnectionActive").mockReturnValue(true);
     const disconnectSpy = vi
@@ -58,7 +59,7 @@ describe("databaseService.switchSchema", () => {
 
     await databaseService.switchSchema("oracle-conn", "REPORTING");
 
-    expect(vaultStorage.updateConnection).toHaveBeenCalledWith(
+    expect(vaultStorageMock.updateConnection).toHaveBeenCalledWith(
       "oracle-conn",
       expect.objectContaining({
         options: expect.objectContaining({

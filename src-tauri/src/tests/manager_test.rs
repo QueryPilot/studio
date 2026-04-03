@@ -27,9 +27,14 @@ async fn test_connection_manager_empty_id_error() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let result = manager.get_or_create_connection(&profile).await;
@@ -138,9 +143,14 @@ async fn test_connection_profile_types() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&postgres_profile).await;
@@ -170,9 +180,14 @@ async fn test_connection_with_options() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options,
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -195,9 +210,14 @@ async fn test_connection_with_no_password() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -220,9 +240,14 @@ async fn test_connection_different_ports() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let profile2 = ConnectionProfile {
@@ -238,9 +263,14 @@ async fn test_connection_different_ports() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let _id1 = manager.get_or_create_connection(&profile1).await;
@@ -266,9 +296,14 @@ async fn test_connection_special_characters_in_name() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -291,9 +326,14 @@ async fn test_connection_unicode_in_fields() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -358,9 +398,14 @@ async fn test_connection_color_codes() {
             ssl_config: None,
             ssh_tunnel: None,
             bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
             options: HashMap::new(),
             group: None,
             safe_mode: None,
+            pooler_mode: None,
         };
 
         let _result = manager.get_or_create_connection(&profile).await;
@@ -382,8 +427,13 @@ fn create_test_profile(id: &str) -> ConnectionProfile {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     }
 }

@@ -6,7 +6,7 @@ import { withTimeoutDefault } from "@/utils/timeout";
 import { BackendAPI, type DbType } from "./backend";
 import { useVersionStore } from "@/stores/versionStore";
 import type { IndexUsageStats } from "./backend";
-import type { ConnectionProfile } from "@/types/connection";
+import { DbType as ConnectionDbType, type ConnectionProfile } from "@/types/connection";
 import { tableStreamingService } from "./tableStreamingService";
 
 import { QueryStreamClient } from "./queryStreamClient";
@@ -162,6 +162,36 @@ class DatabaseService {
 
   private constructor() {}
 
+  private buildBackendProfile(
+    storedProfile: ConnectionProfile,
+    targetDatabase: string,
+  ): ConnectionProfile {
+    const options = {
+      ...storedProfile.options,
+      ...(storedProfile.db_type === ConnectionDbType.PostgreSQL &&
+      storedProfile.default_schema
+        ? { postgres_current_schema: storedProfile.default_schema }
+        : {}),
+    };
+
+    return {
+      id: storedProfile.id,
+      name: storedProfile.name,
+      db_type: storedProfile.db_type as unknown as DbType,
+      host: storedProfile.host,
+      port: storedProfile.port,
+      database: targetDatabase,
+      username: storedProfile.username,
+      password: storedProfile.password,
+      ssl_mode: storedProfile.ssl_mode,
+      ssl_config: storedProfile.ssl_config,
+      ssh_tunnel: storedProfile.ssh_tunnel,
+      bastion: storedProfile.bastion,
+      options,
+      pooler_mode: storedProfile.pooler_mode ?? null,
+    };
+  }
+
   static getInstance(): DatabaseService {
     if (DatabaseService.instance === null) {
       DatabaseService.instance = new DatabaseService();
@@ -221,21 +251,7 @@ class DatabaseService {
         );
 
         // Convert to backend profile type (include all config including bastion)
-        const profile: ConnectionProfile = {
-          id: stored.profile.id,
-          name: stored.profile.name,
-          db_type: stored.profile.db_type as unknown as DbType,
-          host: stored.profile.host,
-          port: stored.profile.port,
-          database: targetDatabase,
-          username: stored.profile.username,
-          password: stored.profile.password,
-          ssl_mode: stored.profile.ssl_mode,
-          ssl_config: stored.profile.ssl_config,
-          ssh_tunnel: stored.profile.ssh_tunnel,
-          bastion: stored.profile.bastion,
-          options: stored.profile.options,
-        };
+        const profile = this.buildBackendProfile(stored.profile, targetDatabase);
 
         // Ensure any stale backend connection with same id is cleanly closed before reconnect
         logger.info(
@@ -267,6 +283,16 @@ class DatabaseService {
           connection_id: backendInfo.id,
           server_version: backendInfo.version || null,
         };
+
+        if (
+          backendInfo.pooler_mode !== undefined &&
+          backendInfo.pooler_mode !== stored.profile.pooler_mode
+        ) {
+          await vaultStorage.updateConnection(connectionId, {
+            ...stored.profile,
+            pooler_mode: backendInfo.pooler_mode,
+          });
+        }
 
         logger.info(
           `[DatabaseService] Setting activeConnections for ${connectionId}`,
@@ -344,6 +370,7 @@ class DatabaseService {
         password: config.password,
         ssl_mode: undefined,
         options: config.options || {},
+        pooler_mode: null,
       };
 
       const connectionInfo = await BackendAPI.connect(profile);
@@ -488,13 +515,13 @@ class DatabaseService {
     }
 
     const stored = await vaultStorage.getConnection(connectionId);
-    const dbType = stored?.profile.db_type ?? "PostgreSQL";
+    const dbType = stored?.profile.db_type;
 
-    if (stored && dbType === "Oracle") {
+    if (stored && dbType === ConnectionDbType.Oracle) {
       const updatedProfile: ConnectionProfile = {
         ...stored.profile,
         options: {
-          ...(stored.profile.options ?? {}),
+          ...stored.profile.options,
           oracle_current_schema: schema,
         },
       };
@@ -509,7 +536,12 @@ class DatabaseService {
       return;
     }
 
-    if (stored && dbType !== "PostgreSQL") {
+    if (dbType === ConnectionDbType.PostgreSQL) {
+      await BackendAPI.updateActiveSchema(connectionId, schema);
+      return;
+    }
+
+    if (stored) {
       logger.warn(
         `[DatabaseService] Schema switching not implemented for ${dbType}`,
       );

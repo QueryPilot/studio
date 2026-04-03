@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ConnectionProfile {
     pub id: String,
     pub name: String,
@@ -31,6 +31,33 @@ pub struct ConnectionProfile {
     pub group: Option<String>,
     #[serde(default)]
     pub safe_mode: Option<SafeMode>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pooler_mode: Option<bool>,
+}
+
+fn redact_if_uri(s: &str) -> &str {
+    if s.contains("://") {
+        "<redacted-uri>"
+    } else {
+        s
+    }
+}
+
+impl std::fmt::Debug for ConnectionProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionProfile")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("db_type", &self.db_type)
+            .field("host", &redact_if_uri(&self.host))
+            .field("port", &self.port)
+            .field("database", &redact_if_uri(&self.database))
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "***"))
+            .field("ssl_mode", &self.ssl_mode)
+            .field("pooler_mode", &self.pooler_mode)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Per-connection safe mode that restricts what operations the GUI allows,
@@ -604,6 +631,8 @@ pub struct ConnectionInfo {
     pub db_type: DbType,
     pub database: String,
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pooler_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -617,6 +646,8 @@ pub struct ConnectionTestResult {
     /// Only set when detected type differs from configured type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detected_db_type: Option<DbType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pooler_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1639,6 +1639,199 @@ async fn execute_sqlite_query(
 }
 
 /// PostgreSQL-specific streaming implementation with optimized binary protocol
+fn postgres_text_column(name: &str) -> ColumnMeta {
+    ColumnMeta {
+        name: name.to_string(),
+        data_type: CellValueType::Text,
+        nullable: true,
+        primary_key: false,
+        db_type: "text".to_string(),
+        type_oid: None,
+        default_value: None,
+        comment: None,
+        enum_values: None,
+        type_category: None,
+        precision: None,
+        scale: None,
+    }
+}
+
+async fn execute_postgres_pooler_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+) -> std::result::Result<(), String> {
+    use futures::StreamExt;
+
+    let start_time = std::time::Instant::now();
+    let pool = postgres_adapter
+        .get_pool()
+        .await
+        .ok_or_else(|| "PostgreSQL pool not available".to_string())?;
+    let client = postgres_adapter
+        .get_client_with_schema()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let backend_pid = client
+        .simple_query("SELECT pg_backend_pid()")
+        .await
+        .ok()
+        .and_then(|messages| {
+            messages.into_iter().find_map(|message| match message {
+                tokio_postgres::SimpleQueryMessage::Row(row) => row
+                    .get(0)
+                    .and_then(|value| value.parse::<i32>().ok()),
+                _ => None,
+            })
+        })
+        .unwrap_or(0);
+
+    let stream_sql = postgres_adapter.decorate_simple_query_sql(sql);
+    let query_start = std::time::Instant::now();
+    let mut row_stream = Box::pin(
+        client
+            .simple_query_raw(&stream_sql)
+            .await
+            .map_err(|e| extract_db_error_message(&e))?,
+    );
+
+    let mut started = false;
+    let mut total_rows = 0usize;
+    let mut command_complete_count = 0u64;
+    let mut row_buffer: Vec<Vec<Option<String>>> = Vec::new();
+    let mut conversion_time_ms = 0u64;
+    let mut send_time_ms = 0u64;
+    let mut sent_batches = 0u64;
+
+    while let Some(message) = row_stream.next().await {
+        match message.map_err(|e| extract_db_error_message(&e))? {
+            tokio_postgres::SimpleQueryMessage::RowDescription(description) => {
+                let columns = description
+                    .iter()
+                    .map(|column| postgres_text_column(column.name()))
+                    .collect::<Vec<_>>();
+                if !started {
+                    let _ = metadata_channel.send(StreamMessage::Started {
+                        columns,
+                        estimated_rows: None,
+                    });
+                    started = true;
+                }
+            }
+            tokio_postgres::SimpleQueryMessage::Row(row) => {
+                if !started {
+                    let columns = row
+                        .columns()
+                        .iter()
+                        .map(|column| postgres_text_column(column.name()))
+                        .collect::<Vec<_>>();
+                    let _ = metadata_channel.send(StreamMessage::Started {
+                        columns,
+                        estimated_rows: None,
+                    });
+                    started = true;
+                }
+
+                row_buffer.push(
+                    (0..row.len())
+                        .map(|index| row.get(index).map(|value| value.to_string()))
+                        .collect(),
+                );
+                total_rows += 1;
+
+                if row_buffer.len() >= 256 {
+                    let encode_start = std::time::Instant::now();
+                    let payload = rmp_serde::to_vec(&row_buffer)
+                        .map_err(|e| format!("Failed to encode rows: {}", e))?;
+                    conversion_time_ms += encode_start.elapsed().as_millis() as u64;
+                    row_buffer.clear();
+
+                    let send_start = std::time::Instant::now();
+                    if data_channel
+                        .send(tauri::ipc::Response::new(payload))
+                        .is_err()
+                    {
+                        if backend_pid > 0 {
+                            let cancel_pool = pool.clone();
+                            tokio::spawn(async move {
+                                if let Ok(cancel_conn) = cancel_pool.get().await {
+                                    let cancel_sql =
+                                        format!("SELECT pg_cancel_backend({})", backend_pid);
+                                    let _ = cancel_conn.execute(&cancel_sql, &[]).await;
+                                }
+                            });
+                        }
+                        let _ = metadata_channel.send(StreamMessage::Interrupted {
+                            resumable: false,
+                            message: "Query cancelled by user".to_string(),
+                        });
+                        return Err("Query cancelled by user".to_string());
+                    }
+                    send_time_ms += send_start.elapsed().as_millis() as u64;
+                    sent_batches += 1;
+                }
+            }
+            tokio_postgres::SimpleQueryMessage::CommandComplete(count) => {
+                command_complete_count = count;
+            }
+            _ => {}
+        }
+    }
+
+    if !started {
+        let estimated_rows = if command_complete_count > 0 {
+            Some(command_complete_count as i64)
+        } else {
+            Some(0)
+        };
+        let _ = metadata_channel.send(StreamMessage::Started {
+            columns: vec![],
+            estimated_rows,
+        });
+    }
+
+    if !row_buffer.is_empty() {
+        let encode_start = std::time::Instant::now();
+        let payload = rmp_serde::to_vec(&row_buffer)
+            .map_err(|e| format!("Failed to encode rows: {}", e))?;
+        conversion_time_ms += encode_start.elapsed().as_millis() as u64;
+        row_buffer.clear();
+
+        let send_start = std::time::Instant::now();
+        if data_channel
+            .send(tauri::ipc::Response::new(payload))
+            .is_err()
+        {
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+        send_time_ms += send_start.elapsed().as_millis() as u64;
+        sent_batches += 1;
+    }
+
+    let execution_time_ms = start_time.elapsed().as_millis() as u64;
+    let query_elapsed_ms = query_start.elapsed().as_millis() as u64;
+    let final_row_count = total_rows.max(command_complete_count as usize);
+
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows: final_row_count,
+        execution_time_ms,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(execution_time_ms),
+        fetch_count: Some(sent_batches),
+        network_ms: Some(query_elapsed_ms),
+        conversion_ms: Some(conversion_time_ms),
+        ipc_send_ms: Some(send_time_ms),
+    });
+
+    Ok(())
+}
+
 async fn execute_postgres_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
@@ -1651,6 +1844,17 @@ async fn execute_postgres_stream(
     let postgres_adapter = adapter
         .as_postgres()
         .ok_or_else(|| "PostgreSQL adapter not available".to_string())?;
+
+    if postgres_adapter.pooler_mode() == Some(true) {
+        return execute_postgres_pooler_stream(
+            sql,
+            metadata_channel,
+            data_channel,
+            postgres_adapter,
+        )
+        .await;
+    }
+
     let pool = postgres_adapter
         .get_pool()
         .await

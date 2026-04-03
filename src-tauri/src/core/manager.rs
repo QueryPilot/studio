@@ -447,6 +447,21 @@ impl Default for ConnectionManager {
 }
 
 impl ConnectionManager {
+    fn build_final_profile(
+        profile: &ConnectionProfile,
+        adapter: &UnifiedAdapter,
+    ) -> ConnectionProfile {
+        let mut final_profile = profile.clone();
+
+        if let Some(postgres) = adapter.as_postgres() {
+            if let Some(pooler_mode) = postgres.pooler_mode() {
+                final_profile.pooler_mode = Some(pooler_mode);
+            }
+        }
+
+        final_profile
+    }
+
     pub fn new() -> Self {
         Self {
             connections: Arc::new(DashMap::new()),
@@ -745,19 +760,20 @@ impl ConnectionManager {
                 }
             }
 
+            let final_profile = Self::build_final_profile(profile, conn.adapter.as_ref());
             *conn.last_used.write().await = Instant::now();
             // Note: profile update requires mutable access, but we can insert fresh
             let updated_conn = LiveConnection {
                 id: conn.id,
                 adapter: conn.adapter,
-                profile: profile.clone(),
+                profile: final_profile.clone(),
                 created_at: conn.created_at,
                 last_used: conn.last_used,
                 query_count: conn.query_count,
                 active_queries: conn.active_queries,
             };
             self.connections.insert(conn_id.to_string(), updated_conn);
-            self.profiles.insert(conn_id.to_string(), profile.clone());
+            self.profiles.insert(conn_id.to_string(), final_profile);
             return Ok(conn_id.to_string());
         }
 
@@ -785,11 +801,12 @@ impl ConnectionManager {
             return Err(err);
         }
         tracing::info!("Connection established successfully");
+        let final_profile = Self::build_final_profile(profile, &adapter);
 
         let live_conn = LiveConnection {
             id: conn_id.to_string(),
             adapter: Arc::new(adapter),
-            profile: profile.clone(),
+            profile: final_profile.clone(),
             created_at: Instant::now(),
             last_used: Arc::new(RwLock::new(Instant::now())),
             query_count: Arc::new(AtomicUsize::new(0)),
@@ -798,7 +815,7 @@ impl ConnectionManager {
 
         self.connections.insert(conn_id.to_string(), live_conn);
         // Store profile separately for reconnection after reaper
-        self.profiles.insert(conn_id.to_string(), profile.clone());
+        self.profiles.insert(conn_id.to_string(), final_profile);
         self.total_connections.fetch_add(1, Ordering::SeqCst);
         Ok(conn_id.to_string())
     }
@@ -1193,6 +1210,55 @@ impl ConnectionManager {
             effective
         } else {
             profile.clone()
+        }
+    }
+
+    pub fn update_active_schema(&self, conn_id: &str, schema: String) -> Result<()> {
+        fn apply_schema(profile: &mut ConnectionProfile, schema: &str) {
+            profile
+                .options
+                .insert("postgres_current_schema".to_string(), schema.to_string());
+        }
+
+        let normalized_schema = schema.trim();
+        if normalized_schema.is_empty() {
+            return Err(AppError::internal("Schema must not be empty"));
+        }
+
+        let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+        let prefix = format!("{}:", base_conn_id);
+        let mut found = false;
+
+        if let Some(mut profile) = self.profiles.get_mut(base_conn_id) {
+            if profile.db_type == DbType::PostgreSQL {
+                apply_schema(&mut profile, normalized_schema);
+                found = true;
+            }
+        }
+
+        for mut entry in self.connections.iter_mut() {
+            let key = entry.key();
+            if key == base_conn_id || key.starts_with(&prefix) {
+                let live_conn = entry.value_mut();
+                if live_conn.profile.db_type != DbType::PostgreSQL {
+                    continue;
+                }
+
+                apply_schema(&mut live_conn.profile, normalized_schema);
+                if let Some(postgres) = live_conn.adapter.as_postgres() {
+                    postgres.set_current_schema(Some(normalized_schema.to_string()));
+                }
+                found = true;
+            }
+        }
+
+        if found {
+            Ok(())
+        } else {
+            Err(AppError::internal(format!(
+                "Connection {} not found",
+                conn_id
+            )))
         }
     }
 }

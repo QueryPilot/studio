@@ -21,9 +21,14 @@ fn test_connection_profile_serialization() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     // Test that connection profiles can be serialized (required for vault storage)
@@ -53,9 +58,14 @@ fn test_multiple_connections_serialization() {
             ssl_config: None,
             ssh_tunnel: None,
             bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
             options: HashMap::new(),
             group: None,
             safe_mode: None,
+            pooler_mode: None,
         },
         ConnectionProfile {
             id: "mysql-1".to_string(),
@@ -70,9 +80,14 @@ fn test_multiple_connections_serialization() {
             ssl_config: None,
             ssh_tunnel: None,
             bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
             options: HashMap::new(),
             group: None,
             safe_mode: None,
+            pooler_mode: None,
         },
     ];
 
@@ -106,9 +121,14 @@ fn test_connection_with_options() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: options.clone(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     // Verify options are preserved in serialization
@@ -151,9 +171,14 @@ fn test_connection_password_handling() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     // Without password
@@ -170,11 +195,83 @@ fn test_connection_password_handling() {
         ssl_config: None,
         ssh_tunnel: None,
         bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
         options: HashMap::new(),
         group: None,
         safe_mode: None,
+        pooler_mode: None,
     };
 
     assert!(with_password.password.is_some());
     assert!(without_password.password.is_none());
+}
+
+#[test]
+fn test_connection_profile_pooler_mode_round_trip() {
+    use crate::types::DbType;
+
+    let connection = ConnectionProfile {
+        id: "pg-pooler".to_string(),
+        name: "Pooler".to_string(),
+        db_type: DbType::PostgreSQL,
+        host: "localhost".to_string(),
+        port: 5432,
+        database: "postgres".to_string(),
+        username: "postgres".to_string(),
+        password: Some("secret".to_string()),
+        ssl_mode: None,
+        ssl_config: None,
+        ssh_tunnel: None,
+        bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
+        options: HashMap::new(),
+        group: None,
+        safe_mode: None,
+        pooler_mode: Some(true),
+    };
+
+    let json = serde_json::to_string(&connection).unwrap();
+    let deserialized: ConnectionProfile = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(deserialized.pooler_mode, Some(true));
+}
+
+#[test]
+fn test_connection_profile_debug_redacts_uri_and_password() {
+    use crate::types::DbType;
+
+    let connection = ConnectionProfile {
+        id: "debug-redaction".to_string(),
+        name: "Debug Redaction".to_string(),
+        db_type: DbType::PostgreSQL,
+        host: "localhost".to_string(),
+        port: 5432,
+        database: "postgres://user:secret@example.com/app".to_string(),
+        username: "postgres".to_string(),
+        password: Some("secret".to_string()),
+        ssl_mode: None,
+        ssl_config: None,
+        ssh_tunnel: None,
+        bastion: None,
+        tunnel_profile_id: None,
+        tunnel_inline: None,
+        tunnel_remote_host: None,
+        tunnel_remote_port: None,
+        options: HashMap::new(),
+        group: None,
+        safe_mode: None,
+        pooler_mode: Some(true),
+    };
+
+    let debug_output = format!("{:?}", connection);
+
+    assert!(!debug_output.contains("secret"));
+    assert!(!debug_output.contains("postgres://user:secret@example.com/app"));
+    assert!(debug_output.contains("<redacted-uri>"));
 }

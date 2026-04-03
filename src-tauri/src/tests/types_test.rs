@@ -504,9 +504,14 @@ mod connection_types_tests {
             ssl_config: None,
             ssh_tunnel: None,
             bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
             options: std::collections::HashMap::new(),
             group: None,
             safe_mode: None,
+            pooler_mode: None,
         };
 
         assert_eq!(profile.id, "test-123");
@@ -539,10 +544,12 @@ mod connection_types_tests {
             version: Some("PostgreSQL 15.0".to_string()),
             warnings: vec![],
             detected_db_type: None,
+            pooler_mode: Some(true),
         };
 
         assert!(success.success);
         assert_eq!(success.version, Some("PostgreSQL 15.0".to_string()));
+        assert_eq!(success.pooler_mode, Some(true));
 
         let failure = ConnectionTestResult {
             success: false,
@@ -550,10 +557,27 @@ mod connection_types_tests {
             version: None,
             warnings: vec!["Port 5432 is not reachable".to_string()],
             detected_db_type: None,
+            pooler_mode: Some(false),
         };
 
         assert!(!failure.success);
         assert_eq!(failure.warnings.len(), 1);
+        assert_eq!(failure.pooler_mode, Some(false));
+    }
+
+    #[test]
+    fn test_connection_info_serializes_pooler_mode() {
+        let info = ConnectionInfo {
+            id: "conn-1".to_string(),
+            db_type: DbType::PostgreSQL,
+            database: "postgres".to_string(),
+            version: Some("16.0".to_string()),
+            pooler_mode: Some(true),
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+
+        assert!(json.contains("\"poolerMode\":true"));
     }
 }
 

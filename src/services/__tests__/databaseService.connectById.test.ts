@@ -1,0 +1,104 @@
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+
+import { databaseService } from "../databaseService";
+import { BackendAPI } from "../backend";
+import { DbType, type ConnectionProfile } from "@/types/connection";
+import type * as BackendModule from "../backend";
+
+const vaultStorageMock = vi.hoisted(() => ({
+  getConnection: vi.fn(),
+  updateConnection: vi.fn(),
+}));
+
+vi.mock("@/utils/tauri", () => ({
+  isTauri: vi.fn(() => true),
+  safeInvoke: vi.fn(),
+  safeEmit: vi.fn(),
+}));
+
+vi.mock("../backend", async (importOriginal) => {
+  const actual = await importOriginal<typeof BackendModule>();
+
+  return {
+    ...actual,
+    BackendAPI: {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      getConnectionHealth: vi.fn(),
+      ping: vi.fn(),
+      updateActiveSchema: vi.fn(),
+    },
+  };
+});
+
+vi.mock("../vaultStorage", () => ({
+  vaultStorage: vaultStorageMock,
+}));
+
+describe("databaseService.connectById", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    const service = databaseService as unknown as {
+      activeConnections: Map<string, unknown>;
+      healthMonitors: Map<string, ReturnType<typeof setInterval>>;
+      healthListeners: Map<string, unknown>;
+      healthStatus: Map<string, string>;
+      inflightConnects: Map<string, Promise<unknown>>;
+      startHealthMonitoring: (connectionId: string) => void;
+    };
+
+    service.activeConnections.clear();
+    service.healthMonitors.forEach((monitor) => {
+      clearInterval(monitor);
+    });
+    service.healthMonitors.clear();
+    service.healthListeners.clear();
+    service.healthStatus.clear();
+    service.inflightConnects.clear();
+
+    vi.spyOn(service, "startHealthMonitoring").mockImplementation(() => {});
+  });
+
+  it("persists auto-detected pooler mode after a real connection succeeds", async () => {
+    const profile: ConnectionProfile = {
+      id: "pg-pooler",
+      name: "Postgres Pooler",
+      db_type: DbType.PostgreSQL,
+      host: "localhost",
+      port: 5432,
+      database: "postgres",
+      username: "postgres",
+      password: "secret",
+      options: {},
+      pooler_mode: null,
+    };
+
+    (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
+      profile,
+      metadata: {
+        favorite: false,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastUsed: null,
+      },
+    });
+    (BackendAPI.disconnect as unknown as Mock).mockResolvedValue(undefined);
+    (BackendAPI.connect as unknown as Mock).mockResolvedValue({
+      id: "pg-pooler",
+      db_type: DbType.PostgreSQL,
+      database: "postgres",
+      version: "16.0",
+      pooler_mode: true,
+    });
+    await databaseService.connectById("pg-pooler");
+
+    expect(vaultStorageMock.updateConnection).toHaveBeenCalledWith(
+      "pg-pooler",
+      expect.objectContaining({
+        pooler_mode: true,
+      }),
+    );
+  });
+});
