@@ -1150,6 +1150,7 @@ SELECT
     cycle_flag
 FROM all_sequences
 WHERE sequence_owner = UPPER('${escapeSqlString(schema)}')
+  AND sequence_name NOT LIKE 'ISEQ$$%'
 ORDER BY sequence_name`;
   }
 
