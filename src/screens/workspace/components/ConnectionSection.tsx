@@ -514,25 +514,35 @@ export const ConnectionSection = forwardRef<
         })),
     [storedConnections],
   );
-  // Connected non-DuckDB connections for snapshot dropdown
-  const connectedNonDuckDbSources = useWorkspaceBundleStore(
-    useShallow((s): DuckDbConnectedSource[] => {
-      const workspace = s.activeWorkspace;
-      if (!workspace) return [];
-      const sources: DuckDbConnectedSource[] = [];
-      workspace.connections.forEach((conn) => {
-        if (
-          conn.id !== connectionId &&
-          conn.profile.db_type !== DbType.DuckDB &&
-          conn.status === "connected"
-        ) {
-          sources.push({ id: conn.id, name: conn.profile.name });
-        }
-      });
-      return sources;
-    }),
-  );
-  const { toggleStarred, getStarredItems } = useStarredItemsStore();
+  // Connected non-DuckDB connections for snapshot dropdown.
+  // Selector returns a stable string key (primitives compare by value),
+  // then useMemo builds objects only when the key changes.
+  // Using useShallow with object-creating selectors causes infinite re-renders
+  // because useShallow shallow-compares array elements by reference.
+  const connectedNonDuckDbKey = useWorkspaceBundleStore((s) => {
+    const workspace = s.activeWorkspace;
+    if (!workspace) return "";
+    const parts: string[] = [];
+    workspace.connections.forEach((conn) => {
+      if (
+        conn.id !== connectionId &&
+        conn.profile.db_type !== DbType.DuckDB &&
+        conn.status === "connected"
+      ) {
+        parts.push(`${conn.id}\0${conn.profile.name}`);
+      }
+    });
+    return parts.join("\n");
+  });
+  const connectedNonDuckDbSources = useMemo<DuckDbConnectedSource[]>(() => {
+    if (!connectedNonDuckDbKey) return [];
+    return connectedNonDuckDbKey.split("\n").map((entry) => {
+      const sep = entry.indexOf("\0");
+      return { id: entry.slice(0, sep), name: entry.slice(sep + 1) };
+    });
+  }, [connectedNonDuckDbKey]);
+  const toggleStarred = useStarredItemsStore((s) => s.toggleStarred);
+  const starredStoreItems = useStarredItemsStore((s) => s.items);
   // Scoped version: only re-render when THIS connection's commands change (#10 fix)
   const connectionCommandsVersion = useCrudStore((s) => {
     let hash = "";
@@ -610,8 +620,19 @@ export const ConnectionSection = forwardRef<
     return map;
   }, [functions]);
 
-  // Pre-compute starred items set
-  const starredItemsRaw = getStarredItems(connectionId, database, schema);
+  // Pre-compute starred items for this connection (stable — only changes when store items change)
+  const starredItemsRaw = useMemo(
+    () =>
+      starredStoreItems
+        .filter(
+          (item) =>
+            item.connectionId === connectionId &&
+            item.database === database &&
+            item.schema === schema,
+        )
+        .sort((a, b) => b.starredAt - a.starredAt),
+    [starredStoreItems, connectionId, database, schema],
+  );
   const starredSet = useMemo(() => {
     const set = new Set<string>();
     starredItemsRaw.forEach((item) =>
@@ -869,18 +890,14 @@ export const ConnectionSection = forwardRef<
       synonyms.length > 0
     ) {
       queueMicrotask(() => {
-        setExpandedNodes(
-          (prev) =>
-            new Set([
-              ...prev,
-              "tables",
-              "views",
-              "starred",
-              "sequences",
-              "packages",
-              "synonyms",
-            ]),
-        );
+        setExpandedNodes((prev) => {
+          const toAdd = ["tables", "views", "starred", "sequences", "packages", "synonyms"];
+          const missing = toAdd.filter((k) => !prev.has(k));
+          if (missing.length === 0) return prev;
+          const next = new Set(prev);
+          for (const k of missing) next.add(k);
+          return next;
+        });
       });
     }
   }, [

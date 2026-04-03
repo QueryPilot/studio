@@ -74,6 +74,7 @@ function getDefaultPort(dbType: DbType): number {
     case DbType.Redis:
       return 6379;
     case DbType.SQLite:
+    case DbType.DuckDB:
       return 0;
   }
 }
@@ -122,24 +123,24 @@ function ConnectionSummary({ info }: { info: ParsedInfo }) {
   connectionStr += hostStr;
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border overflow-hidden">
       <img
         src={getDatabaseLogo(info.dbType)}
         alt=""
         className="h-8 w-8 shrink-0"
       />
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{displayName}</span>
           {info.hasPassword && (
-            <IconLock className="h-3 w-3 text-muted-foreground" />
+            <IconLock className="h-3 w-3 text-muted-foreground shrink-0" />
           )}
           {info.hasSSH && (
-            <span className="text-[10px] text-muted-foreground/60 uppercase">
+            <span className="text-[10px] text-muted-foreground/60 uppercase shrink-0">
               SSH
             </span>
           )}
-          <span className="text-[10px] text-muted-foreground/60 uppercase ml-auto">
+          <span className="text-[10px] text-muted-foreground/60 uppercase ml-auto shrink-0">
             {info.format}
           </span>
         </div>
@@ -318,7 +319,8 @@ export function QuickConnectDialog({
           onChange={(e) => {
             handleUriChange(e.target.value);
           }}
-          className="min-h-[100px] font-mono text-xs break-all"
+          className="min-h-[100px] font-mono text-xs overflow-wrap-anywhere"
+          style={{ overflowWrap: "anywhere" }}
         />
 
         {parsedInfo && <ConnectionSummary info={parsedInfo} />}

@@ -293,7 +293,7 @@ export const getLanguageExtension = (
 
       // Add context-aware completion and hover if connection info is available
       if (connectionId && database) {
-        const defaultSchema = schema || fallbackSchemaForDialect(dialect);
+        const defaultSchema = schema || fallbackSchemaForDialect(dialect) || "public";
         const provider = createSqlMetadataProvider(
           connectionId,
           defaultSchema,
@@ -314,7 +314,7 @@ export const getLanguageExtension = (
           // NOTE: Semantic linting removed - handled by createDialectLinter (unified-linter)
           // which uses Rust sql_validate when available
           // Add Expand Star code action
-          createExpandStarExtension(provider, defaultSchema, dialect),
+          createExpandStarExtension(provider, defaultSchema, dialect ?? "postgresql"),
         );
       }
 

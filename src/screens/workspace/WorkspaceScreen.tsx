@@ -42,11 +42,13 @@ export function WorkspaceScreen() {
   const activeWorkspaceConfigId = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.config.id ?? null,
   );
-  const focusedConnection = useWorkspaceBundleStore((s) => {
-    const ws = s.activeWorkspace;
-    if (!ws?.focusedConnectionId) return null;
-    return ws.connections.get(ws.focusedConnectionId) ?? null;
-  });
+  // Subscribe only to the focused connection ID (a string primitive), not the
+  // full connection object. This prevents WorkspaceScreen from re-rendering
+  // when updateConnectionState creates a new connection object with same values,
+  // which cascades re-renders to every child including SidebarConnectionList.
+  const connectionId = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.focusedConnectionId ?? undefined,
+  );
   const savedWorkspaces = useWorkspaceBundleStore((s) => s.savedWorkspaces);
   const loadSavedWorkspaces = useWorkspaceBundleStore(
     (s) => s.loadSavedWorkspaces,
@@ -63,9 +65,6 @@ export function WorkspaceScreen() {
   // Track if workspaces and connections have been loaded
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [connectionsLoaded, setConnectionsLoaded] = useState(false);
-
-  // Get connection ID from focused connection in workspace
-  const connectionId = focusedConnection?.id;
 
   useMenuEventListener();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -222,13 +221,16 @@ export function WorkspaceScreen() {
       const currentDatabase = useWorkspaceSelectionStore.getState().database;
 
       // Priority: URL param > saved per-connection state > connection profile default
+      // Guard: only update when values actually differ to avoid redundant
+      // updateConnectionState calls that create new Map references and trigger
+      // unnecessary re-render cascades in multi-connection workspaces.
       if (urlDbname) {
         if (currentDatabase !== urlDbname) {
           useWorkspaceSelectionStore.setState({ database: urlDbname });
           setWorkspaceDatabase(urlDbname);
         }
-      } else if (savedState.database) {
-        // Restore saved state for this connection
+      } else if (savedState.database && currentDatabase !== savedState.database) {
+        // Restore saved state for this connection (only if different)
         useWorkspaceSelectionStore.setState({ database: savedState.database });
         setWorkspaceDatabase(savedState.database);
         // Set URL param to match
@@ -253,8 +255,8 @@ export function WorkspaceScreen() {
           useWorkspaceSelectionStore.setState({ schema: urlSchema });
           setSelectedSchema(urlSchema);
         }
-      } else if (savedState.schema) {
-        // Restore saved schema for this connection
+      } else if (savedState.schema && currentSchema !== savedState.schema) {
+        // Restore saved schema for this connection (only if different)
         useWorkspaceSelectionStore.setState({ schema: savedState.schema });
         setSelectedSchema(savedState.schema);
       } else if (!currentSchema) {

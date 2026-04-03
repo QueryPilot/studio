@@ -79,7 +79,7 @@ function getOrParseColumnMeta(column: GridColumnV2): ParsedColumnMeta {
     return cached;
   }
 
-  const dbType = column.meta?.db_type?.toLowerCase() || "";
+  const dbType = (column.meta?.db_type || column.type || "").toLowerCase();
   const normalizedDbType = dbType.replace(/[(),]/g, " ");
   const dbTypeTokens = normalizedDbType
     .split(/\s+/)

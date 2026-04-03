@@ -982,8 +982,14 @@ fn extract_tables_from_select_item(item: &ast::SelectItem, tables: &mut Vec<Tabl
 
 fn extract_table_factor(factor: &TableFactor, tables: &mut Vec<TableReference>) {
     match factor {
-        TableFactor::Table { name, alias, .. } => {
-            push_table_reference_from_name(name, alias.as_ref(), tables);
+        TableFactor::Table {
+            name, alias, args, ..
+        } => {
+            // Skip table-valued function calls (e.g., duckdb_tables(), generate_series())
+            // args is Some(...) when the table reference has function-call parentheses
+            if args.is_none() {
+                push_table_reference_from_name(name, alias.as_ref(), tables);
+            }
         }
         TableFactor::Derived { subquery, .. } => {
             extract_tables_from_query(subquery, tables);

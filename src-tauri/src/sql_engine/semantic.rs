@@ -958,6 +958,42 @@ mod tests {
     }
 
     #[test]
+    fn test_table_valued_functions_not_flagged_as_missing() {
+        let schema = test_schema();
+        // DuckDB table-valued functions should not be flagged as missing tables
+        let doc = parse_document(
+            "SELECT * FROM duckdb_tables() WHERE schema_name = 'main'",
+            SqlDialect::DuckDB,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+        let errors = validate_table_references(stmt, &schema);
+        assert!(
+            errors.is_empty(),
+            "Table-valued function duckdb_tables() should not be flagged: {:?}",
+            errors
+        );
+
+        // Also test generate_series (PostgreSQL)
+        let doc = parse_document(
+            "SELECT * FROM generate_series(1, 10)",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+        let errors = validate_table_references(stmt, &schema);
+        assert!(
+            errors.is_empty(),
+            "Table-valued function generate_series() should not be flagged: {:?}",
+            errors
+        );
+    }
+
+    #[test]
     fn test_column_exists_case_insensitive_table_name() {
         let schema = CachedSchemaBuilder::new()
             .add_table(TableInfo {

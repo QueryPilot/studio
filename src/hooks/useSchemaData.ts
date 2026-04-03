@@ -13,7 +13,7 @@ import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
 import { type QueryObserverResult, useQuery } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 interface SchemaDataResult {
   tables: TableMeta[];
@@ -124,22 +124,46 @@ const loadSchemaData = async (
  *                               When omitted, uses the currently focused connection.
  */
 export function useSchemaData(overrideConnectionId?: string): SchemaData {
-  // Subscribe to bundle store for focused connection (reactive)
-  const activeWorkspace = useWorkspaceBundleStore((s) => s.activeWorkspace);
-  const focusedConnectionId = activeWorkspace?.focusedConnectionId ?? null;
-  // activeWorkspace is guaranteed non-null when focusedConnectionId is non-null
-  const focusedConnection =
-    activeWorkspace?.connections.get(focusedConnectionId ?? "") ?? null;
+  // Narrow selectors — only re-render when the values we actually USE change.
+  // Subscribing to the entire activeWorkspace caused every ConnectionSection
+  // to re-render on any workspace change (e.g. setFocusedConnection), which
+  // in multi-connection workspaces created a massive re-render cascade.
 
-  // Subscribe to legacy store for backwards compatibility
+  // When overrideConnectionId is provided, subscribe to that connection's db/schema only
+  const overrideDatabase = useWorkspaceBundleStore((s) =>
+    overrideConnectionId
+      ? (s.activeWorkspace?.connections.get(overrideConnectionId)?.database ??
+        null)
+      : null,
+  );
+  const overrideSchema = useWorkspaceBundleStore((s) =>
+    overrideConnectionId
+      ? (s.activeWorkspace?.connections.get(overrideConnectionId)?.schema ??
+        null)
+      : null,
+  );
+
+  // When no override, subscribe to focused connection's db/schema
+  const focusedConnectionId = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.focusedConnectionId ?? null,
+  );
+  const focusedDatabase = useWorkspaceBundleStore((s) => {
+    if (overrideConnectionId) return null; // skip if override is set
+    const ws = s.activeWorkspace;
+    if (!ws?.focusedConnectionId) return null;
+    return ws.connections.get(ws.focusedConnectionId)?.database ?? null;
+  });
+  const focusedSchema = useWorkspaceBundleStore((s) => {
+    if (overrideConnectionId) return null; // skip if override is set
+    const ws = s.activeWorkspace;
+    if (!ws?.focusedConnectionId) return null;
+    return ws.connections.get(ws.focusedConnectionId)?.schema ?? null;
+  });
+
+  // Subscribe to legacy store for backwards compatibility (fallback only)
   const legacyConnectionId = useWorkspaceSelectionStore((s) => s.connectionId);
   const legacyDatabase = useWorkspaceSelectionStore((s) => s.database);
   const legacySchema = useWorkspaceSelectionStore((s) => s.schema);
-
-  // Get connection by override ID from bundle store (if needed)
-  const overrideConnection = overrideConnectionId
-    ? activeWorkspace?.connections.get(overrideConnectionId)
-    : null;
 
   // Determine effective connection context
   let connectionId: string | null;
@@ -149,13 +173,13 @@ export function useSchemaData(overrideConnectionId?: string): SchemaData {
   if (overrideConnectionId) {
     // Use override - get state from bundle store
     connectionId = overrideConnectionId;
-    database = overrideConnection?.database ?? null;
-    schema = overrideConnection?.schema ?? null;
-  } else if (focusedConnection) {
+    database = overrideDatabase;
+    schema = overrideSchema;
+  } else if (focusedConnectionId) {
     // Use focused connection from bundle store
-    connectionId = focusedConnection.id;
-    database = focusedConnection.database;
-    schema = focusedConnection.schema;
+    connectionId = focusedConnectionId;
+    database = focusedDatabase;
+    schema = focusedSchema;
   } else {
     // Fall back to legacy store
     connectionId = legacyConnectionId;
@@ -194,20 +218,34 @@ export function useSchemaData(overrideConnectionId?: string): SchemaData {
     return unsubscribe;
   }, [connectionId, database, schema, refetch]);
 
-  return {
-    tables: data?.tables || [],
-    views: data?.views || [],
-    functions: data?.functions || [],
-    allFunctions: data?.allFunctions || [],
-    sequences: data?.sequences || [],
-    packages: data?.packages || [],
-    synonyms: data?.synonyms || [],
-    isLoading,
-    error: error
-      ? error instanceof Error
-        ? error.message
-        : String(error)
-      : null,
-    refresh: refetch,
-  };
+  // Stable empty arrays — avoids creating new [] references on every render
+  // when data is undefined (which would cause downstream useMemo/useEffect churn)
+  const errorMessage = error
+    ? error instanceof Error
+      ? error.message
+      : String(error)
+    : null;
+
+  return useMemo(
+    () => ({
+      tables: data?.tables ?? EMPTY_TABLES,
+      views: data?.views ?? EMPTY_TABLES,
+      functions: data?.functions ?? EMPTY_FUNCTIONS,
+      allFunctions: data?.allFunctions ?? EMPTY_FUNCTIONS,
+      sequences: data?.sequences ?? EMPTY_SEQUENCES,
+      packages: data?.packages ?? EMPTY_PACKAGES,
+      synonyms: data?.synonyms ?? EMPTY_SYNONYMS,
+      isLoading,
+      error: errorMessage,
+      refresh: refetch,
+    }),
+    [data, isLoading, errorMessage, refetch],
+  );
 }
+
+// Stable empty arrays shared across all hook instances
+const EMPTY_TABLES: TableMeta[] = [];
+const EMPTY_FUNCTIONS: FunctionMeta[] = [];
+const EMPTY_SEQUENCES: SequenceMeta[] = [];
+const EMPTY_PACKAGES: PackageMeta[] = [];
+const EMPTY_SYNONYMS: SynonymMeta[] = [];
