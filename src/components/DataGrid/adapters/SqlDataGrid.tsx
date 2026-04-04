@@ -507,6 +507,9 @@ RULES:
 
   // Compute default sort from PK columns (or user-selected identifier columns as fallback).
   // Not stored — always derived fresh from table structure.
+  // Stabilize dependency on primaryKeys using a string key to avoid re-running when the
+  // tableStructure object reference changes (e.g., background refetch) while contents are unchanged.
+  const pkKey = tableStructure?.primaryKeys?.join(',') ?? '';
   const defaultSortColumns = useMemo<SortColumn[]>(() => {
     const pks = tableStructure?.primaryKeys;
     if (pks && pks.length > 0) {
@@ -519,8 +522,12 @@ RULES:
       }));
     }
     return [];
-  }, [tableStructure?.primaryKeys, persistedRowIdentifierColumns]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pkKey, persistedRowIdentifierColumns]);
 
+  // Effective sort for the backend query: prefer explicit user sort, fall back to default PK sort.
+  // NOTE: BaseDataGrid applies the same effective-sort logic in useColumnSorting for UI indicators.
+  // Both must use the same precedence (storedSort > defaultSortColumns) to stay in sync.
   const sorts = useMemo<SortConfig[]>(() => {
     const effective = sortColumns.length > 0 ? sortColumns : defaultSortColumns;
     return effective.map(({ columnId, direction }) => ({

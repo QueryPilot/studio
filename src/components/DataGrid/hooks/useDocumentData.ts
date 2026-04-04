@@ -203,6 +203,8 @@ export function useDocumentData(
 
   // Convert sort columns to MongoDB sort format: { field: 1 | -1 }
   // Defaults to { _id: 1 } when no user sort is set — MongoDB's natural PK.
+  // NOTE: This mirrors the effectiveSortColumns fallback in useColumnSorting (used by BaseDataGrid
+  // for UI sort indicators). Both must agree: empty storedSort → _id default.
   const mongoSort = useMemo(() => {
     if (sortColumns.length === 0) return { _id: 1 as const };
 

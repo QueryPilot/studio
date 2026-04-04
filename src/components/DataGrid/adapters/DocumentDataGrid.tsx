@@ -1060,7 +1060,6 @@ const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
     <BaseDataGrid
       gridId={gridId}
       sortGridId={sortGridId}
-      defaultSortColumns={MONGO_DEFAULT_SORT}
       rows={rows}
       columns={columns}
       getCellContent={getCellContent}
