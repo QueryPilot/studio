@@ -241,9 +241,7 @@ fn sql_value_to_json(row: &oracle::Row, index: usize) -> Result<Value, AppError>
         },
 
         // Interval types - use string representation
-        OracleType::IntervalYM(_) | OracleType::IntervalDS(_, _) => {
-            string_value(row, index)
-        }
+        OracleType::IntervalYM(_) | OracleType::IntervalDS(_, _) => string_value(row, index),
 
         // CLOB/NCLOB - read as string directly
         OracleType::CLOB | OracleType::NCLOB => {
@@ -287,27 +285,25 @@ fn apply_oracle_environment(options: &HashMap<String, String>) {
     // On macOS, SIP strips DYLD_LIBRARY_PATH from GUI apps, so we use
     // InitParams::oracle_client_lib_dir to tell ODPI-C exactly where to find libclntsh.
     static INIT_ORACLE: Once = Once::new();
-    INIT_ORACLE.call_once(|| {
-        match find_oracle_lib_dir() {
-            Some(lib_dir) => {
-                tracing::info!("Oracle: initializing client from {}", lib_dir);
-                match oracle::InitParams::new().oracle_client_lib_dir(&lib_dir) {
-                    Ok(params) => match params.init() {
-                        Ok(initialized) => {
-                            tracing::info!("Oracle: InitParams.init() => {}", initialized);
-                        }
-                        Err(e) => {
-                            tracing::error!("Oracle: InitParams.init() failed: {}", e);
-                        }
-                    },
-                    Err(e) => {
-                        tracing::error!("Oracle: oracle_client_lib_dir() failed: {}", e);
+    INIT_ORACLE.call_once(|| match find_oracle_lib_dir() {
+        Some(lib_dir) => {
+            tracing::info!("Oracle: initializing client from {}", lib_dir);
+            match oracle::InitParams::new().oracle_client_lib_dir(&lib_dir) {
+                Ok(params) => match params.init() {
+                    Ok(initialized) => {
+                        tracing::info!("Oracle: InitParams.init() => {}", initialized);
                     }
+                    Err(e) => {
+                        tracing::error!("Oracle: InitParams.init() failed: {}", e);
+                    }
+                },
+                Err(e) => {
+                    tracing::error!("Oracle: oracle_client_lib_dir() failed: {}", e);
                 }
             }
-            None => {
-                tracing::warn!("Oracle: could not find client library directory");
-            }
+        }
+        None => {
+            tracing::warn!("Oracle: could not find client library directory");
         }
     });
 }
@@ -390,7 +386,11 @@ fn build_connect_string(profile: &ConnectionProfile) -> Result<String, AppError>
     } else {
         profile.host.trim()
     };
-    let port = if profile.port == 0 { 1521 } else { profile.port };
+    let port = if profile.port == 0 {
+        1521
+    } else {
+        profile.port
+    };
     let database = profile.database.trim();
 
     match mode {
@@ -460,14 +460,16 @@ impl BaseCapability for OracleAdapter {
             let schema = resolve_session_schema(&profile.options);
             let conn = pool_instance.get().map_err(map_oracle_error)?;
             if let Some(schema_name) = schema.as_deref() {
-                conn.set_current_schema(schema_name).map_err(map_oracle_error)?;
+                conn.set_current_schema(schema_name)
+                    .map_err(map_oracle_error)?;
             }
 
             *session_schema
                 .lock()
                 .map_err(|_| AppError::Internal("Oracle session schema lock poisoned".into()))? =
                 schema;
-            *pool.lock()
+            *pool
+                .lock()
                 .map_err(|_| AppError::Internal("Oracle pool lock poisoned".into()))? =
                 Some(pool_instance);
             Ok(())
@@ -523,7 +525,10 @@ impl BaseCapability for OracleAdapter {
     }
 
     fn is_connected(&self) -> bool {
-        self.pool.lock().map(|guard| guard.is_some()).unwrap_or(false)
+        self.pool
+            .lock()
+            .map(|guard| guard.is_some())
+            .unwrap_or(false)
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {

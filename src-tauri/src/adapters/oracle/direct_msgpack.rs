@@ -19,16 +19,15 @@ const ESTIMATED_CELL_SIZE: usize = 32;
 
 /// Fast digit pair lookup table (00-99)
 static DIGIT_PAIRS: &[[u8; 2]; 100] = &[
-    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10",
-    *b"11", *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21",
-    *b"22", *b"23", *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32",
-    *b"33", *b"34", *b"35", *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43",
-    *b"44", *b"45", *b"46", *b"47", *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54",
-    *b"55", *b"56", *b"57", *b"58", *b"59", *b"60", *b"61", *b"62", *b"63", *b"64", *b"65",
-    *b"66", *b"67", *b"68", *b"69", *b"70", *b"71", *b"72", *b"73", *b"74", *b"75", *b"76",
-    *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83", *b"84", *b"85", *b"86", *b"87",
-    *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95", *b"96", *b"97", *b"98",
-    *b"99",
+    *b"00", *b"01", *b"02", *b"03", *b"04", *b"05", *b"06", *b"07", *b"08", *b"09", *b"10", *b"11",
+    *b"12", *b"13", *b"14", *b"15", *b"16", *b"17", *b"18", *b"19", *b"20", *b"21", *b"22", *b"23",
+    *b"24", *b"25", *b"26", *b"27", *b"28", *b"29", *b"30", *b"31", *b"32", *b"33", *b"34", *b"35",
+    *b"36", *b"37", *b"38", *b"39", *b"40", *b"41", *b"42", *b"43", *b"44", *b"45", *b"46", *b"47",
+    *b"48", *b"49", *b"50", *b"51", *b"52", *b"53", *b"54", *b"55", *b"56", *b"57", *b"58", *b"59",
+    *b"60", *b"61", *b"62", *b"63", *b"64", *b"65", *b"66", *b"67", *b"68", *b"69", *b"70", *b"71",
+    *b"72", *b"73", *b"74", *b"75", *b"76", *b"77", *b"78", *b"79", *b"80", *b"81", *b"82", *b"83",
+    *b"84", *b"85", *b"86", *b"87", *b"88", *b"89", *b"90", *b"91", *b"92", *b"93", *b"94", *b"95",
+    *b"96", *b"97", *b"98", *b"99",
 ];
 
 #[inline(always)]
@@ -167,21 +166,19 @@ pub fn encode_oracle_cell<W: Write>(buf: &mut W, row: &Row, index: usize) -> Res
                 }
             }
         }
-        OracleType::Number(_, _) | OracleType::Float(_) => {
-            match row.get::<usize, f64>(index) {
-                Ok(val) => {
-                    if val.is_finite() {
-                        encode::write_f64(buf, val).map_err(map_encode_err)?;
-                    } else {
-                        encode::write_nil(buf).map_err(map_io_err)?;
-                    }
-                }
-                Err(_) => {
-                    let s: String = row.get(index).map_err(map_oracle_error)?;
-                    encode::write_str(buf, &s).map_err(map_encode_err)?;
+        OracleType::Number(_, _) | OracleType::Float(_) => match row.get::<usize, f64>(index) {
+            Ok(val) => {
+                if val.is_finite() {
+                    encode::write_f64(buf, val).map_err(map_encode_err)?;
+                } else {
+                    encode::write_nil(buf).map_err(map_io_err)?;
                 }
             }
-        }
+            Err(_) => {
+                let s: String = row.get(index).map_err(map_oracle_error)?;
+                encode::write_str(buf, &s).map_err(map_encode_err)?;
+            }
+        },
         OracleType::Int64 => {
             let val: i64 = row.get(index).map_err(map_oracle_error)?;
             encode::write_i64(buf, val).map_err(map_encode_err)?;
@@ -203,63 +200,53 @@ pub fn encode_oracle_cell<W: Write>(buf: &mut W, row: &Row, index: usize) -> Res
         OracleType::Date
         | OracleType::Timestamp(_)
         | OracleType::TimestampTZ(_)
-        | OracleType::TimestampLTZ(_) => {
-            match row.get::<usize, Timestamp>(index) {
-                Ok(ts) => {
-                    let year = ts.year().unsigned_abs();
-                    let month = ts.month() as u8;
-                    let day = ts.day() as u8;
-                    let hour = ts.hour() as u8;
-                    let minute = ts.minute() as u8;
-                    let second = ts.second() as u8;
-                    let nano = ts.nanosecond();
-                    let micro = nano / 1000;
+        | OracleType::TimestampLTZ(_) => match row.get::<usize, Timestamp>(index) {
+            Ok(ts) => {
+                let year = ts.year().unsigned_abs();
+                let month = ts.month() as u8;
+                let day = ts.day() as u8;
+                let hour = ts.hour() as u8;
+                let minute = ts.minute() as u8;
+                let second = ts.second() as u8;
+                let nano = ts.nanosecond();
+                let micro = nano / 1000;
 
-                    if matches!(oracle_type, OracleType::Date)
-                        && hour == 0
-                        && minute == 0
-                        && second == 0
-                        && micro == 0
-                    {
-                        let mut date_buf = [0u8; 10];
-                        format_date_fast(&mut date_buf, year, month, day);
-                        let s = unsafe { std::str::from_utf8_unchecked(&date_buf) };
-                        encode::write_str(buf, s).map_err(map_encode_err)?;
-                    } else if micro == 0 {
-                        let mut ts_buf = [0u8; 19];
-                        format_datetime_no_micros(
-                            &mut ts_buf,
-                            year,
-                            month,
-                            day,
-                            hour,
-                            minute,
-                            second,
-                        );
-                        let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
-                        encode::write_str(buf, s).map_err(map_encode_err)?;
-                    } else {
-                        let mut ts_buf = [0u8; 26];
-                        format_datetime_fast(
-                            &mut ts_buf,
-                            year,
-                            month,
-                            day,
-                            hour,
-                            minute,
-                            second,
-                            micro,
-                        );
-                        let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
-                        encode::write_str(buf, s).map_err(map_encode_err)?;
-                    }
-                }
-                Err(_) => {
-                    let s: String = row.get(index).map_err(map_oracle_error)?;
-                    encode::write_str(buf, &s).map_err(map_encode_err)?;
+                if matches!(oracle_type, OracleType::Date)
+                    && hour == 0
+                    && minute == 0
+                    && second == 0
+                    && micro == 0
+                {
+                    let mut date_buf = [0u8; 10];
+                    format_date_fast(&mut date_buf, year, month, day);
+                    let s = unsafe { std::str::from_utf8_unchecked(&date_buf) };
+                    encode::write_str(buf, s).map_err(map_encode_err)?;
+                } else if micro == 0 {
+                    let mut ts_buf = [0u8; 19];
+                    format_datetime_no_micros(&mut ts_buf, year, month, day, hour, minute, second);
+                    let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                    encode::write_str(buf, s).map_err(map_encode_err)?;
+                } else {
+                    let mut ts_buf = [0u8; 26];
+                    format_datetime_fast(
+                        &mut ts_buf,
+                        year,
+                        month,
+                        day,
+                        hour,
+                        minute,
+                        second,
+                        micro,
+                    );
+                    let s = unsafe { std::str::from_utf8_unchecked(&ts_buf) };
+                    encode::write_str(buf, s).map_err(map_encode_err)?;
                 }
             }
-        }
+            Err(_) => {
+                let s: String = row.get(index).map_err(map_oracle_error)?;
+                encode::write_str(buf, &s).map_err(map_encode_err)?;
+            }
+        },
 
         // Interval types
         OracleType::IntervalYM(_) | OracleType::IntervalDS(_, _) => {
@@ -322,9 +309,10 @@ pub fn oracle_type_to_cell_type(oracle_type: &OracleType) -> crate::types::CellV
     use crate::types::CellValueType;
     match oracle_type {
         OracleType::Number(_, scale) if *scale == 0 => CellValueType::Integer,
-        OracleType::Number(_, _) | OracleType::Float(_) | OracleType::BinaryFloat | OracleType::BinaryDouble => {
-            CellValueType::Decimal
-        }
+        OracleType::Number(_, _)
+        | OracleType::Float(_)
+        | OracleType::BinaryFloat
+        | OracleType::BinaryDouble => CellValueType::Decimal,
         OracleType::Int64 | OracleType::UInt64 => CellValueType::Integer,
         OracleType::Boolean => CellValueType::Boolean,
         OracleType::Date => CellValueType::Date,
@@ -375,8 +363,7 @@ impl DirectMsgPackEncoder {
 
         let estimated = self.estimated_row_size * rows.len() + 8;
         let mut buffer = Vec::with_capacity(estimated);
-        encode::write_array_len(&mut buffer, rows.len() as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(&mut buffer, rows.len() as u32).map_err(Self::map_encode_err)?;
 
         for row in rows {
             let row_start = buffer.len();
@@ -391,8 +378,7 @@ impl DirectMsgPackEncoder {
     }
 
     fn encode_row<W: Write>(&self, buf: &mut W, row: &Row) -> Result<()> {
-        encode::write_array_len(buf, self.column_count as u32)
-            .map_err(Self::map_encode_err)?;
+        encode::write_array_len(buf, self.column_count as u32).map_err(Self::map_encode_err)?;
         for i in 0..self.column_count {
             encode_oracle_cell(buf, row, i)?;
         }

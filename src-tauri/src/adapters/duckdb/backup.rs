@@ -396,8 +396,9 @@ impl DuckDbAdapter {
         let export_sql = format!("EXPORT DATABASE '{}'", export_dir_str.replace('\'', "''"));
         let export_result = self
             .execute_blocking(move |conn| {
-                conn.execute_batch(&export_sql)
-                    .map_err(|e| AppError::DatabaseError(format!("EXPORT DATABASE failed: {}", e)))?;
+                conn.execute_batch(&export_sql).map_err(|e| {
+                    AppError::DatabaseError(format!("EXPORT DATABASE failed: {}", e))
+                })?;
                 Ok(())
             })
             .await;
@@ -505,9 +506,8 @@ impl DuckDbAdapter {
             Ok(())
         })
         .await?;
-        std::fs::copy(&db_path, &safety_backup).map_err(|e| {
-            AppError::Io(format!("Failed to create safety backup: {}", e))
-        })?;
+        std::fs::copy(&db_path, &safety_backup)
+            .map_err(|e| AppError::Io(format!("Failed to create safety backup: {}", e)))?;
 
         // Step 2: Disconnect (preserving db_path)
         let _ = progress
@@ -599,8 +599,9 @@ impl DuckDbAdapter {
             .await;
 
         self.execute_blocking(move |conn| {
-            conn.execute_batch("BEGIN TRANSACTION")
-                .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
+            conn.execute_batch("BEGIN TRANSACTION").map_err(|e| {
+                AppError::DatabaseError(format!("Failed to begin transaction: {}", e))
+            })?;
             match conn.execute_batch(&content) {
                 Ok(_) => {
                     conn.execute_batch("COMMIT")
@@ -609,7 +610,10 @@ impl DuckDbAdapter {
                 }
                 Err(e) => {
                     let _ = conn.execute_batch("ROLLBACK");
-                    Err(AppError::DatabaseError(format!("SQL restore failed (rolled back): {}", e)))
+                    Err(AppError::DatabaseError(format!(
+                        "SQL restore failed (rolled back): {}",
+                        e
+                    )))
                 }
             }
         })

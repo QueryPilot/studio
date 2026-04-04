@@ -169,10 +169,9 @@ async fn test_oracle_dml_execution() {
 async fn test_oracle_schema_switching() {
     let adapter = OracleAdapter::new();
     let mut profile = make_oracle_profile();
-    profile.options.insert(
-        "oracle_current_schema".to_string(),
-        "TODOAPP".to_string(),
-    );
+    profile
+        .options
+        .insert("oracle_current_schema".to_string(), "TODOAPP".to_string());
 
     adapter.connect(&profile).await.unwrap();
 

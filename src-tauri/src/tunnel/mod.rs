@@ -204,7 +204,9 @@ async fn handle_saml_capture_connection(
     }
 
     match request.method.as_str() {
-        "OPTIONS" => write_saml_capture_response(socket, 204, "No Content", "text/plain", "").await?,
+        "OPTIONS" => {
+            write_saml_capture_response(socket, 204, "No Content", "text/plain", "").await?
+        }
         "POST" => {
             if let Some(saml_response) = extract_saml_response(&request.body, expected_profile_id) {
                 tracing::warn!(
@@ -250,13 +252,18 @@ async fn handle_saml_capture_connection(
     Ok(())
 }
 
-async fn read_saml_capture_request(socket: &mut tokio::net::TcpStream) -> Result<SamlCaptureRequest> {
+async fn read_saml_capture_request(
+    socket: &mut tokio::net::TcpStream,
+) -> Result<SamlCaptureRequest> {
     let mut buffer = Vec::with_capacity(8192);
     let mut chunk = [0_u8; 4096];
     let mut header_end = None;
 
     loop {
-        let bytes_read = socket.read(&mut chunk).await.context("Failed reading SAML capture request")?;
+        let bytes_read = socket
+            .read(&mut chunk)
+            .await
+            .context("Failed reading SAML capture request")?;
         if bytes_read == 0 {
             anyhow::bail!("SAML capture connection closed before request completed");
         }
@@ -272,7 +279,8 @@ async fn read_saml_capture_request(socket: &mut tokio::net::TcpStream) -> Result
 
         if let Some(headers_len) = header_end {
             let headers_bytes = &buffer[..headers_len];
-            let headers = std::str::from_utf8(headers_bytes).context("SAML capture headers are not UTF-8")?;
+            let headers =
+                std::str::from_utf8(headers_bytes).context("SAML capture headers are not UTF-8")?;
             let mut lines = headers.split("\r\n");
             let request_line = lines.next().context("Missing HTTP request line")?;
             let mut parts = request_line.split_whitespace();
@@ -310,7 +318,10 @@ async fn read_saml_capture_request(socket: &mut tokio::net::TcpStream) -> Result
 
             if content_length > 0 {
                 while raw_body.len() < content_length {
-                    let bytes_read = socket.read(&mut chunk).await.context("Failed reading SAML capture body")?;
+                    let bytes_read = socket
+                        .read(&mut chunk)
+                        .await
+                        .context("Failed reading SAML capture body")?;
                     if bytes_read == 0 {
                         anyhow::bail!("SAML capture body truncated");
                     }
@@ -326,7 +337,10 @@ async fn read_saml_capture_request(socket: &mut tokio::net::TcpStream) -> Result
                         raw_body = decoded;
                         break;
                     }
-                    let bytes_read = socket.read(&mut chunk).await.context("Failed reading chunked SAML capture body")?;
+                    let bytes_read = socket
+                        .read(&mut chunk)
+                        .await
+                        .context("Failed reading chunked SAML capture body")?;
                     if bytes_read == 0 {
                         anyhow::bail!("SAML capture chunked body truncated");
                     }
@@ -338,7 +352,12 @@ async fn read_saml_capture_request(socket: &mut tokio::net::TcpStream) -> Result
             } else if raw_body.is_empty() && request_line.starts_with("POST ") {
                 // Some clients omit Content-Length and close after body; best-effort read.
                 loop {
-                    match tokio::time::timeout(std::time::Duration::from_millis(100), socket.read(&mut chunk)).await {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_millis(100),
+                        socket.read(&mut chunk),
+                    )
+                    .await
+                    {
                         Ok(Ok(0)) => break,
                         Ok(Ok(bytes_read)) => {
                             raw_body.extend_from_slice(&chunk[..bytes_read]);
@@ -346,7 +365,9 @@ async fn read_saml_capture_request(socket: &mut tokio::net::TcpStream) -> Result
                                 anyhow::bail!("SAML capture request exceeded max size");
                             }
                         }
-                        Ok(Err(err)) => return Err(err).context("Failed reading trailing SAML capture body"),
+                        Ok(Err(err)) => {
+                            return Err(err).context("Failed reading trailing SAML capture body")
+                        }
                         Err(_) => break,
                     }
                 }
@@ -405,12 +426,18 @@ fn decode_chunked_body(raw: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn find_crlf(data: &[u8], start: usize) -> Option<usize> {
-    let rel = data.get(start..)?.windows(2).position(|window| window == b"\r\n")?;
+    let rel = data
+        .get(start..)?
+        .windows(2)
+        .position(|window| window == b"\r\n")?;
     Some(start + rel)
 }
 
 fn find_header_terminator_from(data: &[u8], start: usize) -> Option<usize> {
-    let rel = data.get(start..)?.windows(4).position(|window| window == b"\r\n\r\n")?;
+    let rel = data
+        .get(start..)?
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")?;
     Some(start + rel + 4)
 }
 
@@ -477,7 +504,10 @@ Connection: close\r\n\
         body.len()
     );
 
-    socket.write_all(response.as_bytes()).await.context("Failed writing SAML capture response")?;
+    socket
+        .write_all(response.as_bytes())
+        .await
+        .context("Failed writing SAML capture response")?;
     let _ = socket.shutdown().await;
     Ok(())
 }
@@ -520,15 +550,27 @@ impl TunnelManager {
 
     /// Resolve auth credentials for a tunnel. Must be called before ensure_tunnel for SSM.
     /// For Azure AD SAML, opens a webview and waits for the user to complete login.
-    pub async fn resolve_auth(&self, auth_profile_id: &str, tunnel_region: Option<&str>) -> Result<()> {
+    pub async fn resolve_auth(
+        &self,
+        auth_profile_id: &str,
+        tunnel_region: Option<&str>,
+    ) -> Result<()> {
         if self.auth_manager.has_valid_credentials(auth_profile_id) {
             return Ok(());
         }
-        let profile = self.get_auth_profile(auth_profile_id).await
-            .context(format!("Auth profile '{}' not found. Please sync profiles from Settings.", auth_profile_id))?;
+        let profile = self
+            .get_auth_profile(auth_profile_id)
+            .await
+            .context(format!(
+                "Auth profile '{}' not found. Please sync profiles from Settings.",
+                auth_profile_id
+            ))?;
 
         // For non-interactive providers, just get credentials directly
-        let result = self.auth_manager.get_credentials(auth_profile_id, &profile.provider).await?;
+        let result = self
+            .auth_manager
+            .get_credentials(auth_profile_id, &profile.provider)
+            .await?;
         if result.is_some() {
             return Ok(());
         }
@@ -544,7 +586,10 @@ impl TunnelManager {
         {
             let app = {
                 let guard = self.app_handle.read().await;
-                guard.as_ref().context("App handle not set — cannot open auth webview")?.clone()
+                guard
+                    .as_ref()
+                    .context("App handle not set — cannot open auth webview")?
+                    .clone()
             };
 
             // Build login URL
@@ -556,7 +601,8 @@ impl TunnelManager {
                 let _ = existing.close();
             }
 
-            let parsed_url: tauri::Url = login_url.parse()
+            let parsed_url: tauri::Url = login_url
+                .parse()
                 .map_err(|e| anyhow::anyhow!("Invalid SAML URL: {}", e))?;
 
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -576,7 +622,9 @@ impl TunnelManager {
             let (saml_tx, saml_rx) = tokio::sync::oneshot::channel::<String>();
             let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
             let server_task = tokio::spawn(async move {
-                if let Err(err) = run_saml_capture_server(listener, expected_id, saml_tx, shutdown_rx).await {
+                if let Err(err) =
+                    run_saml_capture_server(listener, expected_id, saml_tx, shutdown_rx).await
+                {
                     tracing::warn!("SAML capture server stopped with error: {}", err);
                 }
             });
@@ -740,7 +788,8 @@ impl TunnelManager {
                 .center()
                 .initialization_script(&init_script)
                 .on_page_load({
-                    let init_script_for_page_load = std::sync::Arc::clone(&init_script_for_page_load);
+                    let init_script_for_page_load =
+                        std::sync::Arc::clone(&init_script_for_page_load);
                     move |webview, payload| {
                         tracing::warn!("Auth webview navigated to {}", payload.url());
                         if let Err(err) = webview.eval(init_script_for_page_load.as_str()) {
@@ -751,10 +800,7 @@ impl TunnelManager {
                 .build()
                 .map_err(|e| anyhow::anyhow!("Failed to open auth window: {}", e))?;
 
-            let result = tokio::time::timeout(
-                std::time::Duration::from_secs(300),
-                saml_rx,
-            ).await;
+            let result = tokio::time::timeout(std::time::Duration::from_secs(300), saml_rx).await;
 
             let _ = shutdown_tx.send(());
             if let Err(err) = server_task.await {
@@ -780,7 +826,8 @@ impl TunnelManager {
             } else if roles.len() == 1 {
                 roles[0].clone()
             } else if let Some(ref default_arn) = default_role_arn {
-                roles.iter()
+                roles
+                    .iter()
                     .find(|(r, _)| r == default_arn)
                     .cloned()
                     .unwrap_or_else(|| roles[0].clone())

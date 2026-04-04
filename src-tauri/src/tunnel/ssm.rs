@@ -189,8 +189,7 @@ pub async fn establish(
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Step 7: Allocate local port and start SSH tunnel
-    let local_port =
-        crate::ssh::allocate_local_port().context("Failed to allocate local port")?;
+    let local_port = crate::ssh::allocate_local_port().context("Failed to allocate local port")?;
 
     // Write private key to temp file
     let key_dir = tempfile::tempdir().context("Failed to create temp dir")?;
@@ -239,14 +238,10 @@ pub async fn establish(
         .context("Failed to start SSH tunnel via session-manager-plugin. Is session-manager-plugin installed?")?;
 
     // Step 8: Wait for port to be listening
-    wait_for_bool(
-        Duration::from_secs(30),
-        Duration::from_millis(500),
-        || {
-            let p = local_port;
-            async move { Ok(crate::ssh::is_port_listening(p).await) }
-        },
-    )
+    wait_for_bool(Duration::from_secs(30), Duration::from_millis(500), || {
+        let p = local_port;
+        async move { Ok(crate::ssh::is_port_listening(p).await) }
+    })
     .await
     .context("SSH tunnel via SSM never started listening")?;
 

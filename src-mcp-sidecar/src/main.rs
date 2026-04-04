@@ -93,7 +93,12 @@ fn main() {
     // Read stdin
     let mut stdin_buf = String::new();
     if std::io::stdin().read_to_string(&mut stdin_buf).is_err() {
-        write_error("unknown", &capability, "read_stdin_failed", "Failed to read stdin");
+        write_error(
+            "unknown",
+            &capability,
+            "read_stdin_failed",
+            "Failed to read stdin",
+        );
         std::process::exit(1);
     }
 

@@ -93,10 +93,7 @@ pub async fn check_session_manager_plugin() -> Result<serde_json::Value, String>
 }
 
 #[tauri::command]
-pub async fn build_saml_login_url(
-    tenant_id: String,
-    app_id_uri: String,
-) -> Result<String, String> {
+pub async fn build_saml_login_url(tenant_id: String, app_id_uri: String) -> Result<String, String> {
     azure_ad::build_saml_login_url(&tenant_id, &app_id_uri).map_err(|e| e.to_string())
 }
 

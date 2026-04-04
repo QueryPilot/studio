@@ -96,8 +96,7 @@ pub async fn assume_role_with_saml(
         .context("No credentials in STS response")?;
 
     let expiration = creds.expiration();
-    let expires_at =
-        DateTime::<Utc>::from_timestamp(expiration.secs(), expiration.subsec_nanos());
+    let expires_at = DateTime::<Utc>::from_timestamp(expiration.secs(), expiration.subsec_nanos());
 
     Ok(AwsCredentials {
         access_key_id: creds.access_key_id().to_string(),

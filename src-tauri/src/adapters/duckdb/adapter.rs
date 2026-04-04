@@ -1192,7 +1192,7 @@ impl DuckDbAdapter {
                 '$' if !in_single_quote && !in_double_quote => {
                     if chars.peek() == Some(&'$') {
                         chars.next(); // consume second $
-                        // Skip until matching $$
+                                      // Skip until matching $$
                         loop {
                             match chars.next() {
                                 Some('$') if chars.peek() == Some(&'$') => {

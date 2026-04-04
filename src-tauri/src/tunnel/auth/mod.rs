@@ -37,8 +37,7 @@ impl AuthManager {
                 secret_access_key,
                 region,
             } => {
-                let creds =
-                    static_creds::get_credentials(access_key_id, secret_access_key, region);
+                let creds = static_creds::get_credentials(access_key_id, secret_access_key, region);
                 self.cache
                     .insert(auth_profile_id.to_string(), creds.clone());
                 Ok(Some(creds))

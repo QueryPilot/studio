@@ -21,6 +21,6 @@ mod manager_test;
 #[cfg(test)]
 mod unified_adapter_test;
 
+mod duckdb_scratchpad_test;
 #[cfg(test)]
 mod oracle_integration_test;
-mod duckdb_scratchpad_test;
