@@ -350,6 +350,127 @@ sequenceDiagram
     end
 ```
 
+## Streaming Reliability Guardrails
+
+### Incident Summary
+
+In April 2026 we hit a regression where PostgreSQL streaming completed successfully on the backend with `100000 rows`, but the Query Panel sometimes displayed a much smaller number such as `27.5K`, `84,848`, or `97,136`.
+
+This class of bug is dangerous because the backend is correct while the frontend silently renders an incomplete result set. Treat any mismatch between backend `total_rows` and visible grid rows as data loss, not as a cosmetic issue.
+
+### Actual Failure Points
+
+1. **Tauri channel ordering was reimplemented incorrectly**
+   - Tauri v2 channels deliver payloads as `{ index, message }` and `{ index, end }`.
+   - Our wrapper in `src/services/queryStreamClient.ts` had drifted from the real `Channel` implementation and previously assumed `{ id, message }`.
+   - Effect: out-of-order batches and `end` notifications could be mishandled, producing warnings like:
+     - `Expected ArrayBuffer batch but received undefined`
+     - `Skipping malformed metadata message undefined`
+
+2. **Decode worker warmup ACKs were treated as errors**
+   - `src/services/streamDecode.worker.ts` intentionally responds to warmup with `{ id, type: "warmup" }` and no `rows`.
+   - `src/services/streamDecodeWorkerClient.ts` incorrectly rejected that as `No rows returned from worker`.
+   - Effect: noisy startup failures and false negatives during worker prewarm.
+
+3. **Decode worker requests timed out too aggressively**
+   - The worker client used a fixed 5s timeout for real decode work.
+   - Under dev-mode IPC fallback or heavy UI/main-thread load, valid decode requests could exceed that.
+   - Effect: dropped batches with:
+     - `Stream decode worker timed out`
+     - `Failed to decode batch`
+
+4. **The stream client could still finalize success after data loss**
+   - `src/services/queryStreamClient.ts` used backend success metadata as the completion authority even if a decode batch had already failed.
+   - Effect: the promise could resolve with `totalRows = 100000` while fewer rows had actually been decoded and delivered.
+
+5. **The grid could show a partial transformed row count as if it were final**
+   - `src/components/DataGrid/adapters/QueryResultGrid.tsx` intentionally materializes row models in chunks to keep the main thread responsive.
+   - The status bar in `BaseDataGrid` displays the count of currently materialized row models, not raw streamed rows.
+   - Before the fix, the grid did not expose “more frontend work pending” while it was still transforming the trailing rows.
+   - Effect: the footer could show `84,848 rows` as a naked final count even though the raw query result contained more rows and the UI was still catching up.
+
+### What We Changed
+
+1. **Aligned channel handling with the real Tauri implementation**
+   - `src/services/queryStreamClient.ts` now follows the same ordering contract as `@tauri-apps/api/core` `Channel`.
+   - We handle:
+     - `{ index, message }`
+     - `{ index, end }`
+   - We do not treat `end` payloads as ordinary messages.
+
+2. **Fixed worker warmup handling**
+   - `src/services/streamDecodeWorkerClient.ts` now resolves `type: "warmup"` responses without requiring `rows`.
+
+3. **Raised the timeout budget for real decode work**
+   - Warmup still has a short timeout.
+   - Decode and mapping requests now use a longer timeout so valid work is not discarded under temporary pressure.
+
+4. **Made decode loss fatal instead of silent**
+   - `src/services/queryStreamClient.ts` now rejects the query if:
+     - any decode batch fails, or
+     - the final decoded row count does not match backend `totalRows`
+   - This is intentional: partial success is worse than an explicit failure.
+
+5. **Made the grid surface pending frontend materialization**
+   - `src/components/DataGrid/adapters/QueryResultGrid.tsx` now reports `hasMore` / `isLoadingMore` while transformed grid rows lag behind the known total.
+   - Result: the footer no longer presents a partial transformed count as a final answer.
+
+### Non-Negotiable Invariants
+
+These rules should stay true going forward:
+
+1. **Backend success is not enough**
+   - A stream is only “successful” when decoded rows delivered to the frontend equal backend `totalRows`.
+
+2. **Never silently drop a batch**
+   - If decode, ordering, or mapping loses a batch, the query must fail loudly.
+
+3. **Do not fork Tauri channel semantics from memory**
+   - If channel behavior changes or is in doubt, compare against the local `@tauri-apps/api/core` `Channel` implementation before editing `queryStreamClient.ts`.
+
+4. **Worker control messages are not data batches**
+   - Warmup ACKs and channel end notifications are protocol messages and must not be decoded as result rows.
+
+5. **Visible row counts must reflect UI state honestly**
+   - If the grid is still materializing rows on the frontend, the UI must communicate that more rows are pending.
+
+### Regression Tests That Must Stay Green
+
+- `src/services/__tests__/queryStreamClient.test.ts`
+  - preserves Tauri channel ordering
+  - rejects when a decode batch fails
+- `src/services/__tests__/streamDecodeWorkerClient.test.ts`
+  - accepts warmup ACKs without rows
+  - allows slow decode responses past the old 5s cutoff
+- `src/components/DataGrid/adapters/__tests__/QueryResultGrid.test.tsx`
+  - continues draining large result sets
+  - marks pending frontend materialization until the grid catches up
+
+### Debugging Checklist For Future Streaming Incidents
+
+When a large query returns fewer rows in the UI than the backend reports:
+
+1. Check backend logs first.
+   - Confirm the real row count and batch count from `TRUE STREAMING COMPLETE`.
+
+2. Check frontend warnings/errors next.
+   - Especially:
+     - `Expected ArrayBuffer batch but received ...`
+     - `Skipping malformed metadata message ...`
+     - `No rows returned from worker`
+     - `Stream decode worker timed out`
+     - `Failed to decode batch`
+     - `Stream completed with X decoded rows, expected Y`
+
+3. Compare three counts explicitly.
+   - Backend `total_rows`
+   - Decoded rows delivered through `queryStreamClient`
+   - Materialized rows displayed by `BaseDataGrid`
+
+4. If those counts differ, treat it as a pipeline integrity bug.
+   - Do not “fix” it by changing only the footer label.
+   - Do not mask it by trusting backend `totalRows` alone.
+
 ## Migration Guide
 
 If you're adding a new query operation, follow this decision tree:

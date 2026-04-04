@@ -52,6 +52,8 @@ class StreamDecodeWorkerManager {
   >();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private static IDLE_TIMEOUT_MS = 60_000; // Tear down the worker after 60s idle
+  private static WARMUP_TIMEOUT_MS = 5_000;
+  private static REQUEST_TIMEOUT_MS = 30_000;
 
   private ensureWorker(): void {
     if (this.worker) return;
@@ -62,7 +64,7 @@ class StreamDecodeWorkerManager {
     );
 
     this.worker.onmessage = (event: MessageEvent<StreamWorkerResponse>) => {
-      const { id, rows, error } = event.data;
+      const { id, error, type } = event.data;
       const pending = this.pending.get(id);
       if (!pending) return;
 
@@ -74,12 +76,17 @@ class StreamDecodeWorkerManager {
         return;
       }
 
-      if (!rows) {
-        pending.reject(new Error("No rows returned from worker"));
+      if (type === "warmup") {
+        pending.resolve(undefined);
         return;
       }
 
-      pending.resolve(rows);
+      if (!("rows" in event.data) || event.data.rows === undefined) {
+        pending.reject(new Error(`No rows returned from worker for ${type}`));
+        return;
+      }
+
+      pending.resolve(event.data.rows);
     };
 
     this.worker.onerror = (error) => {
@@ -137,13 +144,18 @@ class StreamDecodeWorkerManager {
     }
 
     const id = ++this.requestId;
+    const timeoutMs =
+      payload.type === "warmup"
+        ? StreamDecodeWorkerManager.WARMUP_TIMEOUT_MS
+        : StreamDecodeWorkerManager.REQUEST_TIMEOUT_MS;
+
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error("Stream decode worker timed out"));
         }
-      }, 5000);
+      }, timeoutMs);
 
       this.pending.set(id, { resolve: resolve as (rows: unknown) => void, reject, timeout });
 

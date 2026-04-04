@@ -48,17 +48,58 @@ type ChannelLike = {
   toJSON: () => string;
 };
 
+type OrderedIpcPayload = {
+  index?: number;
+  id?: number;
+  message?: unknown;
+  end?: boolean;
+};
+
+function isOrderedIpcPayload(payload: unknown): payload is OrderedIpcPayload {
+  return typeof payload === "object" && payload !== null;
+}
+
+function getOrderedPayloadIndex(payload: OrderedIpcPayload): number | undefined {
+  if (typeof payload.index === "number") {
+    return payload.index;
+  }
+  if (typeof payload.id === "number") {
+    return payload.id;
+  }
+  return undefined;
+}
+
 function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
   let nextMessageId = 0;
   const pending = new Map<number, unknown>();
+  let messageEndIndex: number | undefined;
   const callbackId = transformCallback(
-    ({ message, id }: { message: unknown; id?: number }) => {
-      if (typeof id !== "number") {
+    (payload: unknown) => {
+      if (!isOrderedIpcPayload(payload)) {
+        handler(payload);
+        return;
+      }
+
+      const messageIndex = getOrderedPayloadIndex(payload);
+      if (payload.end === true) {
+        if (
+          typeof messageIndex === "number" &&
+          messageIndex > nextMessageId
+        ) {
+          messageEndIndex = messageIndex;
+        }
+        return;
+      }
+
+      const message =
+        "message" in payload ? payload.message : payload;
+
+      if (typeof messageIndex !== "number") {
         handler(message);
         return;
       }
 
-      if (id === nextMessageId) {
+      if (messageIndex === nextMessageId) {
         nextMessageId++;
         handler(message);
 
@@ -68,8 +109,15 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
           nextMessageId++;
           handler(next);
         }
-      } else if (id > nextMessageId) {
-        pending.set(id, message);
+
+        if (
+          messageEndIndex !== undefined &&
+          nextMessageId >= messageEndIndex
+        ) {
+          pending.clear();
+        }
+      } else if (messageIndex > nextMessageId) {
+        pending.set(messageIndex, message);
       } else {
         // Late arrival; deliver but do not disturb ordering state
         handler(message);
@@ -203,6 +251,7 @@ export class QueryStreamClient {
       let invokeCompleted = false;
       let successResult: StreamResult | null = null;
       let finalizingSuccess = false;
+      let decodeFailure: Error | null = null;
 
       const normalizeError = (err: unknown): Error =>
         err instanceof Error ? err : new Error(String(err));
@@ -227,6 +276,10 @@ export class QueryStreamClient {
               error,
             );
           });
+
+          if (decodeFailure) {
+            return;
+          }
 
           const decodeQueueStable = snapshot === pendingDecode;
           const haveExpectedRows = totalRows >= expectedRows;
@@ -271,6 +324,21 @@ export class QueryStreamClient {
             );
           })
           .finally(() => {
+            if (decodeFailure) {
+              callbacks.onError?.(decodeFailure);
+              settleReject(decodeFailure);
+              return;
+            }
+
+            if (totalRows !== result.totalRows) {
+              const mismatchError = new Error(
+                `Stream completed with ${totalRows} decoded rows, expected ${result.totalRows}`,
+              );
+              callbacks.onError?.(mismatchError);
+              settleReject(mismatchError);
+              return;
+            }
+
             callbacks.onSuccess?.(result);
             settleResolve(result);
           });
@@ -328,7 +396,8 @@ export class QueryStreamClient {
             callbacks.onBatch?.(batch, totalRows);
           })
           .catch((err: unknown) => {
-            logger.error("query-stream", "Failed to decode batch", err);
+            decodeFailure = normalizeError(err);
+            logger.error("query-stream", "Failed to decode batch", decodeFailure);
           });
       });
 

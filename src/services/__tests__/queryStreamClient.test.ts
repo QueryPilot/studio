@@ -16,7 +16,7 @@ const {
   let nextCallbackId = 0;
   const callbackRegistry = new Map<
     number,
-    (payload: { message: unknown; id?: number }) => void
+    (payload: unknown) => void
   >();
 
   const extractChannelId = (channel: {
@@ -55,7 +55,7 @@ const {
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: mockInvoke,
-  transformCallback: (callback: (payload: { message: unknown; id?: number }) => void) => {
+  transformCallback: (callback: (payload: unknown) => void) => {
     const id = coreMockState.nextCallbackId();
     coreMockState.callbackRegistry.set(id, callback);
     return id;
@@ -223,5 +223,184 @@ describe("QueryStreamClient", () => {
     expect(String(onError.mock.calls[0]?.[0])).toContain(
       "[QUERY_EXECUTION_ERROR] Internal panic while executing query",
     );
+  });
+
+  it("uses Tauri channel indexes to preserve order and ignore end notifications", async () => {
+    mockDecode.mockImplementation((buffer: ArrayBuffer) => {
+      const value = new Uint8Array(buffer)[0] ?? 0;
+      return [[value]];
+    });
+
+    mockInvoke.mockImplementation(
+      (
+        _command: string,
+        args: {
+          metadataChannel: { [key: symbol]: () => string };
+          dataChannel: { [key: symbol]: () => string };
+        },
+      ) => {
+        const metadataId = coreMockState.extractChannelId(args.metadataChannel);
+        const dataId = coreMockState.extractChannelId(args.dataChannel);
+
+        const emitMetadata = coreMockState.callbackRegistry.get(metadataId);
+        const emitData = coreMockState.callbackRegistry.get(dataId);
+
+        if (!emitMetadata || !emitData) {
+          throw new Error("Missing IPC callback registrations");
+        }
+
+        emitMetadata({
+          index: 0,
+          message: {
+            type: "started",
+            columns: [
+              {
+                name: "id",
+                data_type: "Integer",
+                nullable: true,
+                primary_key: false,
+                db_type: "int4",
+              },
+            ],
+            estimated_rows: 2,
+          },
+        });
+
+        emitData({
+          index: 1,
+          message: Uint8Array.from([2]).buffer,
+        });
+
+        emitData({
+          index: 0,
+          message: Uint8Array.from([1]).buffer,
+        });
+
+        emitData({
+          index: 2,
+          end: true,
+        });
+
+        emitMetadata({
+          index: 1,
+          message: {
+            type: "success",
+            total_rows: 2,
+            execution_time_ms: 12,
+            fetch_count: 2,
+          },
+        });
+
+        emitMetadata({
+          index: 2,
+          end: true,
+        });
+
+        return Promise.resolve();
+      },
+    );
+
+    const client = new QueryStreamClient();
+    const onBatch = vi.fn();
+
+    const result = await client.streamWithCallbacks(
+      {
+        connId: "conn-1",
+        tabId: "query-tab-1",
+        sql: "SELECT * FROM large_table",
+      },
+      {
+        onBatch,
+      },
+    );
+
+    expect(onBatch).toHaveBeenCalledTimes(2);
+    expect(onBatch.mock.calls[0]?.[0].rows).toEqual([[1]]);
+    expect(onBatch.mock.calls[1]?.[0].rows).toEqual([[2]]);
+    expect(result.totalRows).toBe(2);
+    expect(mockWarn).not.toHaveBeenCalled();
+  });
+
+  it("rejects the stream if any batch fails to decode", async () => {
+    vi.useFakeTimers();
+
+    mockDecode
+      .mockResolvedValueOnce([[0], [1]])
+      .mockRejectedValueOnce(new Error("decoder stalled"));
+
+    mockInvoke.mockImplementation(
+      (
+        _command: string,
+        args: {
+          metadataChannel: { [key: symbol]: () => string };
+          dataChannel: { [key: symbol]: () => string };
+        },
+      ) => {
+        const metadataId = coreMockState.extractChannelId(args.metadataChannel);
+        const dataId = coreMockState.extractChannelId(args.dataChannel);
+
+        const emitMetadata = coreMockState.callbackRegistry.get(metadataId);
+        const emitData = coreMockState.callbackRegistry.get(dataId);
+
+        if (!emitMetadata || !emitData) {
+          throw new Error("Missing IPC callback registrations");
+        }
+
+        emitMetadata({
+          index: 0,
+          message: {
+            type: "started",
+            columns: [
+              {
+                name: "id",
+                data_type: "Integer",
+                nullable: true,
+                primary_key: false,
+                db_type: "int4",
+              },
+            ],
+            estimated_rows: 4,
+          },
+        });
+
+        emitData({
+          index: 0,
+          message: Uint8Array.from([2]).buffer,
+        });
+
+        emitData({
+          index: 1,
+          message: Uint8Array.from([2]).buffer,
+        });
+
+        emitMetadata({
+          index: 1,
+          message: {
+            type: "success",
+            total_rows: 4,
+            execution_time_ms: 12,
+            fetch_count: 2,
+          },
+        });
+
+        return Promise.resolve();
+      },
+    );
+
+    const client = new QueryStreamClient();
+
+    const resultPromise = client.streamWithCallbacks(
+      {
+        connId: "conn-1",
+        tabId: "query-tab-1",
+        sql: "SELECT * FROM large_table",
+      },
+      {},
+    );
+    const rejection = expect(resultPromise).rejects.toThrow("decoder stalled");
+
+    await vi.runAllTimersAsync();
+
+    await rejection;
   });
 });

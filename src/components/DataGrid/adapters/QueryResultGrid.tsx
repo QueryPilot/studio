@@ -7,7 +7,7 @@
  * - Shows query performance metrics
  * - Client-side filtering only
  */
-import { memo, useDeferredValue, useMemo } from 'react';
+import { memo, startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { BaseDataGrid } from '../base/BaseDataGrid';
 import type { GridColumnV2, GridRowModel } from '../types';
@@ -73,8 +73,9 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
 
   // Defer data so React can interrupt re-renders for large result sets
   const deferredData = useDeferredValue(data);
+  const [, setDrainTick] = useState(0);
 
-  const rows = useMemo((): GridRowModel[] => {
+  const rows = (() => {
     if (!deferredData?.rows) {
       return [];
     }
@@ -129,7 +130,44 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     cache.transformedCount = endIndex;
 
     return cache.transformed;
-  }, [deferredData]);
+  })();
+
+  const needsMoreTransforms = (() => {
+    const rawRows = deferredData?.rows;
+    if (!rawRows?.length) {
+      return false;
+    }
+
+    const firstRow = rawRows[0];
+    if (firstRow && typeof firstRow === 'object' && !Array.isArray(firstRow)) {
+      return false;
+    }
+
+    return rows.length < rawRows.length;
+  })();
+
+  const estimatedTotalRows = deferredData?.rowCount ?? deferredData?.rows.length;
+  const hasPendingRows =
+    needsMoreTransforms ||
+    (isStreaming &&
+      typeof estimatedTotalRows === 'number' &&
+      estimatedTotalRows > rows.length);
+
+  useEffect(() => {
+    if (!needsMoreTransforms) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      startTransition(() => {
+        setDrainTick((tick) => tick + 1);
+      });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [needsMoreTransforms, deferredData, rows.length]);
 
   // Build columns from metadata
   const columns = useMemo<GridColumnV2[]>(() => {
@@ -187,8 +225,9 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       enableClipboard={true}
       enableFillOperations={false}
       enableStagedChanges={false}
-      isLoadingMore={isStreaming}
-      estimatedTotal={deferredData?.rowCount}
+      isLoadingMore={isStreaming || hasPendingRows}
+      hasMore={hasPendingRows}
+      estimatedTotal={estimatedTotalRows}
       toolbarActions={toolbarActions}
       // Performance metrics
       executionTime={executionTime}
