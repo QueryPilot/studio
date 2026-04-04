@@ -30,6 +30,7 @@ import type {
   CrudCommandFactory,
   GridCellContentGetter,
   IdentifierSelectorConfig,
+  SortColumn,
 } from "../types";
 import type { ContextMenuTarget } from "../components/UnifiedContextMenu";
 import type { QuickFilterRef } from "../components/QuickFilter";
@@ -225,6 +226,13 @@ export interface BaseDataGridProps {
   onRefreshMaterializedView?: () => void;
   isRefreshingMatView?: boolean;
 
+  /**
+   * Default sort columns to show when the user has not set an explicit sort.
+   * Never stored in preferences — computed fresh from table structure.
+   * Pass a stable reference (useMemo / module-level constant) to avoid re-renders.
+   */
+  defaultSortColumns?: SortColumn[];
+
   // Feature toggles
   enableFiltering?: boolean;
   enableSorting?: boolean;
@@ -405,6 +413,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     loadMoreMinRows = 100,
     // Per-tab sort isolation
     sortGridId,
+    defaultSortColumns,
   } = props;
   const preferenceGridId = sortGridId ?? gridId;
 
@@ -1122,6 +1131,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   } = useColumnSorting({
     gridId: preferenceGridId,
     columns: finalColumns,
+    defaultSortColumns,
   });
 
   // Apply sorting to rows BEFORE pinning (so unpinned rows are sorted)
