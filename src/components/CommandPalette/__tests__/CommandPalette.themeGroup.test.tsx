@@ -93,10 +93,12 @@ const commandPaletteStore = vi.hoisted(() => {
   const commandPaletteState = {
     isOpen: true,
     query: "",
+    mode: "all" as const,
     nestedMode: null,
     openPalette: vi.fn(),
     closePalette: vi.fn(),
     setQuery: vi.fn(),
+    setMode: vi.fn(),
     setNestedMode: vi.fn(),
     exitNestedMode: vi.fn(),
   };

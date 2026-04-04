@@ -89,10 +89,12 @@ vi.mock("@/components/KeyboardProvider", () => ({
 const commandPaletteState = vi.hoisted(() => ({
   isOpen: true,
   query: "",
+  mode: "all" as const,
   nestedMode: null,
   openPalette: vi.fn(),
   closePalette: vi.fn(),
   setQuery: vi.fn(),
+  setMode: vi.fn(),
   setNestedMode: vi.fn(),
   exitNestedMode: vi.fn(),
   undo: vi.fn(),
