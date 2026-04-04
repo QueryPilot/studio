@@ -174,6 +174,7 @@ export interface BaseDataGridProps {
   onLoadMore?: () => void;
   estimatedTotal?: number;
   isEstimatedCount?: boolean;
+  rowCountLoadingState?: "streaming" | "rendering";
 
   /**
    * Command factory for CRUD operations.
@@ -3819,6 +3820,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         estimatedTotal={props.estimatedTotal}
         isEstimatedCount={props.isEstimatedCount}
         hasMore={props.hasMore}
+        rowCountLoadingState={props.rowCountLoadingState}
         isStreaming={props.isLoadingMore}
         selectedRowsData={statusBarRowsData}
         selectedRowIndices={statusBarRowIndices}

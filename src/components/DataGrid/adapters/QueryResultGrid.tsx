@@ -152,6 +152,11 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
     (isStreaming &&
       typeof estimatedTotalRows === 'number' &&
       estimatedTotalRows > rows.length);
+  const rowCountLoadingState = isStreaming
+    ? 'streaming'
+    : hasPendingRows
+      ? 'rendering'
+      : undefined;
 
   useEffect(() => {
     if (!needsMoreTransforms) {
@@ -228,6 +233,7 @@ export const QueryResultGrid = memo(function QueryResultGrid(props: QueryResultG
       isLoadingMore={isStreaming || hasPendingRows}
       hasMore={hasPendingRows}
       estimatedTotal={estimatedTotalRows}
+      rowCountLoadingState={rowCountLoadingState}
       toolbarActions={toolbarActions}
       // Performance metrics
       executionTime={executionTime}

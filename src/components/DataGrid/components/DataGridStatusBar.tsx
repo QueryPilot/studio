@@ -40,13 +40,38 @@ const RowCountDisplay = memo(function RowCountDisplay({
   estimatedTotal,
   isEstimatedCount,
   hasMore,
+  rowCountLoadingState,
 }: {
   loadedRows: number;
   estimatedTotal?: number;
   isEstimatedCount?: boolean;
   hasMore?: boolean;
+  rowCountLoadingState?: "streaming" | "rendering";
 }) {
   const display = useMemo(() => {
+    if (rowCountLoadingState === "streaming") {
+      if (
+        typeof estimatedTotal === "number" &&
+        estimatedTotal > loadedRows &&
+        hasMore
+      ) {
+        const prefix = isEstimatedCount ? "~" : "";
+        return `${loadedRows.toLocaleString()} / ${prefix}${estimatedTotal.toLocaleString()} rows`;
+      }
+
+      if (hasMore) {
+        return `${loadedRows.toLocaleString()} rows (streaming...)`;
+      }
+    }
+
+    if (rowCountLoadingState === "rendering") {
+      if (typeof estimatedTotal === "number" && estimatedTotal > 0) {
+        return `${estimatedTotal.toLocaleString()} rows (rendering...)`;
+      }
+
+      return "Rendering rows...";
+    }
+
     // Only show estimated total if there's actually more to load
     if (estimatedTotal && estimatedTotal > loadedRows && hasMore) {
       // Add ~ prefix if count is estimated (not exact)
@@ -60,7 +85,7 @@ const RowCountDisplay = memo(function RowCountDisplay({
 
     // When all data is loaded, show exact count (no ~)
     return `${loadedRows.toLocaleString()} rows`;
-  }, [loadedRows, estimatedTotal, isEstimatedCount, hasMore]);
+  }, [loadedRows, estimatedTotal, isEstimatedCount, hasMore, rowCountLoadingState]);
 
   return <span>{display}</span>;
 });
@@ -151,6 +176,7 @@ interface DataGridStatusBarProps {
   estimatedTotal?: number;
   isEstimatedCount?: boolean; // True if count is estimated, false if exact
   hasMore?: boolean;
+  rowCountLoadingState?: "streaming" | "rendering";
   selectedRowsData?: GridRowModel[];
   selectedRowIndices?: Set<number>;
   allRows?: GridRowModel[];
@@ -195,6 +221,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
   estimatedTotal,
   isEstimatedCount,
   hasMore,
+  rowCountLoadingState,
   selectedRowsData = [],
   selectedRowIndices,
   allRows = [],
@@ -234,7 +261,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
         {leftContent}
         {isProcessing && <ProcessingIndicator />}
 
-        {showSelectionSummary && selectedRowIndices && (
+        {showSelectionSummary && (
           <SelectionSummary
             selectedRows={selectedRowsData}
             selectedRowIndices={selectedRowIndices}
@@ -295,6 +322,7 @@ export const DataGridStatusBar = memo(function DataGridStatusBar({
           estimatedTotal={estimatedTotal}
           isEstimatedCount={isEstimatedCount}
           hasMore={hasMore}
+          rowCountLoadingState={rowCountLoadingState}
         />
 
         {executionTime !== undefined && (
