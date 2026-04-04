@@ -182,17 +182,18 @@ export function CommandPalette(): React.ReactElement {
   const closePalette = useCommandPaletteStore((state) => state.closePalette);
   const handleQueryChange = useCallback(
     (newValue: string) => {
-      if (mode === "all" && query === "" && newValue === ">") {
+      const currentQuery = useCommandPaletteStore.getState().query;
+      if (mode === "all" && currentQuery === "" && newValue === ">") {
         setMode("actions");
         return;
       }
-      if (mode === "all" && query === "" && newValue === "@") {
+      if (mode === "all" && currentQuery === "" && newValue === "@") {
         setMode("objects");
         return;
       }
       setQuery(newValue);
     },
-    [mode, query, setMode, setQuery],
+    [mode, setMode, setQuery],
   );
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
   const nestedMode = useCommandPaletteStore((state) => state.nestedMode);
