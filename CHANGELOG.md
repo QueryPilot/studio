@@ -5,6 +5,34 @@
 <!-- The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), -->
 <!-- and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). -->
 
+## [2026.1.0-beta.14] - 2026-04-04
+
+### New Features
+- Added Oracle support in beta, so you can connect to Oracle databases, browse schema objects, run queries, view explain plans, and work with Oracle-aware SQL editing in one place.
+- Added DuckDB support for local analytics workflows, including native DuckDB parsing, progressive query results, backups, extension management, and import flows from files and URLs.
+- Added secure tunnel workflows for remote databases with reusable SSH and AWS SSM tunnel profiles, plus auth profiles for static credentials, environment credentials, and Azure AD SAML sign-in.
+- Added SQL query variables with inline highlighting, variable chips, and a dedicated variables panel, making it much easier to run parameterized queries without editing the SQL text each time.
+
+### Improvements
+- Made large and batch query runs feel smoother. Results stream in more progressively, row counts show clearer loading states, and the UI stays more responsive while you switch tabs.
+- Improved the Command Palette with focused modes, mode badges, and smarter filtering, so you can narrow searches faster and jump to the right action with less noise.
+- Improved result grid defaults for both SQL and document databases. Primary-key and `_id` sorting now appear more predictably, making fresh result sets easier to scan.
+- Expanded Preferences and connection setup with dedicated panels for integrations, auth profiles, and tunnel profiles, plus clearer PostgreSQL pooler mode options and connection progress feedback.
+- Improved database coverage across the app with better DuckDB and Oracle handling in schema inspection, SQL validation, imports, and connection parsing.
+
+### Bug Fixes
+- Fixed `Cmd+L` behavior so the AI panel closes when focus is already inside it instead of repeatedly stealing focus.
+- Fixed command palette state issues that could cause stale search text, inconsistent toggles, or incorrect filtering when switching modes.
+- Fixed PostgreSQL pooler mode issues that could break explicit transactions, multi-statement scripts, and some write operations with no returned columns.
+- Fixed several streaming and grid issues that could cause unstable row counts, misleading sort indicators, or rendering problems while results were still loading.
+- Fixed multiple cell editor edge cases that could trigger phantom writes or unwanted value normalization in date/time, numeric, interval, network, XML, and reference fields.
+- Fixed DuckDB backup and restore edge cases with safer recovery behavior, better temporary-file cleanup, and more reliable handling of special values and multi-statement SQL.
+- Fixed Oracle schema browsing to hide internal sequences and reduced false validation errors for some database objects.
+
+### Security
+- Tightened tunnel security by binding SSH port forwards to `127.0.0.1` instead of exposing them on all local interfaces.
+- Fixed an XSS issue in the tunnel login flow and closed several lifecycle leaks that could leave tunnel resources open longer than intended.
+
 ## [2026.1.0-beta.13] - 2026-03-23
 
 ### New Features
