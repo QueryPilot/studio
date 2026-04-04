@@ -33,6 +33,7 @@ import type {
   GridColumnV2,
   GridRowModel,
   Item,
+  SortColumn,
 } from "../types";
 import { cn } from "@/lib/utils";
 import { logger } from "@/lib/logger";
@@ -63,6 +64,9 @@ import {
   mapDocumentValueTypeToGrid,
   type DocumentCellValue,
 } from "../utils/documentCellFactory";
+
+/** Stable default sort for MongoDB: always sort by _id ASC when no user sort is set. */
+const MONGO_DEFAULT_SORT: SortColumn[] = [{ columnId: '_id', direction: 'asc' }];
 
 // ============================================================================
 // Types
@@ -882,6 +886,7 @@ RULES:
           <BaseDataGrid
             gridId={gridId}
             sortGridId={sortGridId}
+            defaultSortColumns={MONGO_DEFAULT_SORT}
             rows={data.currentPath.length > 0 ? filteredRows : data.rows}
             columns={data.columns}
             getCellContent={data.getCellContent}
@@ -1055,6 +1060,7 @@ const DocumentResultDataGrid = memo(function DocumentResultDataGrid({
     <BaseDataGrid
       gridId={gridId}
       sortGridId={sortGridId}
+      defaultSortColumns={MONGO_DEFAULT_SORT}
       rows={rows}
       columns={columns}
       getCellContent={getCellContent}
