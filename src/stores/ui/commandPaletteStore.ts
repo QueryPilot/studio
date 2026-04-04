@@ -58,7 +58,7 @@ export const useCommandPaletteStore = create<CommandPaletteState>((set, get) => 
   },
 
   setMode: (mode: PaletteMode) => {
-    set({ mode, query: "", queryHistory: [""], historyIndex: 0 });
+    set({ mode, query: "", nestedMode: null, queryHistory: [""], historyIndex: 0 });
   },
 
   setNestedMode: (mode: NestedMode | null) => {
