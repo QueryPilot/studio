@@ -19,7 +19,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { KeyboardShortcutsHelp } from "./components/KeyboardShortcutsHelp/KeyboardShortcutsHelp";
 import { GlobalConfirmDialog } from "./components/GlobalConfirmDialog";
 import { initAcpPermissionListener } from "./stores/acpPermissionStore";
-import { initializeSentry } from "./utils/sentry";
+import { initializeSentry, configureTelemetryBackend } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
 import { runSessionMigration } from "@/lib/db/sessionMigration";
@@ -32,6 +32,9 @@ enableMapSet();
 // Initialize Sentry for error tracking (only in production, opt-in via preferences)
 const telemetryPrefs = usePreferencesStore.getState().telemetry;
 initializeSentry(telemetryPrefs, "0.4.0");
+
+// Sync telemetry preference to backend (fire-and-forget)
+void configureTelemetryBackend(telemetryPrefs.sentryEnabled);
 
 // Initialize tab state store (migrates from localStorage to IndexedDB if needed)
 void useTabStateStore.getState().initialize();

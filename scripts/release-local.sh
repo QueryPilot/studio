@@ -545,6 +545,9 @@ build_app() {
         BUILD_FEATURES="--features telemetry"
     fi
 
+    # Propagate SENTRY_DSN to Vite frontend (Vite only exposes VITE_* prefixed vars)
+    export VITE_SENTRY_DSN="${SENTRY_DSN}"
+
     for target in $TARGETS; do
         log "Building Tauri app for $target..."
         NODE_OPTIONS="--max-old-space-size=6144" \

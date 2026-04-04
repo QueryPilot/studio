@@ -21,9 +21,10 @@ static SENTRY_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Initialize Sentry for error tracking
 ///
-/// Can be called multiple times to enable/disable Sentry based on user preference.
+/// Creates the Sentry client if a DSN was provided at compile time.
 /// The guard is stored statically to keep Sentry active for the lifetime of the app.
-/// Uses a global flag to control whether events are sent.
+/// Uses a global flag to control whether events are actually sent (opt-in via user preferences).
+/// Call `set_sentry_enabled(true/false)` to toggle event sending at runtime.
 #[cfg(feature = "telemetry")]
 pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<ClientInitGuard> {
     // Never initialize in debug builds
@@ -49,18 +50,11 @@ pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<Clie
         }
     }
 
-    // Only initialize once if user has opted in or DSN is configured
-    // The enabled flag will control whether events are actually sent
-    if !sentry_enabled {
-        tracing::info!("[Sentry] User opted out, will not send events");
-        return None;
-    }
-
-    // Get DSN from environment variable
-    let dsn = match std::env::var("SENTRY_DSN") {
-        Ok(dsn) if !dsn.is_empty() => dsn,
+    // Get DSN embedded at compile time (set SENTRY_DSN env var during `cargo build`)
+    let dsn = match option_env!("SENTRY_DSN") {
+        Some(dsn) if !dsn.is_empty() => dsn,
         _ => {
-            tracing::warn!("[Sentry] SENTRY_DSN not configured");
+            tracing::warn!("[Sentry] SENTRY_DSN not compiled in (set env var at build time)");
             return None;
         }
     };
@@ -80,14 +74,7 @@ pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<Clie
         dsn,
         ClientOptions {
             release: Some(format!("query-pilot@{}", app_version).into()),
-            environment: Some(
-                if cfg!(debug_assertions) {
-                    "development"
-                } else {
-                    "production"
-                }
-                .into(),
-            ),
+            environment: Some("production".into()),
             sample_rate: 1.0,        // Capture 100% of errors
             traces_sample_rate: 0.1, // Capture 10% of performance traces
             before_send: Some(Arc::new(|mut event| {
@@ -122,12 +109,23 @@ pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<Clie
     None // We store the guard globally, so return None
 }
 
+/// Update the Sentry enabled flag at runtime (e.g., when user changes preferences)
+#[cfg(feature = "telemetry")]
+pub fn set_sentry_enabled(enabled: bool) {
+    SENTRY_ENABLED.store(enabled, Ordering::Relaxed);
+    tracing::info!("[Sentry] Event sending {}", if enabled { "enabled" } else { "disabled" });
+}
+
 /// No-op version when telemetry feature is disabled
 #[cfg(not(feature = "telemetry"))]
 pub fn initialize_sentry(_sentry_enabled: bool, _app_version: &str) -> Option<()> {
     tracing::info!("[Sentry] Telemetry feature not enabled, skipping initialization");
     None
 }
+
+/// No-op version when telemetry feature is disabled
+#[cfg(not(feature = "telemetry"))]
+pub fn set_sentry_enabled(_enabled: bool) {}
 
 /// Sanitize event data to remove sensitive information
 #[cfg(feature = "telemetry")]
@@ -211,4 +209,10 @@ pub fn add_breadcrumb(message: impl Into<String>, category: impl Into<String>) {
 #[cfg(not(feature = "telemetry"))]
 pub fn add_breadcrumb(_message: impl Into<String>, _category: impl Into<String>) {
     // No-op when telemetry is disabled
+}
+
+/// Tauri command to toggle Sentry event sending at runtime
+#[tauri::command]
+pub fn configure_telemetry(enabled: bool) {
+    set_sentry_enabled(enabled);
 }

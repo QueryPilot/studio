@@ -254,6 +254,8 @@ fn main() {
             commands::parse_saml_roles,
             commands::check_auth_status,
             commands::open_auth_webview,
+            // Telemetry commands
+            sentry_integration::configure_telemetry,
         ])
         .build(context)
         .expect("error while building tauri application");
