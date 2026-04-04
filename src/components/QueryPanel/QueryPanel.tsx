@@ -53,7 +53,8 @@ import {
 } from "./query-result-view";
 import { parseShowplanSet, SET_COMMAND_MAP, type ShowplanFormat } from "./showplan-state-tracker";
 import { useQueryVariables } from "./Variables/useQueryVariables";
-import { substituteVariables } from "@/lib/queryVariables/substitution";
+import { substituteVariables, substituteStatementVariables } from "@/lib/queryVariables/substitution";
+import { parseVariables } from "@/lib/queryVariables";
 import { useTabStateStore } from "@/stores/tabStateStore";
 
 interface QueryPanelProps {
@@ -166,13 +167,11 @@ export const QueryPanel = memo(function QueryPanel({
     setSelectedStatementCount,
     setShowOutline,
     setShowVariablePanel,
-    setShowVariableBar,
     setShowplanMode,
     setShowResults,
     setShowSaveDialog,
     showOutline,
     showVariablePanel,
-    showVariableBar,
     showplanMode,
     showResults,
     showSaveDialog,
@@ -196,7 +195,6 @@ export const QueryPanel = memo(function QueryPanel({
     parseResult: variableParseResult,
     scope: variableScope,
     hasVariables,
-    hasPositionalVariables,
     setVariableValue,
     setVariableType,
     setScope: setVariableScope,
@@ -214,13 +212,6 @@ export const QueryPanel = memo(function QueryPanel({
     setQueryState(tabId, { queryVariables, variableScope });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on serialized snapshot, not object ref
   }, [variableSnapshotKey, variableScope, tabId, setQueryState]);
-
-  // Auto-show variable bar when variables are first detected
-  useEffect(() => {
-    if (hasVariables && !showVariableBar) {
-      setShowVariableBar(true);
-    }
-  }, [hasVariables, showVariableBar, setShowVariableBar]);
 
   // Editor ref for focusing
   const editorRef = useRef<SqlEditorRef>(null);
@@ -1044,13 +1035,60 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   /**
-   * Apply variable substitution on the full SQL before splitting or executing.
-   * Returns the substituted SQL or null if missing values block execution.
+   * Determine the 0-based statement index of `stmtSql` within the full editor content.
+   * Used in per-stmt mode so we look up the right variable values.
+   */
+  const findStatementIndex = useCallback(
+    (stmtSql: string): number => {
+      const fullSql = editorRef.current?.getValue() ?? queryRef.current;
+      const { variables } = parseVariables(fullSql, { scope: variableScope });
+      const stmtRanges = new Set<number>();
+      for (const v of variables) {
+        stmtRanges.add(v.statementIndex);
+      }
+
+      const trimmed = stmtSql.trim().replace(/;\s*$/, "");
+      const fullTrimmed = fullSql.trim();
+      const pos = fullTrimmed.indexOf(trimmed);
+      if (pos === -1) return 0;
+
+      let stmtIdx = 0;
+      let i = 0;
+      let inStr = false;
+      while (i < pos && i < fullTrimmed.length) {
+        const ch = fullTrimmed[i];
+        if (ch === "'") inStr = !inStr;
+        if (!inStr && ch === ";") stmtIdx++;
+        i++;
+      }
+      return stmtIdx;
+    },
+    [queryRef, variableScope],
+  );
+
+  /**
+   * Apply variable substitution on SQL before executing.
+   * In per-stmt mode with a single extracted statement, uses the correct
+   * statement index so values from the right statement are applied.
    */
   const applyVariableSubstitution = useCallback(
     (sql: string): string | null => {
       if (!sql.trim() || Object.keys(queryVariables).length === 0) return sql;
-      const subResult = substituteVariables(sql, queryVariables, { scope: variableScope });
+
+      let subResult;
+      if (variableScope === "per_statement") {
+        const fullSql = editorRef.current?.getValue() ?? queryRef.current;
+        const isSingleStatement = sql.trim().replace(/;\s*$/, "") !== fullSql.trim().replace(/;\s*$/, "");
+        if (isSingleStatement) {
+          const stmtIdx = findStatementIndex(sql);
+          subResult = substituteStatementVariables(sql, stmtIdx, queryVariables, variableScope);
+        } else {
+          subResult = substituteVariables(sql, queryVariables, { scope: variableScope });
+        }
+      } else {
+        subResult = substituteVariables(sql, queryVariables, { scope: variableScope });
+      }
+
       if (!subResult.isComplete) {
         const missingMsg = `Missing variable values: ${subResult.missingVariables.join(", ")}`;
         toast.error(missingMsg, {
@@ -1060,7 +1098,7 @@ export const QueryPanel = memo(function QueryPanel({
       }
       return subResult.sql;
     },
-    [queryVariables, variableScope],
+    [queryVariables, variableScope, queryRef, findStatementIndex],
   );
 
   const handleExecute = useCallback(
@@ -1420,10 +1458,8 @@ export const QueryPanel = memo(function QueryPanel({
         resultTabGroupId={`query-result-view-mode:${tabId}`}
         queryVariables={queryVariables}
         hasVariables={hasVariables}
-        hasPositionalVariables={hasPositionalVariables}
         variableScope={variableScope}
         variableStatementCount={variableParseResult.statementCount}
-        showVariableBar={showVariableBar && hasVariables}
         showVariablePanel={showVariablePanel}
         onToggleVariables={toggleVariables}
         onCloseVariables={closeVariables}

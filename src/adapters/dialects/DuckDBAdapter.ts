@@ -122,7 +122,16 @@ SELECT
   tc.constraint_name,
   tc.table_name,
   tc.constraint_type,
-  NULL AS definition,
+  CASE tc.constraint_type
+    WHEN 'PRIMARY KEY' THEN 'PRIMARY KEY (' || (
+      SELECT string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position)
+      FROM information_schema.key_column_usage kcu
+      WHERE kcu.constraint_name = tc.constraint_name
+        AND kcu.table_schema = tc.table_schema
+        AND kcu.table_name = tc.table_name
+    ) || ')'
+    ELSE NULL
+  END AS definition,
   NULL AS foreign_table
 FROM information_schema.table_constraints tc
 WHERE tc.table_schema = '${this.escapeString(schema)}'

@@ -3,6 +3,7 @@ import { memo, useCallback, forwardRef, useEffect, useRef } from "react";
 import { SqlEditor } from "@/components/CodeEditor/SqlEditor";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
+import type { QueryVariable } from "@/lib/queryVariables/types";
 
 interface QueryEditorProps {
   connectionId: string;
@@ -22,6 +23,10 @@ interface QueryEditorProps {
   onDialectDetected?: (dialect: SqlDialect) => void;
   /** Whether to auto-focus the editor on mount (default false) */
   autoFocus?: boolean;
+  /** Variable values for inline widget display */
+  variableValues?: Record<string, QueryVariable>;
+  /** Variable scope mode */
+  variableScope?: "global" | "per_statement";
 }
 
 export const QueryEditor = memo(
@@ -41,6 +46,8 @@ export const QueryEditor = memo(
       dialectOverride,
       onDialectDetected,
       autoFocus = false,
+      variableValues,
+      variableScope,
     },
     ref,
   ) {
@@ -96,6 +103,8 @@ export const QueryEditor = memo(
           height={height}
           placeholder="Enter your SQL query..."
           autoFocus={autoFocus}
+          variableValues={variableValues}
+          variableScope={variableScope}
         />
       </div>
     );

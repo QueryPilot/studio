@@ -6,7 +6,7 @@ export type VariableSyntax =
   | "dollar_num"
   | "question_mark";
 
-export type VariableType = "text" | "number" | "date" | "datetime" | "boolean";
+export type VariableType = "text" | "number" | "date" | "datetime" | "boolean" | "list";
 
 export type VariableScope = "global" | "per_statement";
 
@@ -24,6 +24,8 @@ export interface ParsedVariable {
   offset: number;
   /** Length of the full match text (e.g., `{{ region }}` = 14) */
   length: number;
+  /** Whether this variable appears inside an IN (...) clause */
+  inListContext?: boolean;
 }
 
 /**
@@ -36,25 +38,23 @@ export interface QueryVariable {
   value: string;
   type: VariableType;
   syntax: VariableSyntax;
-  /** Only set when scope = "per_statement" for positional vars */
+  /** Set when scope = "per_statement" */
   statementIndex?: number;
 }
 
 /**
  * Build the map key for a variable, accounting for scoping mode.
  *
- * Named vars: just the name ("region")
- * Positional global: "$1" or "#1"
- * Positional per-statement: "stmt:0:$1" or "stmt:0:#1"
+ * Global: just the name ("region", "$1")
+ * Per-statement: "stmt:0:region", "stmt:0:$1"
  */
 export function variableKey(
   name: string,
-  syntax: VariableSyntax,
+  _syntax: VariableSyntax,
   scope: VariableScope,
   statementIndex?: number,
 ): string {
-  const isPositional = syntax === "dollar_num" || syntax === "question_mark";
-  if (isPositional && scope === "per_statement" && statementIndex !== undefined) {
+  if (scope === "per_statement" && statementIndex !== undefined) {
     return `stmt:${statementIndex}:${name}`;
   }
   return name;

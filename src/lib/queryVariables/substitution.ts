@@ -112,12 +112,11 @@ export function substituteStatementVariables(
 
 function buildLookupKey(
   name: string,
-  syntax: string,
+  _syntax: string,
   scope: VariableScope,
   statementIndex: number,
 ): string {
-  const isPositional = syntax === "dollar_num" || syntax === "question_mark";
-  if (isPositional && scope === "per_statement") {
+  if (scope === "per_statement") {
     return `stmt:${statementIndex}:${name}`;
   }
   return name;
@@ -132,12 +131,22 @@ function formatValue(variable: QueryVariable): string {
       return VALID_NUMBER_RE.test(value) ? value : escapeSqlString(value);
     case "boolean":
       return value.toLowerCase() === "true" ? "TRUE" : "FALSE";
+    case "list":
+      return formatListValue(value);
     case "date":
     case "datetime":
     case "text":
     default:
       return escapeSqlString(value);
   }
+}
+
+function formatListValue(value: string): string {
+  const items = value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (items.length === 0) return "NULL";
+  return items
+    .map((item) => VALID_NUMBER_RE.test(item) ? item : escapeSqlString(item))
+    .join(", ");
 }
 
 function escapeSqlString(value: string): string {

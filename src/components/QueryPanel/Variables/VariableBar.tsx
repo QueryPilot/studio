@@ -45,7 +45,7 @@ export const VariableBar = memo(function VariableBar({
 
       {hasPositionalVariables && (
         <div className="shrink-0 flex items-center border-l border-border/50 pl-1.5 ml-1 sticky right-0 bg-muted/10">
-          <div className="inline-flex items-center rounded-md bg-muted p-0.5 text-[10px]">
+          <div className="inline-flex items-center rounded-md bg-muted p-0.5 text-[11px]">
             <button
               type="button"
               className={

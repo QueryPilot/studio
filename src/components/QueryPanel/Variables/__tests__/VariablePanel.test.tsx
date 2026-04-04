@@ -37,7 +37,6 @@ describe("VariablePanel", () => {
       <VariablePanel
         {...defaultProps}
         variables={vars}
-        hasPositionalVariables={false}
       />,
     );
 
@@ -56,7 +55,6 @@ describe("VariablePanel", () => {
       <VariablePanel
         {...defaultProps}
         variables={vars}
-        hasPositionalVariables={true}
       />,
     );
 
@@ -70,23 +68,22 @@ describe("VariablePanel", () => {
       <VariablePanel
         {...defaultProps}
         variables={{}}
-        hasPositionalVariables={false}
       />,
     );
 
     expect(screen.getByText(/No variables detected/)).toBeInTheDocument();
   });
 
-  it("shows scope toggle when positional variables exist", () => {
+  it("shows scope toggle when multiple statements exist", () => {
     const vars = makeVars([
-      ["$1", { name: "$1", syntax: "dollar_num" }],
+      ["status", { name: "status", syntax: "colon" }],
     ]);
 
     render(
       <VariablePanel
         {...defaultProps}
         variables={vars}
-        hasPositionalVariables={true}
+        statementCount={2}
       />,
     );
 
@@ -99,7 +96,6 @@ describe("VariablePanel", () => {
       <VariablePanel
         {...defaultProps}
         variables={{}}
-        hasPositionalVariables={false}
       />,
     );
 
@@ -116,7 +112,6 @@ describe("VariablePanel", () => {
       <VariablePanel
         {...defaultProps}
         variables={vars}
-        hasPositionalVariables={true}
         scope="per_statement"
         statementCount={2}
       />,

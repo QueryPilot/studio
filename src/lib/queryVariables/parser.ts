@@ -351,10 +351,23 @@ export function parseVariables(sql: string, options: ParseVariablesOptions = {})
 
   all.sort((a, b) => a.offset - b.offset);
 
+  // Detect IN (...) / ANY (...) context for list type inference
+  const listCtxPattern = /\b(?:IN|ANY)\s*\(/gi;
+  for (const m of sql.matchAll(listCtxPattern)) {
+    const parenStart = m.index + m[0].length;
+    for (const v of all) {
+      if (v.offset >= parenStart && v.offset < parenStart + 100) {
+        const between = sql.slice(parenStart, v.offset).trim();
+        if (between === "" || between === "(") {
+          v.inListContext = true;
+        }
+      }
+    }
+  }
+
   const uniqueNames = new Set<string>();
   for (const v of all) {
-    const isPositional = v.syntax === "dollar_num" || v.syntax === "question_mark";
-    if (isPositional && scope === "per_statement") {
+    if (scope === "per_statement") {
       uniqueNames.add(`stmt:${v.statementIndex}:${v.name}`);
     } else {
       uniqueNames.add(v.name);

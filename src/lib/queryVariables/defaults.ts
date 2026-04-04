@@ -1,5 +1,7 @@
 import type { VariableType } from "./types";
 
+const LIST_SUFFIXES = ["_list", "_ids", "_values", "_items", "_set", "_types", "_names", "_codes", "_tags", "_categories"];
+const LIST_NAMES = ["list", "ids", "values", "items", "types", "names", "codes", "tags", "categories", "statuses", "roles"];
 const DATE_SUFFIXES = ["_date", "_at", "_on", "_time", "_timestamp"];
 const DATE_NAMES = ["date", "start", "end", "from", "to", "since", "until", "before", "after", "created", "updated", "deleted", "expires"];
 const DATETIME_SUFFIXES = ["_datetime", "_timestamp"];
@@ -20,6 +22,11 @@ export function inferVariableType(name: string): VariableType {
   }
 
   const lower = name.toLowerCase();
+
+  // Check list first (plural names, _ids suffixes)
+  if (LIST_NAMES.includes(lower) || LIST_SUFFIXES.some((s) => lower.endsWith(s))) {
+    return "list";
+  }
 
   // Check datetime first (more specific than date)
   if (DATETIME_NAMES.includes(lower) || DATETIME_SUFFIXES.some((s) => lower.endsWith(s))) {

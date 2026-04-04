@@ -77,11 +77,9 @@ export function useQueryVariables({
       result[key] = {
         name: parsed.name,
         value: edits?.value ?? "",
-        type: edits?.type ?? inferVariableType(parsed.name),
+        type: edits?.type ?? (parsed.inListContext ? "list" : inferVariableType(parsed.name)),
         syntax: parsed.syntax,
-        statementIndex: isPositionalSyntax(parsed.syntax) && scope === "per_statement"
-          ? parsed.statementIndex
-          : undefined,
+        statementIndex: scope === "per_statement" ? parsed.statementIndex : undefined,
       };
     }
 

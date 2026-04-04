@@ -32,6 +32,7 @@ import {
   IconAlertTriangle,
 } from "@tabler/icons-react";
 import type { SqlDialect } from "@/components/CodeEditor";
+import type { VariableScope } from "@/lib/queryVariables/types";
 
 // Dialect display names and descriptions
 const DIALECT_OPTIONS: Array<{
@@ -59,6 +60,9 @@ interface QueryToolbarProps {
   showOutline?: boolean;
   showVariables?: boolean;
   hasVariables?: boolean;
+  variableScope?: VariableScope;
+  variableStatementCount?: number;
+  onVariableScopeChange?: (scope: VariableScope) => void;
   runLabel?: string;
   executeHint?: string;
   beautifyHint?: string;
@@ -83,6 +87,9 @@ export const QueryToolbar = memo(function QueryToolbar({
   showOutline = false,
   showVariables = false,
   hasVariables = false,
+  variableScope = "global",
+  variableStatementCount = 1,
+  onVariableScopeChange,
   runLabel = "Run",
   executeHint,
   beautifyHint: _beautifyHint,
@@ -201,6 +208,36 @@ export const QueryToolbar = memo(function QueryToolbar({
               <IconBraces className="h-3 w-3" />
               <span>Variables</span>
             </Button>
+          )}
+
+          {/* Variable scope toggle - shown when multiple statements */}
+          {hasVariables && variableStatementCount > 1 && onVariableScopeChange && (
+            <div className="inline-flex items-center rounded-md bg-muted p-0.5 text-[11px] whitespace-nowrap hidden @[500px]/toolbar:flex">
+              <button
+                type="button"
+                className={
+                  "rounded px-1.5 py-0.5 transition-colors whitespace-nowrap " +
+                  (variableScope === "global"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+                onClick={() => { onVariableScopeChange("global"); }}
+              >
+                Global
+              </button>
+              <button
+                type="button"
+                className={
+                  "rounded px-1.5 py-0.5 transition-colors whitespace-nowrap " +
+                  (variableScope === "per_statement"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground")
+                }
+                onClick={() => { onVariableScopeChange("per_statement"); }}
+              >
+                Per-stmt
+              </button>
+            </div>
           )}
 
           {/* Outline toggle button - hidden on narrow containers */}

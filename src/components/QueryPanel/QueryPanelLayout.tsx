@@ -17,8 +17,8 @@ import { QueryEditor } from "./QueryEditor";
 import { QueryOutline } from "./QueryOutline";
 import { QueryToolbar } from "./QueryToolbar";
 import { ResultViewer } from "./ResultViewer";
-import { VariableBar } from "./Variables/VariableBar";
 import { VariablePanel } from "./Variables/VariablePanel";
+import { VariablePopover } from "./Variables/VariablePopover";
 import type { BatchStatementResult } from "./query-batch-orchestrator";
 import type { QueryExecutionStatus } from "./queryExecutionState";
 
@@ -74,10 +74,8 @@ interface QueryPanelLayoutProps {
   // Query variables
   queryVariables?: Record<string, QueryVariable>;
   hasVariables?: boolean;
-  hasPositionalVariables?: boolean;
   variableScope?: VariableScope;
   variableStatementCount?: number;
-  showVariableBar?: boolean;
   showVariablePanel?: boolean;
   onToggleVariables?: () => void;
   onCloseVariables?: () => void;
@@ -148,10 +146,8 @@ export function QueryPanelLayout({
   isTabSwitching = false,
   queryVariables,
   hasVariables = false,
-  hasPositionalVariables = false,
   variableScope = "global",
   variableStatementCount = 1,
-  showVariableBar = false,
   showVariablePanel = false,
   onToggleVariables,
   onCloseVariables,
@@ -229,13 +225,13 @@ export function QueryPanelLayout({
                         selectedDialect === "auto" ? undefined : selectedDialect
                       }
                       onDialectDetected={onDialectDetected}
+                      variableValues={queryVariables}
+                      variableScope={variableScope}
                     />
-                    {showVariableBar && queryVariables && onVariableValueChange && onVariableTypeChange && onVariableScopeChange && (
-                      <VariableBar
+                    {queryVariables && onVariableValueChange && onVariableTypeChange && (
+                      <VariablePopover
+                        containerRef={panelContainerRef}
                         variables={queryVariables}
-                        hasPositionalVariables={hasPositionalVariables}
-                        scope={variableScope}
-                        onScopeChange={onVariableScopeChange}
                         onValueChange={onVariableValueChange}
                         onTypeChange={onVariableTypeChange}
                       />
@@ -247,6 +243,9 @@ export function QueryPanelLayout({
                       showOutline={showOutline}
                       showVariables={showVariablePanel}
                       hasVariables={hasVariables}
+                      variableScope={variableScope}
+                      variableStatementCount={variableStatementCount}
+                      onVariableScopeChange={onVariableScopeChange}
                       dialect={selectedDialect}
                       detectedDialect={detectedDialect}
                       runLabel={runButtonLabel}
@@ -274,7 +273,6 @@ export function QueryPanelLayout({
                       >
                         <VariablePanel
                           variables={queryVariables}
-                          hasPositionalVariables={hasPositionalVariables}
                           scope={variableScope}
                           statementCount={variableStatementCount}
                           onScopeChange={onVariableScopeChange}

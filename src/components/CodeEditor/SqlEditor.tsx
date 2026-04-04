@@ -20,7 +20,7 @@ import {
   useCallback,
   memo,
 } from "react";
-import { EditorState, Prec } from "@codemirror/state";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -91,7 +91,8 @@ import { createRefactoringExtension } from "./extensions/sql-refactoring";
 import { createFormatOnPasteExtension } from "./extensions/format-on-paste";
 import { createQueryHistoryNavExtension } from "./extensions/query-history-navigation";
 import { createCurrentStatementHighlightExtension } from "./extensions/current-statement-highlight";
-import { createVariableHighlightExtension } from "./extensions/variable-highlight";
+import { createVariableHighlightExtension, variableValuesFacet } from "./extensions/variable-highlight";
+import type { QueryVariable } from "@/lib/queryVariables/types";
 import { ExtractCteDialog } from "./components/ExtractCteDialog";
 import { EditorContextMenu } from "./components/EditorContextMenu";
 
@@ -183,6 +184,10 @@ export interface SqlEditorProps {
     type: string;
     message: string;
   }) => boolean | Promise<boolean>;
+  /** Variable values for inline widget display */
+  variableValues?: Record<string, QueryVariable>;
+  /** Variable scope mode for inline widget display */
+  variableScope?: "global" | "per_statement";
 }
 
 // SQL dialect mapping
@@ -308,11 +313,14 @@ export const SqlEditor = memo(
       className = "",
       height = "100%",
       confirmDestructiveQuery,
+      variableValues,
+      variableScope = "global",
     },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
+    const variableCompartmentRef = useRef(new Compartment());
     const { resolvedTheme } = useTheme();
     const keyboardServices = useKeyboardServicesOptional();
     const contextServiceRef = useRef(keyboardServices?.contextService);
@@ -601,6 +609,17 @@ export const SqlEditor = memo(
       });
     }, [effectiveDialect, phase2Extensions, phasingCompartments.phase2]);
 
+    // Reconfigure variable values facet when variable state changes
+    const variableSnapshotForCM = JSON.stringify({ variables: variableValues ?? {}, scope: variableScope });
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) return;
+      const parsed = JSON.parse(variableSnapshotForCM) as { variables: Record<string, QueryVariable>; scope: "global" | "per_statement" };
+      view.dispatch({
+        effects: variableCompartmentRef.current.reconfigure(variableValuesFacet.of(parsed)),
+      });
+    }, [variableSnapshotForCM]);
+
     // Imperative handle
     useImperativeHandle(
       ref,
@@ -753,6 +772,7 @@ export const SqlEditor = memo(
           foldGutter(),
           createCurrentStatementHighlightExtension(),
           createVariableHighlightExtension(),
+          variableCompartmentRef.current.of(variableValuesFacet.of({ variables: variableValues ?? {}, scope: variableScope })),
 
           search({ top: true }),
 

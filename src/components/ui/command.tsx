@@ -80,10 +80,16 @@ function CommandDialog({
 function CommandInput({
   className,
   onBack,
+  mode,
+  onModeClear,
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input> & {
   onBack?: () => void;
+  mode?: "objects" | "actions";
+  onModeClear?: () => void;
 }) {
+  const modeLabel = mode === "objects" ? "Objects" : mode === "actions" ? "Actions" : null;
+
   return (
     <div data-slot="command-input-wrapper" className="p-1 pb-0">
       <div
@@ -103,6 +109,20 @@ function CommandInput({
           <div className="text-muted-foreground pl-2 flex cursor-text items-center justify-center select-none order-first">
             <IconSearch className="size-4! shrink-0" />
           </div>
+        )}
+        {modeLabel && (
+          <span className="ml-2 flex items-center gap-1 shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
+            {modeLabel}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={onModeClear}
+              className="text-muted-foreground hover:text-foreground transition-colors leading-none"
+              aria-label={`Clear ${modeLabel} filter`}
+            >
+              ×
+            </button>
+          </span>
         )}
         <CommandPrimitive.Input
           data-slot="command-input"
