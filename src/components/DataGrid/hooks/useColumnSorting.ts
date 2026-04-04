@@ -9,6 +9,8 @@ interface UseColumnSortingOptions {
   columns: GridColumnV2[];
   /** When set, sort changes are also written to this key (write-through for per-tab sort isolation). */
   writeThroughGridId?: string;
+  /** When set, used as the sort when the user has not explicitly set any sort. */
+  defaultSortColumns?: SortColumn[];
 }
 
 interface UseColumnSortingResult {
@@ -24,10 +26,14 @@ export function useColumnSorting({
   gridId,
   columns,
   writeThroughGridId,
+  defaultSortColumns,
 }: UseColumnSortingOptions): UseColumnSortingResult {
-  const sortColumns = useGridPreferencesStore(
+  const storedSortColumns = useGridPreferencesStore(
     (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
   );
+
+  const effectiveSortColumns =
+    storedSortColumns.length > 0 ? storedSortColumns : (defaultSortColumns ?? EMPTY_SORT_COLUMNS);
   const toggleColumnSort = useGridPreferencesStore((state) => state.toggleColumnSort);
   const clearSortAction = useGridPreferencesStore((state) => state.clearSort);
 
@@ -44,11 +50,11 @@ export function useColumnSorting({
 
   useEffect(() => {
     if (sharedSortColumns === EMPTY_SORT_COLUMNS) return; // No write-through or nothing to copy
-    if (sortColumns.length > 0) return; // Already has sort state
+    if (storedSortColumns.length > 0) return; // Already has sort state
     useGridPreferencesStore.getState().upsert(gridId, (draft) => {
       draft.sortColumns = [...sharedSortColumns];
     });
-  }, [gridId, sortColumns.length, sharedSortColumns]);
+  }, [gridId, storedSortColumns.length, sharedSortColumns]);
 
   const columnMap = useMemo(() => {
     const map = new Map<string, GridColumnV2>();
@@ -60,12 +66,12 @@ export function useColumnSorting({
 
   const sortedData = useCallback(
     <T extends GridRowModel>(data: T[]): T[] => {
-      if (sortColumns.length === 0) {
+      if (effectiveSortColumns.length === 0) {
         return data;
       }
 
       return [...data].sort((a, b) => {
-        for (const { columnId, direction } of sortColumns) {
+        for (const { columnId, direction } of effectiveSortColumns) {
           const column = columnMap.get(columnId);
           if (!column) continue;
 
@@ -106,7 +112,7 @@ export function useColumnSorting({
         return 0;
       });
     },
-    [sortColumns, columnMap]
+    [effectiveSortColumns, columnMap]
   );
 
   const toggleSort = useCallback(
@@ -129,22 +135,22 @@ export function useColumnSorting({
 
   const getSortIndex = useCallback(
     (columnId: string): number => {
-      const index = sortColumns.findIndex((s) => s.columnId === columnId);
+      const index = effectiveSortColumns.findIndex((s) => s.columnId === columnId);
       return index === -1 ? -1 : index + 1;
     },
-    [sortColumns]
+    [effectiveSortColumns]
   );
 
   const getSortDirection = useCallback(
     (columnId: string): 'asc' | 'desc' | null => {
-      const sort = sortColumns.find((s) => s.columnId === columnId);
+      const sort = effectiveSortColumns.find((s) => s.columnId === columnId);
       return sort?.direction ?? null;
     },
-    [sortColumns]
+    [effectiveSortColumns]
   );
 
   return {
-    sortColumns,
+    sortColumns: effectiveSortColumns,
     sortedData,
     toggleSort,
     clearSort,
