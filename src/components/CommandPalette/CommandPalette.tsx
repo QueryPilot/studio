@@ -177,7 +177,23 @@ export function CommandPalette(): React.ReactElement {
   const query = useCommandPaletteStore((state) => state.query);
   const deferredQuery = useDeferredValue(query);
   const setQuery = useCommandPaletteStore((state) => state.setQuery);
+  const mode = useCommandPaletteStore((state) => state.mode);
+  const setMode = useCommandPaletteStore((state) => state.setMode);
   const closePalette = useCommandPaletteStore((state) => state.closePalette);
+  const handleQueryChange = useCallback(
+    (newValue: string) => {
+      if (mode === "all" && query === "" && newValue === ">") {
+        setMode("actions");
+        return;
+      }
+      if (mode === "all" && query === "" && newValue === "@") {
+        setMode("objects");
+        return;
+      }
+      setQuery(newValue);
+    },
+    [mode, query, setMode, setQuery],
+  );
   const openPalette = useCommandPaletteStore((state) => state.openPalette);
   const nestedMode = useCommandPaletteStore((state) => state.nestedMode);
   const exitNestedMode = useCommandPaletteStore(
@@ -277,16 +293,14 @@ export function CommandPalette(): React.ReactElement {
     return () => { cancelled = true; };
   }, [isOpen]);
 
-  const isCommandMode = deferredQuery.startsWith(">");
-  const searchQuery = isCommandMode
-    ? deferredQuery.slice(1).trim()
-    : deferredQuery.trim();
+  const searchQuery = deferredQuery.trim();
 
-  // Filter to commands-only when in command mode (query starts with ">")
+  // Filter items based on mode
   const filteredItems = useMemo(() => {
-    if (!isCommandMode) return unifiedItems;
-    return unifiedItems.filter((item) => item.type === "command");
-  }, [isCommandMode, unifiedItems]);
+    if (mode === "actions") return unifiedItems.filter((item) => item.type === "command");
+    if (mode === "objects") return unifiedItems.filter((item) => item.type !== "command");
+    return unifiedItems;
+  }, [mode, unifiedItems]);
 
   // Ranked search results
   const searchResults = useMemo(() => {
@@ -877,6 +891,13 @@ export function CommandPalette(): React.ReactElement {
         return;
       }
 
+      // Exit palette mode on backspace when query is empty and not in nested mode
+      if (e.key === "Backspace" && query === "" && !nestedMode && mode !== "all") {
+        e.preventDefault();
+        setMode("all");
+        return;
+      }
+
       // Exit nested mode on backspace when query is empty
       if (e.key === "Backspace" && query === "" && nestedMode) {
         e.preventDefault();
@@ -908,6 +929,8 @@ export function CommandPalette(): React.ReactElement {
       query,
       nestedMode,
       exitNestedMode,
+      mode,
+      setMode,
       actions,
       undo,
       redo,
@@ -920,7 +943,8 @@ export function CommandPalette(): React.ReactElement {
 
   const getInputPlaceholder = () => {
     if (!nestedMode) {
-      if (isCommandMode) return "Type a command name...";
+      if (mode === "actions") return "Search actions...";
+      if (mode === "objects") return "Search tables, views, functions...";
       return "Search tables, commands, and more...";
     }
     switch (nestedMode.type) {
@@ -961,8 +985,10 @@ export function CommandPalette(): React.ReactElement {
       <CommandInput
         placeholder={getInputPlaceholder()}
         value={query}
-        onValueChange={setQuery}
+        onValueChange={handleQueryChange}
         onBack={nestedMode ? exitNestedMode : undefined}
+        mode={!nestedMode && mode !== "all" ? mode : undefined}
+        onModeClear={!nestedMode ? () => setMode("all") : undefined}
       />
       {nestedMode ? (
         <>
