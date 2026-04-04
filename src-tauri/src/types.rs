@@ -35,7 +35,7 @@ pub struct ConnectionProfile {
     pub pooler_mode: Option<bool>,
 }
 
-fn redact_if_uri(s: &str) -> &str {
+pub(crate) fn redact_if_uri(s: &str) -> &str {
     if s.contains("://") {
         "<redacted-uri>"
     } else {
@@ -74,6 +74,14 @@ pub enum SafeMode {
 
 impl ConnectionProfile {
     // identity is the provided id (UUID) from the frontend/vault
+    pub fn redacted_endpoint_label(&self) -> String {
+        format!(
+            "{}:{}/{}",
+            redact_if_uri(&self.host),
+            self.port,
+            redact_if_uri(&self.database)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

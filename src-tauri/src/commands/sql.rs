@@ -5,7 +5,10 @@
 
 use std::sync::Arc;
 use tauri::State;
-use tokio_postgres::Row;
+use tokio_postgres::{
+    types::{ToSql, Type as PgType},
+    Row,
+};
 
 use crate::adapters::postgres::DirectMsgPackEncoder;
 use crate::core::capabilities::CapabilityQueryResult;
@@ -397,12 +400,8 @@ async fn execute_single_fetch_stream(
         DbType::SQLite => {
             execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
         }
-        DbType::Oracle => {
-            execute_oracle_stream(sql, metadata_channel, data_channel, adapter).await
-        }
-        DbType::DuckDB => {
-            execute_duckdb_stream(sql, metadata_channel, data_channel, adapter).await
-        }
+        DbType::Oracle => execute_oracle_stream(sql, metadata_channel, data_channel, adapter).await,
+        DbType::DuckDB => execute_duckdb_stream(sql, metadata_channel, data_channel, adapter).await,
         DbType::SQLServer => {
             execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
         }
@@ -865,8 +864,7 @@ async fn execute_oracle_stream(
     let start_time = std::time::Instant::now();
 
     // Use mpsc to stream encoded batches out of spawn_blocking
-    let (batch_tx, mut batch_rx) =
-        tokio::sync::mpsc::channel::<OracleBatchMessage>(8);
+    let (batch_tx, mut batch_rx) = tokio::sync::mpsc::channel::<OracleBatchMessage>(8);
 
     let blocking_handle = tokio::task::spawn_blocking(move || {
         // Get connection inside spawn_blocking to avoid blocking the async executor
@@ -881,9 +879,7 @@ async fn execute_oracle_stream(
 
         if !stmt.is_query() {
             stmt.execute(&[]).map_err(|e| e.to_string())?;
-            let _ = batch_tx.blocking_send(OracleBatchMessage::Metadata {
-                columns: vec![],
-            });
+            let _ = batch_tx.blocking_send(OracleBatchMessage::Metadata { columns: vec![] });
             return Ok::<_, String>(());
         }
 
@@ -916,9 +912,7 @@ async fn execute_oracle_stream(
 
         // Send metadata immediately
         if batch_tx
-            .blocking_send(OracleBatchMessage::Metadata {
-                columns,
-            })
+            .blocking_send(OracleBatchMessage::Metadata { columns })
             .is_err()
         {
             return Ok(());
@@ -970,8 +964,7 @@ async fn execute_oracle_stream(
             let target_batch_size = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
             if rows_in_batch >= target_batch_size {
                 // Wrap accumulated rows in an outer array header
-                let mut final_buf =
-                    Vec::with_capacity(5 + batch_buf.len());
+                let mut final_buf = Vec::with_capacity(5 + batch_buf.len());
                 rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
                     .map_err(|e| e.to_string())?;
                 final_buf.extend_from_slice(&batch_buf);
@@ -1000,9 +993,7 @@ async fn execute_oracle_stream(
         }
 
         // Signal completion with total row count
-        let _ = batch_tx.blocking_send(OracleBatchMessage::Done {
-            total_rows,
-        });
+        let _ = batch_tx.blocking_send(OracleBatchMessage::Done { total_rows });
 
         Ok(())
     });
@@ -1027,10 +1018,7 @@ async fn execute_oracle_stream(
                     continue;
                 }
                 let send_start = std::time::Instant::now();
-                if data_channel
-                    .send(tauri::ipc::Response::new(data))
-                    .is_err()
-                {
+                if data_channel.send(tauri::ipc::Response::new(data)).is_err() {
                     let _ = metadata_channel.send(StreamMessage::Interrupted {
                         resumable: false,
                         message: "Query cancelled by user".to_string(),
@@ -1057,11 +1045,7 @@ async fn execute_oracle_stream(
     tracing::info!("==========================================");
     tracing::info!("ORACLE STREAMING COMPLETE: {} rows", total_rows);
     tracing::info!("  Total time: {}ms", total_time);
-    tracing::info!(
-        "  Batches: {}, IPC send: {}ms",
-        send_count,
-        send_time_ms
-    );
+    tracing::info!("  Batches: {}, IPC send: {}ms", send_count, send_time_ms);
     tracing::info!("==========================================");
 
     let _ = metadata_channel.send(StreamMessage::Success {
@@ -1082,9 +1066,7 @@ async fn execute_oracle_stream(
 /// to the async streaming handler via mpsc channel.
 enum OracleBatchMessage {
     /// Column metadata, sent first
-    Metadata {
-        columns: Vec<ColumnMeta>,
-    },
+    Metadata { columns: Vec<ColumnMeta> },
     /// A batch of MessagePack-encoded rows
     Data(Vec<u8>),
     /// Cursor iteration complete
@@ -1656,7 +1638,110 @@ fn postgres_text_column(name: &str) -> ColumnMeta {
     }
 }
 
-async fn execute_postgres_pooler_stream(
+fn postgres_typed_column(column: &tokio_postgres::Column) -> ColumnMeta {
+    ColumnMeta {
+        name: column.name().to_string(),
+        data_type: crate::adapters::postgres::types::PostgresTypeConverter::type_to_cell_type(
+            column.type_(),
+        ),
+        nullable: true,
+        primary_key: false,
+        db_type: column.type_().name().to_string(),
+        type_oid: Some(column.type_().oid()),
+        default_value: None,
+        comment: None,
+        enum_values: None,
+        type_category: None,
+        precision: None,
+        scale: None,
+    }
+}
+
+fn postgres_typed_columns(columns: &[tokio_postgres::Column]) -> Vec<ColumnMeta> {
+    columns.iter().map(postgres_typed_column).collect()
+}
+
+async fn begin_postgres_pooler_query_scope(
+    client: &deadpool_postgres::Client,
+    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+) -> std::result::Result<(), String> {
+    client
+        .batch_execute("BEGIN")
+        .await
+        .map_err(|e| format!("Failed to begin PostgreSQL pooler transaction: {}", e))?;
+
+    if let Some(schema) = postgres_adapter.current_schema() {
+        if let Err(error) = client
+            .batch_execute(
+                crate::adapters::postgres::PostgresAdapter::local_search_path_sql(&schema).as_str(),
+            )
+            .await
+        {
+            let _ = client.batch_execute("ROLLBACK").await;
+            return Err(format!(
+                "Failed to apply PostgreSQL search_path in pooler mode: {}",
+                error
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+async fn finish_postgres_pooler_query_scope(client: &deadpool_postgres::Client, commit: bool) {
+    let sql = if commit { "COMMIT" } else { "ROLLBACK" };
+    match tokio::time::timeout(std::time::Duration::from_secs(2), client.batch_execute(sql)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(
+                "Failed to close PostgreSQL pooler transaction with {}: {}",
+                sql,
+                error
+            );
+        }
+        Err(_) => {
+            tracing::warn!(
+                "Timed out while closing PostgreSQL pooler transaction with {}",
+                sql
+            );
+        }
+    }
+}
+
+async fn fetch_zero_row_postgres_headers(
+    client: &deadpool_postgres::Client,
+    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+    sql: &str,
+) -> Option<Vec<ColumnMeta>> {
+    let header_sql = postgres_adapter.decorate_simple_query_sql(sql);
+    let messages = client.simple_query(&header_sql).await.ok()?;
+
+    for message in messages {
+        match message {
+            tokio_postgres::SimpleQueryMessage::RowDescription(description) => {
+                return Some(
+                    description
+                        .iter()
+                        .map(|column| postgres_text_column(column.name()))
+                        .collect(),
+                );
+            }
+            tokio_postgres::SimpleQueryMessage::Row(row) => {
+                return Some(
+                    row.columns()
+                        .iter()
+                        .map(|column| postgres_text_column(column.name()))
+                        .collect(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+async fn execute_postgres_pooler_simple_stream(
     sql: &str,
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
@@ -1680,9 +1765,9 @@ async fn execute_postgres_pooler_stream(
         .ok()
         .and_then(|messages| {
             messages.into_iter().find_map(|message| match message {
-                tokio_postgres::SimpleQueryMessage::Row(row) => row
-                    .get(0)
-                    .and_then(|value| value.parse::<i32>().ok()),
+                tokio_postgres::SimpleQueryMessage::Row(row) => {
+                    row.get(0).and_then(|value| value.parse::<i32>().ok())
+                }
                 _ => None,
             })
         })
@@ -1794,8 +1879,8 @@ async fn execute_postgres_pooler_stream(
 
     if !row_buffer.is_empty() {
         let encode_start = std::time::Instant::now();
-        let payload = rmp_serde::to_vec(&row_buffer)
-            .map_err(|e| format!("Failed to encode rows: {}", e))?;
+        let payload =
+            rmp_serde::to_vec(&row_buffer).map_err(|e| format!("Failed to encode rows: {}", e))?;
         conversion_time_ms += encode_start.elapsed().as_millis() as u64;
         row_buffer.clear();
 
@@ -1830,6 +1915,228 @@ async fn execute_postgres_pooler_stream(
     });
 
     Ok(())
+}
+
+async fn execute_postgres_pooler_typed_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+) -> std::result::Result<(), String> {
+    use futures::StreamExt;
+
+    let start_time = std::time::Instant::now();
+    let pool = postgres_adapter
+        .get_pool()
+        .await
+        .ok_or_else(|| "PostgreSQL pool not available".to_string())?;
+    let client = postgres_adapter
+        .get_client_with_schema()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    begin_postgres_pooler_query_scope(&client, postgres_adapter).await?;
+
+    let backend_pid = client
+        .query_one("SELECT pg_backend_pid()", &[])
+        .await
+        .ok()
+        .map(|row| row.get::<_, i32>(0))
+        .unwrap_or(0);
+
+    let query_start = std::time::Instant::now();
+    let typed_params: Vec<(&(dyn ToSql + Sync), PgType)> = Vec::new();
+    let row_stream_result = client.query_typed_raw(sql, typed_params).await;
+    let mut row_stream = match row_stream_result {
+        Ok(row_stream) => Box::pin(row_stream),
+        Err(error) => {
+            finish_postgres_pooler_query_scope(&client, false).await;
+            return Err(extract_db_error_message(&error));
+        }
+    };
+
+    let mut started = false;
+    let mut total_rows = 0usize;
+    let mut row_buffer: Vec<Row> = Vec::new();
+    let mut encoder: Option<DirectMsgPackEncoder> = None;
+    let mut conversion_time_ms = 0u64;
+    let mut send_time_ms = 0u64;
+    let mut send_count = 0usize;
+    let mut batch_index = 0usize;
+    let mut check_interval = 0u32;
+
+    const BATCH_SIZES: [usize; 5] = [16, 64, 256, 1024, 2048];
+
+    while let Some(row_result) = row_stream.next().await {
+        check_interval += 1;
+        if check_interval.is_multiple_of(100)
+            && data_channel
+                .send(tauri::ipc::Response::new(vec![]))
+                .is_err()
+        {
+            if backend_pid > 0 {
+                let cancel_pool = pool.clone();
+                tokio::spawn(async move {
+                    if let Ok(cancel_conn) = cancel_pool.get().await {
+                        let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                        let _ = cancel_conn.execute(&cancel_sql, &[]).await;
+                    }
+                });
+            }
+
+            drop(row_stream);
+            finish_postgres_pooler_query_scope(&client, false).await;
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+
+        match row_result {
+            Ok(row) => {
+                if !started {
+                    let columns = postgres_typed_columns(row.columns());
+                    let _ = metadata_channel.send(StreamMessage::Started {
+                        columns,
+                        estimated_rows: None,
+                    });
+                    encoder = Some(DirectMsgPackEncoder::from_row(&row));
+                    started = true;
+                }
+
+                row_buffer.push(row);
+                total_rows += 1;
+
+                let current_threshold = BATCH_SIZES[batch_index.min(BATCH_SIZES.len() - 1)];
+                if row_buffer.len() >= current_threshold {
+                    let encode_start = std::time::Instant::now();
+                    let rows_msgpack = encoder
+                        .as_ref()
+                        .unwrap()
+                        .encode_batch(&row_buffer)
+                        .unwrap_or_else(|_| Vec::new());
+                    conversion_time_ms += encode_start.elapsed().as_millis() as u64;
+                    row_buffer.clear();
+                    batch_index += 1;
+
+                    let send_start = std::time::Instant::now();
+                    let send_result = data_channel.send(tauri::ipc::Response::new(rows_msgpack));
+                    send_time_ms += send_start.elapsed().as_millis() as u64;
+                    send_count += 1;
+
+                    if send_result.is_err() {
+                        if backend_pid > 0 {
+                            let cancel_pool = pool.clone();
+                            tokio::spawn(async move {
+                                if let Ok(cancel_conn) = cancel_pool.get().await {
+                                    let cancel_sql =
+                                        format!("SELECT pg_cancel_backend({})", backend_pid);
+                                    let _ = cancel_conn.execute(&cancel_sql, &[]).await;
+                                }
+                            });
+                        }
+
+                        drop(row_stream);
+                        finish_postgres_pooler_query_scope(&client, false).await;
+                        let _ = metadata_channel.send(StreamMessage::Interrupted {
+                            resumable: false,
+                            message: "Query cancelled by user".to_string(),
+                        });
+                        return Err("Query cancelled by user".to_string());
+                    }
+                }
+            }
+            Err(error) => {
+                finish_postgres_pooler_query_scope(&client, false).await;
+                return Err(extract_db_error_message(&error));
+            }
+        }
+    }
+
+    let rows_affected = row_stream.rows_affected().unwrap_or(0) as usize;
+    drop(row_stream);
+
+    if !row_buffer.is_empty() {
+        let encode_start = std::time::Instant::now();
+        let rows_msgpack = encoder
+            .as_ref()
+            .unwrap()
+            .encode_batch(&row_buffer)
+            .unwrap_or_else(|_| Vec::new());
+        conversion_time_ms += encode_start.elapsed().as_millis() as u64;
+        row_buffer.clear();
+
+        let send_start = std::time::Instant::now();
+        if data_channel
+            .send(tauri::ipc::Response::new(rows_msgpack))
+            .is_err()
+        {
+            finish_postgres_pooler_query_scope(&client, false).await;
+            let _ = metadata_channel.send(StreamMessage::Interrupted {
+                resumable: false,
+                message: "Query cancelled by user".to_string(),
+            });
+            return Err("Query cancelled by user".to_string());
+        }
+        send_time_ms += send_start.elapsed().as_millis() as u64;
+        send_count += 1;
+    }
+
+    finish_postgres_pooler_query_scope(&client, true).await;
+
+    if !started {
+        let columns = if is_select_query(sql) {
+            fetch_zero_row_postgres_headers(&client, postgres_adapter, sql)
+                .await
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
+        let _ = metadata_channel.send(StreamMessage::Started {
+            columns,
+            estimated_rows: Some(rows_affected as i64),
+        });
+    }
+
+    let execution_time_ms = start_time.elapsed().as_millis() as u64;
+    let query_elapsed_ms = query_start.elapsed().as_millis() as u64;
+
+    let _ = metadata_channel.send(StreamMessage::Success {
+        total_rows: total_rows.max(rows_affected),
+        execution_time_ms,
+        cursor_setup_ms: None,
+        total_streaming_ms: Some(execution_time_ms),
+        fetch_count: Some(send_count as u64),
+        network_ms: Some(query_elapsed_ms),
+        conversion_ms: Some(conversion_time_ms),
+        ipc_send_ms: Some(send_time_ms),
+    });
+
+    Ok(())
+}
+
+async fn execute_postgres_pooler_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+) -> std::result::Result<(), String> {
+    let is_select = is_select_query(sql);
+    let has_returning = sql.to_uppercase().contains(" RETURNING ");
+
+    if is_multi_statement_query(sql) || (!is_select && !has_returning) {
+        return execute_postgres_pooler_simple_stream(
+            sql,
+            metadata_channel,
+            data_channel,
+            postgres_adapter,
+        )
+        .await;
+    }
+
+    execute_postgres_pooler_typed_stream(sql, metadata_channel, data_channel, postgres_adapter)
+        .await
 }
 
 async fn execute_postgres_stream(
@@ -1867,8 +2174,8 @@ async fn execute_postgres_stream(
 
     // Get connection from pool FIRST
     let conn_start = std::time::Instant::now();
-    let pool_conn = pool
-        .get()
+    let pool_conn = postgres_adapter
+        .get_client_with_schema()
         .await
         .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
     let conn_elapsed = conn_start.elapsed().as_millis();
@@ -2599,7 +2906,8 @@ pub async fn install_oracle_client_dmg() -> Result<String, String> {
         // Step 1: Download DMG
         let output = Command::new("curl")
             .args([
-                "-L", "-o",
+                "-L",
+                "-o",
                 dmg_path.to_str().unwrap(),
                 "--progress-bar",
                 dmg_url,
@@ -2648,7 +2956,10 @@ pub async fn install_oracle_client_dmg() -> Result<String, String> {
                     .args(["detach", mount_point.to_str().unwrap(), "-quiet"])
                     .output()
                     .await;
-                return Err("Failed to create /usr/local/lib — you may need to grant permission".to_string());
+                return Err(
+                    "Failed to create /usr/local/lib — you may need to grant permission"
+                        .to_string(),
+                );
             }
         }
 

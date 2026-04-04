@@ -785,10 +785,8 @@ impl ConnectionManager {
         // Create new connection (unified factory for all db types)
         let adapter = self.create_adapter(profile)?;
         tracing::info!(
-            "Connecting to {}:{}/{} (type: {:?})",
-            effective_profile.host,
-            effective_profile.port,
-            effective_profile.database,
+            "Connecting to {} (type: {:?})",
+            effective_profile.redacted_endpoint_label(),
             effective_profile.db_type
         );
         if let Err(err) = adapter.connect(&effective_profile).await {

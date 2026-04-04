@@ -7,7 +7,10 @@ use postgres_native_tls::MakeTlsConnector;
 use std::sync::Arc;
 use std::sync::RwLock as StdRwLock;
 use tokio::sync::RwLock;
-use tokio_postgres::NoTls;
+use tokio_postgres::{
+    types::{ToSql, Type},
+    NoTls, Row,
+};
 
 use super::simple_converter::SimpleConverter;
 use crate::core::capabilities::{
@@ -53,8 +56,17 @@ impl PostgresAdapter {
         }
     }
 
+    pub(crate) fn local_search_path_sql(schema: &str) -> String {
+        let quoted_schema = Self::quote_identifier(schema);
+        if schema.eq_ignore_ascii_case("public") {
+            format!("SET LOCAL search_path TO {}", quoted_schema)
+        } else {
+            format!("SET LOCAL search_path TO {}, public", quoted_schema)
+        }
+    }
+
     pub fn decorate_simple_query_sql(&self, sql: &str) -> String {
-        let schema = self.current_schema.read().ok().and_then(|guard| guard.clone());
+        let schema = self.current_schema();
         match schema {
             Some(schema) => format!("{}; {}", Self::search_path_sql(&schema), sql),
             None => sql.to_string(),
@@ -72,11 +84,22 @@ impl PostgresAdapter {
         is_tab_scoped_connection_id(&profile.id) || profile.pooler_mode == Some(true)
     }
 
+    fn should_recreate_pool_after_detection(
+        requested_mode: Option<bool>,
+        resolved_mode: bool,
+    ) -> bool {
+        requested_mode.is_none() && resolved_mode
+    }
+
     pub fn pooler_mode(&self) -> Option<bool> {
-        self.pooler_mode
+        self.pooler_mode.read().ok().and_then(|guard| *guard)
+    }
+
+    pub fn current_schema(&self) -> Option<String> {
+        self.current_schema
             .read()
             .ok()
-            .and_then(|guard| *guard)
+            .and_then(|guard| guard.clone())
     }
 
     pub fn set_current_schema(&self, schema: Option<String>) {
@@ -180,7 +203,7 @@ impl PostgresAdapter {
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         if self.pooler_mode() != Some(true) {
-            let schema = self.current_schema.read().ok().and_then(|guard| guard.clone());
+            let schema = self.current_schema();
             if let Some(schema) = schema {
                 client
                     .batch_execute(Self::search_path_sql(&schema).as_str())
@@ -195,6 +218,46 @@ impl PostgresAdapter {
         }
 
         Ok(client)
+    }
+
+    async fn begin_pooler_query_scope(
+        &self,
+        client: &deadpool_postgres::Client,
+    ) -> Result<bool, AppError> {
+        let Some(schema) = self.current_schema() else {
+            return Ok(false);
+        };
+
+        client.batch_execute("BEGIN").await.map_err(|e| {
+            AppError::DatabaseError(format!(
+                "Failed to begin PostgreSQL pooler transaction: {}",
+                e
+            ))
+        })?;
+
+        if let Err(error) = client
+            .batch_execute(Self::local_search_path_sql(&schema).as_str())
+            .await
+        {
+            let _ = client.batch_execute("ROLLBACK").await;
+            return Err(AppError::DatabaseError(format!(
+                "Failed to apply PostgreSQL search_path in pooler mode: {}",
+                error
+            )));
+        }
+
+        Ok(true)
+    }
+
+    async fn finish_pooler_query_scope(client: &deadpool_postgres::Client, commit: bool) {
+        let sql = if commit { "COMMIT" } else { "ROLLBACK" };
+        if let Err(error) = client.batch_execute(sql).await {
+            tracing::warn!(
+                "Failed to close PostgreSQL pooler transaction with {}: {}",
+                sql,
+                error
+            );
+        }
     }
 
     async fn resolve_pooler_mode(
@@ -220,10 +283,7 @@ impl PostgresAdapter {
         }
     }
 
-    async fn execute_simple_query(
-        &self,
-        sql: &str,
-    ) -> Result<CapabilityQueryResult, AppError> {
+    async fn execute_simple_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
         let client = self.get_client().await?;
         let sql = self.decorate_simple_query_sql(sql);
         let messages = client
@@ -274,6 +334,33 @@ impl PostgresAdapter {
         Ok(CapabilityQueryResult { columns, rows })
     }
 
+    async fn execute_typed_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
+        let client = self.get_client().await?;
+        let scoped_schema = self.begin_pooler_query_scope(&client).await?;
+        let typed_params: Vec<(&(dyn ToSql + Sync), Type)> = Vec::new();
+
+        let rows_result = client
+            .query_typed(sql, &typed_params)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Pooler-safe query failed: {}", e)));
+
+        if scoped_schema {
+            Self::finish_pooler_query_scope(&client, rows_result.is_ok()).await;
+        }
+
+        let rows = rows_result?;
+        let columns = rows
+            .first()
+            .map(capability_columns_from_row)
+            .unwrap_or_default();
+        let json_rows = SimpleConverter::rows_to_json(&rows);
+
+        Ok(CapabilityQueryResult {
+            columns,
+            rows: json_rows,
+        })
+    }
+
     async fn execute_simple_statement(&self, sql: &str) -> Result<u64, AppError> {
         let client = self.get_client().await?;
         let sql = self.decorate_simple_query_sql(sql);
@@ -297,6 +384,145 @@ impl PostgresAdapter {
 
 fn is_tab_scoped_connection_id(conn_id: &str) -> bool {
     conn_id.contains(':')
+}
+
+fn capability_columns_from_row(row: &Row) -> Vec<CapabilityColumnMeta> {
+    row.columns()
+        .iter()
+        .map(|col| CapabilityColumnMeta {
+            name: col.name().to_string(),
+            data_type: col.type_().name().to_string(),
+        })
+        .collect()
+}
+
+fn strip_sql_comments(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let bytes = sql.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == b'\'' {
+            result.push('\'');
+            i += 1;
+            while i < len {
+                if bytes[i] == b'\'' && i + 1 < len && bytes[i + 1] == b'\'' {
+                    result.push_str("''");
+                    i += 2;
+                } else if bytes[i] == b'\'' {
+                    result.push('\'');
+                    i += 1;
+                    break;
+                } else {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+            }
+            continue;
+        }
+
+        if bytes[i] == b'-' && i + 1 < len && bytes[i + 1] == b'-' {
+            while i < len && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+
+        if bytes[i] == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 < len {
+                i += 2;
+            }
+            continue;
+        }
+
+        result.push(bytes[i] as char);
+        i += 1;
+    }
+
+    result
+}
+
+fn is_multi_statement_sql(sql: &str) -> bool {
+    let without_comments = strip_sql_comments(sql);
+    let trimmed = without_comments.trim();
+    let upper = trimmed.to_uppercase();
+
+    if upper.contains("BEGIN;") || upper.contains("COMMIT;") || upper.contains("ROLLBACK;") {
+        return true;
+    }
+
+    let semicolon_count = trimmed.matches(';').count();
+    if semicolon_count > 1 {
+        return true;
+    }
+
+    semicolon_count == 1 && !trimmed.trim_end().ends_with(';')
+}
+
+fn find_main_statement_keyword(sql: &str) -> Option<String> {
+    let upper = sql.to_uppercase();
+    let keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "TABLE", "VALUES"];
+    let mut first_keyword_pos: Option<(usize, &str)> = None;
+
+    for keyword in &keywords {
+        let mut search_start = 0;
+        while let Some(pos) = upper[search_start..].find(keyword) {
+            let abs_pos = search_start + pos;
+            let before_ok = abs_pos == 0 || !upper.as_bytes()[abs_pos - 1].is_ascii_alphanumeric();
+            let after_ok = abs_pos + keyword.len() >= upper.len()
+                || !upper.as_bytes()[abs_pos + keyword.len()].is_ascii_alphanumeric();
+
+            if before_ok && after_ok {
+                let depth = sql[..abs_pos].chars().fold(0i32, |depth, ch| match ch {
+                    '(' => depth + 1,
+                    ')' => depth - 1,
+                    _ => depth,
+                });
+
+                if depth == 0 && first_keyword_pos.is_none_or(|(pos, _)| abs_pos < pos) {
+                    first_keyword_pos = Some((abs_pos, keyword));
+                }
+            }
+
+            search_start = abs_pos + 1;
+        }
+    }
+
+    first_keyword_pos.map(|(_, keyword)| keyword.to_string())
+}
+
+fn is_row_returning_query(sql: &str) -> bool {
+    let trimmed = sql.trim();
+    let without_comments = trimmed
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let cleaned = regex::Regex::new(r"/\*.*?\*/")
+        .unwrap_or_else(|_| regex::Regex::new(r"a^").unwrap())
+        .replace_all(&without_comments, "");
+    let first_keyword = cleaned
+        .split_whitespace()
+        .find(|word| !word.is_empty())
+        .unwrap_or("")
+        .to_uppercase();
+
+    if first_keyword == "WITH" {
+        return find_main_statement_keyword(&cleaned)
+            .map(|keyword| matches!(keyword.as_str(), "SELECT" | "TABLE" | "VALUES"))
+            .unwrap_or(false)
+            || cleaned.to_uppercase().contains(" RETURNING ");
+    }
+
+    matches!(
+        first_keyword.as_str(),
+        "SELECT" | "EXPLAIN" | "SHOW" | "TABLE" | "VALUES"
+    ) || cleaned.to_uppercase().contains(" RETURNING ")
 }
 
 #[cfg(test)]
@@ -363,7 +589,7 @@ impl BaseCapability for PostgresAdapter {
             }
         }
 
-        let pool = Self::create_pool(&cfg, profile)?;
+        let mut pool = Self::create_pool(&cfg, profile)?;
 
         // Test connection with timeout to prevent indefinite hangs on unreachable hosts
         let connect_timeout = std::time::Duration::from_secs(15);
@@ -380,6 +606,22 @@ impl BaseCapability for PostgresAdapter {
         let resolved_pooler_mode = Self::resolve_pooler_mode(&client, profile.pooler_mode).await?;
         if let Ok(mut guard) = self.pooler_mode.write() {
             *guard = Some(resolved_pooler_mode);
+        }
+
+        if Self::should_recreate_pool_after_detection(profile.pooler_mode, resolved_pooler_mode) {
+            drop(client);
+            pool.close();
+            cfg.pool = Some(PoolConfig::new(1));
+            pool = Self::create_pool(&cfg, profile)?;
+            let _ = tokio::time::timeout(connect_timeout, pool.get())
+                .await
+                .map_err(|_| {
+                    AppError::ConnectionClosed(format!(
+                        "Connection timed out after {} seconds - host may be unreachable",
+                        connect_timeout.as_secs()
+                    ))
+                })?
+                .map_err(|e| AppError::Internal(format!("Failed to reconnect: {}", e)))?;
         }
 
         *self.pool.write().await = Some(pool);
@@ -411,9 +653,7 @@ impl BaseCapability for PostgresAdapter {
                         _ => None,
                     })
                     .ok_or_else(|| {
-                        AppError::DatabaseError(
-                            "PostgreSQL test query returned no row".to_string(),
-                        )
+                        AppError::DatabaseError("PostgreSQL test query returned no row".to_string())
                     })?;
 
                 (
@@ -459,7 +699,11 @@ impl BaseCapability for PostgresAdapter {
 impl SqlQueryable for PostgresAdapter {
     async fn execute_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
         if self.pooler_mode() == Some(true) {
-            return self.execute_simple_query(sql).await;
+            if is_multi_statement_sql(sql) || !is_row_returning_query(sql) {
+                return self.execute_simple_query(sql).await;
+            }
+
+            return self.execute_typed_query(sql).await;
         }
 
         let client = self.get_client().await?;
@@ -546,5 +790,38 @@ mod tests {
         };
 
         assert!(PostgresAdapter::should_pin_single_session(&profile));
+    }
+
+    #[test]
+    fn auto_detected_pooler_mode_recreates_pool_with_single_session() {
+        assert!(PostgresAdapter::should_recreate_pool_after_detection(
+            None, true
+        ));
+        assert!(!PostgresAdapter::should_recreate_pool_after_detection(
+            Some(true),
+            true
+        ));
+        assert!(!PostgresAdapter::should_recreate_pool_after_detection(
+            None, false
+        ));
+    }
+
+    #[test]
+    fn returning_queries_are_treated_as_row_producing() {
+        assert!(super::is_row_returning_query(
+            "UPDATE users SET name = 'alice' RETURNING id"
+        ));
+        assert!(super::is_row_returning_query(
+            "WITH updated AS (UPDATE users SET name = 'alice' RETURNING id) SELECT * FROM updated"
+        ));
+        assert!(!super::is_row_returning_query(
+            "UPDATE users SET name = 'alice'"
+        ));
+    }
+
+    #[test]
+    fn multi_statement_detection_ignores_commented_semicolons() {
+        assert!(!super::is_multi_statement_sql("-- ROLLBACK;\nSELECT 1"));
+        assert!(super::is_multi_statement_sql("BEGIN; SELECT 1; COMMIT;"));
     }
 }

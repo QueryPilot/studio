@@ -615,3 +615,54 @@ mod constraint_tests {
         }
     }
 }
+
+mod connection_profile_redaction_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn postgres_profile(database: &str) -> ConnectionProfile {
+        ConnectionProfile {
+            id: "pg-1".to_string(),
+            name: "Postgres".to_string(),
+            db_type: DbType::PostgreSQL,
+            host: "db.example.com".to_string(),
+            port: 5432,
+            database: database.to_string(),
+            username: "postgres".to_string(),
+            password: Some("super-secret".to_string()),
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
+            options: HashMap::new(),
+            group: None,
+            safe_mode: None,
+            pooler_mode: None,
+        }
+    }
+
+    #[test]
+    fn redacted_endpoint_label_masks_database_uris() {
+        let profile = postgres_profile("postgres://alice:secret@db.example.com:5432/app");
+
+        assert_eq!(
+            profile.redacted_endpoint_label(),
+            "db.example.com:5432/<redacted-uri>"
+        );
+    }
+
+    #[test]
+    fn debug_redacts_database_uris_and_passwords() {
+        let profile = postgres_profile("postgres://alice:secret@db.example.com:5432/app");
+
+        let debug = format!("{profile:?}");
+
+        assert!(!debug.contains("secret"));
+        assert!(debug.contains("<redacted-uri>"));
+        assert!(debug.contains("***"));
+    }
+}
