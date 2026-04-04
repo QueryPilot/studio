@@ -74,15 +74,7 @@ export const VariablePopover = memo(function VariablePopover({
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleKeydown, true);
 
-    const timer = requestAnimationFrame(() => {
-      const el = popoverRef.current;
-      if (!el) return;
-      const input = el.querySelector<HTMLElement>("input:not([type=hidden]), textarea");
-      input?.focus();
-    });
-
     return () => {
-      cancelAnimationFrame(timer);
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleKeydown, true);
     };
@@ -133,6 +125,7 @@ export const VariablePopover = memo(function VariablePopover({
           onValueChange={handleValueChange}
           onTypeChange={handleTypeChange}
           compact
+          autoFocus
         />
       </div>
       <div className="px-3 pb-2 pt-0">

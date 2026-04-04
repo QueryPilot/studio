@@ -13,7 +13,7 @@ describe("OracleAdapter", () => {
       },
     );
 
-    expect(sql).toContain('SELECT ROWID AS "__qp_rowid", * FROM "APP"."USERS"');
+    expect(sql).toContain('SELECT t.ROWID AS "__qp_rowid", t.* FROM "APP"."USERS" t');
     expect(sql).toContain("FETCH FIRST 10 ROWS ONLY");
   });
 

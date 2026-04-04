@@ -51,10 +51,12 @@ function TagInput({
   id,
   value,
   onChange,
+  autoFocus = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
+  autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -85,12 +87,21 @@ function TagInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (draft.trim()) commitTag(draft);
+        return;
+      }
+      if (e.key === "Enter" || e.key === ",") {
         if (draft.trim()) {
           e.preventDefault();
+          e.stopPropagation();
           commitTag(draft);
         }
-      } else if (e.key === "Backspace" && !draft && tags.length > 0) {
+        return;
+      }
+      if (e.key === "Backspace" && !draft && tags.length > 0) {
         removeTag(tags.length - 1);
       }
     },
@@ -136,6 +147,11 @@ function TagInput({
         onChange={(e) => { setDraft(e.target.value); }}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
+        autoFocus={autoFocus}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         placeholder={tags.length === 0 ? "Type value, press Enter" : ""}
         className="flex-1 min-w-[60px] bg-transparent text-xs font-mono outline-none placeholder:text-muted-foreground py-0.5"
       />
@@ -150,6 +166,7 @@ interface VariableValueEditorProps {
   onValueChange: (value: string) => void;
   onTypeChange: (type: VariableType) => void;
   compact?: boolean;
+  autoFocus?: boolean;
 }
 
 export const VariableValueEditor = memo(function VariableValueEditor({
@@ -159,6 +176,7 @@ export const VariableValueEditor = memo(function VariableValueEditor({
   onValueChange,
   onTypeChange,
   compact = false,
+  autoFocus = false,
 }: VariableValueEditorProps) {
   const handleBooleanChange = useCallback(
     (val: string | null) => {
@@ -239,6 +257,7 @@ export const VariableValueEditor = memo(function VariableValueEditor({
             onChange={(e) => { onValueChange(e.target.value); }}
             placeholder="e.g. 2026-04-04"
             className="!h-7 text-xs font-mono"
+            autoFocus={autoFocus}
           />
           <Popover>
             <PopoverTrigger
@@ -268,6 +287,7 @@ export const VariableValueEditor = memo(function VariableValueEditor({
             onChange={(e) => { onValueChange(e.target.value); }}
             placeholder="e.g. 2026-04-04 14:30:00"
             className="!h-7 text-xs font-mono"
+            autoFocus={autoFocus}
           />
           <Popover>
             <PopoverTrigger
@@ -306,6 +326,7 @@ export const VariableValueEditor = memo(function VariableValueEditor({
           id={inputId}
           value={value}
           onChange={onValueChange}
+          autoFocus={autoFocus}
         />
       ) : (
         <Input
@@ -315,6 +336,7 @@ export const VariableValueEditor = memo(function VariableValueEditor({
           onChange={(e) => { onValueChange(e.target.value); }}
           placeholder={type === "number" ? "e.g. 42" : "e.g. value"}
           className="!h-7 text-xs font-mono"
+          autoFocus={autoFocus}
         />
       )}
     </div>

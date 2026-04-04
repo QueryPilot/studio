@@ -23,9 +23,7 @@ export function convertEditValue(
     typeof extractedValue === "string" &&
     extractedValue !== ""
   ) {
-    const trimmed = extractedValue.trim();
-    const num = Number(trimmed);
-    return isNaN(num) ? trimmed : num;
+    return extractedValue.trim() as JsonValue;
   }
 
   return extractedValue as JsonValue;
