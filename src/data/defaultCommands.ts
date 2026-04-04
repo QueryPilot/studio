@@ -45,9 +45,13 @@ export const defaultCommands: Command[] = [
       const state = useCommandPaletteStore.getState();
 
       if (state.isOpen) {
-        commandPaletteStore.closePalette();
-        contextService.setValue("inQuickOpen", false);
-        contextService.setValue("inCommandPalette", false);
+        if (state.mode === "objects") {
+          commandPaletteStore.closePalette();
+          contextService.setValue("inQuickOpen", false);
+          contextService.setValue("inCommandPalette", false);
+        } else {
+          state.setMode("objects");
+        }
         return;
       }
 
@@ -75,7 +79,13 @@ export const defaultCommands: Command[] = [
       const state = useCommandPaletteStore.getState();
 
       if (state.isOpen) {
-        state.setMode("actions");
+        if (state.mode === "actions") {
+          commandPaletteStore.closePalette();
+          contextService.setValue("inQuickOpen", false);
+          contextService.setValue("inCommandPalette", false);
+        } else {
+          state.setMode("actions");
+        }
         return;
       }
 
