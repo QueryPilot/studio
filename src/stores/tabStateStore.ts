@@ -14,6 +14,7 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
 import type { TabMetadata } from "@/types/workbench";
 import type { MongoWorkbenchState } from "@/types/mongoWorkbench";
+import type { QueryVariable, VariableScope } from "@/lib/queryVariables/types";
 
 // Re-export PersistedTabState for consumers
 export type { PersistedTabState };
@@ -196,6 +197,10 @@ interface QueryState {
 
   // Saved EXPLAIN plans for comparison
   savedExplainPlans?: SavedExplainPlan[];
+
+  // Query variables (session-only, not persisted to IndexedDB)
+  queryVariables?: Record<string, QueryVariable>;
+  variableScope?: VariableScope;
 }
 
 interface TabStateStore {

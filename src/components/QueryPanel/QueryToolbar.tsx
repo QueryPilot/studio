@@ -27,6 +27,7 @@ import {
   IconDotsVertical,
   IconWand,
   IconBinaryTree,
+  IconBraces,
   IconChevronDown,
   IconAlertTriangle,
 } from "@tabler/icons-react";
@@ -56,6 +57,8 @@ interface QueryToolbarProps {
   hasQuery: boolean;
   showResults: boolean;
   showOutline?: boolean;
+  showVariables?: boolean;
+  hasVariables?: boolean;
   runLabel?: string;
   executeHint?: string;
   beautifyHint?: string;
@@ -67,6 +70,7 @@ interface QueryToolbarProps {
   onBeautify: () => void;
   onToggleResults: () => void;
   onToggleOutline?: () => void;
+  onToggleVariables?: () => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   showplanMode?: string | null;
   inTransaction?: boolean;
@@ -77,6 +81,8 @@ export const QueryToolbar = memo(function QueryToolbar({
   hasQuery,
   showResults,
   showOutline = false,
+  showVariables = false,
+  hasVariables = false,
   runLabel = "Run",
   executeHint,
   beautifyHint: _beautifyHint,
@@ -88,6 +94,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   onBeautify,
   onToggleResults,
   onToggleOutline,
+  onToggleVariables,
   onDialectChange,
   showplanMode,
   inTransaction = false,
@@ -182,6 +189,20 @@ export const QueryToolbar = memo(function QueryToolbar({
 
         {/* Right side */}
         <div className="flex items-center gap-1.5">
+          {/* Variables toggle button - hidden on narrow containers */}
+          {onToggleVariables && hasVariables && (
+            <Button
+              size="sm"
+              variant={showVariables ? "secondary" : "ghost"}
+              onClick={onToggleVariables}
+              className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
+              title="Toggle Variables Panel"
+            >
+              <IconBraces className="h-3 w-3" />
+              <span>Variables</span>
+            </Button>
+          )}
+
           {/* Outline toggle button - hidden on narrow containers */}
           {onToggleOutline && (
             <Button
@@ -253,6 +274,14 @@ export const QueryToolbar = memo(function QueryToolbar({
               </DropdownMenuSub>
 
               <DropdownMenuSeparator />
+
+              {/* Variables toggle */}
+              {onToggleVariables && hasVariables && (
+                <DropdownMenuItem onClick={onToggleVariables} className="text-xs">
+                  <IconBraces className="h-3 w-3 mr-2" />
+                  {showVariables ? "Hide Variables" : "Show Variables"}
+                </DropdownMenuItem>
+              )}
 
               {/* Outline toggle */}
               {onToggleOutline && (

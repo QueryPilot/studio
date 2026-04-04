@@ -52,6 +52,9 @@ import {
   type ResultViewPresentation,
 } from "./query-result-view";
 import { parseShowplanSet, SET_COMMAND_MAP, type ShowplanFormat } from "./showplan-state-tracker";
+import { useQueryVariables } from "./Variables/useQueryVariables";
+import { substituteVariables } from "@/lib/queryVariables/substitution";
+import { useTabStateStore } from "@/stores/tabStateStore";
 
 interface QueryPanelProps {
   panelId: string;
@@ -162,10 +165,14 @@ export const QueryPanel = memo(function QueryPanel({
     setSelectedDialect,
     setSelectedStatementCount,
     setShowOutline,
+    setShowVariablePanel,
+    setShowVariableBar,
     setShowplanMode,
     setShowResults,
     setShowSaveDialog,
     showOutline,
+    showVariablePanel,
+    showVariableBar,
     showplanMode,
     showResults,
     showSaveDialog,
@@ -179,6 +186,41 @@ export const QueryPanel = memo(function QueryPanel({
     dbType,
     initialSql,
   });
+
+  // Query variables
+  const initialQueryVariables = useTabStateStore(
+    (s) => s.queryStates.get(tabId)?.queryVariables,
+  );
+  const {
+    variables: queryVariables,
+    parseResult: variableParseResult,
+    scope: variableScope,
+    hasVariables,
+    hasPositionalVariables,
+    setVariableValue,
+    setVariableType,
+    setScope: setVariableScope,
+  } = useQueryVariables({
+    sql: query,
+    initialVariables: initialQueryVariables,
+  });
+
+  // Sync variable state back to Zustand for saved-query persistence.
+  // Keyed on the serialized snapshot to avoid infinite loops — the useMemo
+  // in useQueryVariables always returns a new object reference, but we only
+  // want to write to the store when the content actually changes.
+  const variableSnapshotKey = JSON.stringify(queryVariables);
+  useEffect(() => {
+    setQueryState(tabId, { queryVariables, variableScope });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on serialized snapshot, not object ref
+  }, [variableSnapshotKey, variableScope, tabId, setQueryState]);
+
+  // Auto-show variable bar when variables are first detected
+  useEffect(() => {
+    if (hasVariables && !showVariableBar) {
+      setShowVariableBar(true);
+    }
+  }, [hasVariables, showVariableBar, setShowVariableBar]);
 
   // Editor ref for focusing
   const editorRef = useRef<SqlEditorRef>(null);
@@ -1001,9 +1043,31 @@ export const QueryPanel = memo(function QueryPanel({
     ],
   );
 
+  /**
+   * Apply variable substitution on the full SQL before splitting or executing.
+   * Returns the substituted SQL or null if missing values block execution.
+   */
+  const applyVariableSubstitution = useCallback(
+    (sql: string): string | null => {
+      if (!sql.trim() || Object.keys(queryVariables).length === 0) return sql;
+      const subResult = substituteVariables(sql, queryVariables, { scope: variableScope });
+      if (!subResult.isComplete) {
+        const missingMsg = `Missing variable values: ${subResult.missingVariables.join(", ")}`;
+        toast.error(missingMsg, {
+          description: "Fill in all variable values before executing",
+        });
+        return null;
+      }
+      return subResult.sql;
+    },
+    [queryVariables, variableScope],
+  );
+
   const handleExecute = useCallback(
     async (queryToExecute?: string) => {
-      const sqlToExecute = queryToExecute ?? resolveExecutionTargetSql();
+      const rawSql = queryToExecute ?? resolveExecutionTargetSql();
+      const sqlToExecute = applyVariableSubstitution(rawSql);
+      if (sqlToExecute === null) return;
       const statements = extractStatementsForRunAll(sqlToExecute);
       if (statements.length > 1) {
         resetBatchExecutionState();
@@ -1029,6 +1093,7 @@ export const QueryPanel = memo(function QueryPanel({
       setActiveBatchResultIndex(0);
     },
     [
+      applyVariableSubstitution,
       executeBatchScript,
       executeSingleStatement,
       resetBatchExecutionState,
@@ -1040,11 +1105,13 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   const handleExecuteSelection = useCallback(async () => {
-    const selection = editorRef.current?.getSelection() ?? "";
-    if (!selection.trim()) {
+    const rawSelection = editorRef.current?.getSelection() ?? "";
+    if (!rawSelection.trim()) {
       toast.info("Select SQL text to run selection");
       return;
     }
+    const selection = applyVariableSubstitution(rawSelection);
+    if (selection === null) return;
 
     const statements = extractStatementsForRunAll(selection);
     if (statements.length > 1) {
@@ -1058,14 +1125,16 @@ export const QueryPanel = memo(function QueryPanel({
       runContext: "single",
       preserveInputSql: true,
     });
-  }, [executeBatchScript, executeSingleStatement, resetBatchExecutionState]);
+  }, [applyVariableSubstitution, executeBatchScript, executeSingleStatement, resetBatchExecutionState]);
 
   const handleExecuteAll = useCallback(async () => {
-    const script = editorRef.current?.getValue() ?? queryRef.current;
+    const rawScript = editorRef.current?.getValue() ?? queryRef.current;
+    const script = applyVariableSubstitution(rawScript);
+    if (script === null) return;
     const statements = extractStatementsForRunAll(script);
     resetBatchExecutionState();
     await executeBatchScript(script, statements);
-  }, [executeBatchScript, queryRef, resetBatchExecutionState]);
+  }, [applyVariableSubstitution, executeBatchScript, queryRef, resetBatchExecutionState]);
 
   const handleCancel = useCallback(() => {
     if (isExecutingRef.current) {
@@ -1146,6 +1215,12 @@ export const QueryPanel = memo(function QueryPanel({
   const closeOutline = useCallback(() => {
     setShowOutline(false);
   }, [setShowOutline]);
+  const toggleVariables = useCallback(() => {
+    setShowVariablePanel((prev) => !prev);
+  }, [setShowVariablePanel]);
+  const closeVariables = useCallback(() => {
+    setShowVariablePanel(false);
+  }, [setShowVariablePanel]);
 
   // Subscribe to event bus for keyboard shortcuts
   useEffect(() => {
@@ -1343,6 +1418,18 @@ export const QueryPanel = memo(function QueryPanel({
         onRefreshResults={canRefreshResults ? handleRefreshResults : undefined}
         showplanMode={showplanMode}
         resultTabGroupId={`query-result-view-mode:${tabId}`}
+        queryVariables={queryVariables}
+        hasVariables={hasVariables}
+        hasPositionalVariables={hasPositionalVariables}
+        variableScope={variableScope}
+        variableStatementCount={variableParseResult.statementCount}
+        showVariableBar={showVariableBar && hasVariables}
+        showVariablePanel={showVariablePanel}
+        onToggleVariables={toggleVariables}
+        onCloseVariables={closeVariables}
+        onVariableValueChange={setVariableValue}
+        onVariableTypeChange={setVariableType}
+        onVariableScopeChange={setVariableScope}
       />
       <SaveQueryDialog
         open={showSaveDialog}
@@ -1351,6 +1438,7 @@ export const QueryPanel = memo(function QueryPanel({
         profileId={profileId}
         database={database}
         schema={schema}
+        queryVariables={hasVariables ? queryVariables : undefined}
       />
     </>
   );

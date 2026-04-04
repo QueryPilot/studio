@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 import { toast } from "sonner";
+import type { QueryVariable } from "@/lib/queryVariables/types";
 
 interface SaveQueryDialogProps {
   open: boolean;
@@ -26,6 +27,7 @@ interface SaveQueryDialogProps {
   profileId?: string;
   database?: string;
   schema?: string;
+  queryVariables?: Record<string, QueryVariable>;
 }
 
 export function SaveQueryDialog({
@@ -35,6 +37,7 @@ export function SaveQueryDialog({
   profileId,
   database,
   schema,
+  queryVariables,
 }: SaveQueryDialogProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -64,6 +67,7 @@ export function SaveQueryDialog({
         profileId,
         database,
         schema,
+        queryVariables,
       });
 
       toast.success("Query saved");

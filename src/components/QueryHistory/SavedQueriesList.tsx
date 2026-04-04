@@ -9,6 +9,7 @@ import {
   useFilteredSavedQueries,
   useQueryHistoryStore,
 } from "@/stores/queryHistoryStore";
+import { useTabStateStore } from "@/stores/tabStateStore";
 import { cn } from "@/lib/utils";
 import {
   IconStar,
@@ -106,6 +107,12 @@ function SavedQueryItem({
     });
     workbench.setActiveTab(focusedPanelId, tabId);
     workbench.focusPanel(focusedPanelId);
+
+    if (query.queryVariables && Object.keys(query.queryVariables).length > 0) {
+      useTabStateStore.getState().setQueryState(tabId, {
+        queryVariables: query.queryVariables,
+      });
+    }
   };
 
   const handleCopy = async () => {

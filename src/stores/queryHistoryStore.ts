@@ -61,6 +61,7 @@ interface QueryHistoryState {
     profileId?: string;
     database?: string;
     schema?: string;
+    queryVariables?: Record<string, import("@/lib/queryVariables/types").QueryVariable>;
   }) => Promise<string>;
   updateSaved: (id: string, updates: Partial<SavedQuery>) => Promise<void>;
   deleteSaved: (id: string) => Promise<void>;

@@ -7,6 +7,7 @@
 
 import Dexie, { type Table } from "dexie";
 import { nanoid } from "nanoid";
+import type { QueryVariable } from "@/lib/queryVariables/types";
 
 // ============ Interfaces ============
 
@@ -44,6 +45,7 @@ export interface SavedQuery {
   createdAt: number;
   updatedAt: number;
   starred: boolean;
+  queryVariables?: Record<string, QueryVariable>;
 }
 
 // ============ Database ============
@@ -59,6 +61,10 @@ class QueryHistoryDB extends Dexie {
       history: "id, profileId, executedAt, [profileId+executedAt]",
       saved: "id, profileId, updatedAt, *tags, starred",
     });
+
+    // v2: queryVariables added to SavedQuery (no index changes needed,
+    // just a schema version bump so Dexie doesn't reject the new field)
+    this.version(2).stores({});
   }
 }
 

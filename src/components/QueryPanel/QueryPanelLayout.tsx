@@ -12,10 +12,13 @@ import { cn } from "@/lib/utils";
 import type { QueryResult } from "@/stores/tabStateStore";
 import type { ViewMode } from "@/types/viewMode";
 import { IconX } from "@tabler/icons-react";
+import type { QueryVariable, VariableScope, VariableType } from "@/lib/queryVariables/types";
 import { QueryEditor } from "./QueryEditor";
 import { QueryOutline } from "./QueryOutline";
 import { QueryToolbar } from "./QueryToolbar";
 import { ResultViewer } from "./ResultViewer";
+import { VariableBar } from "./Variables/VariableBar";
+import { VariablePanel } from "./Variables/VariablePanel";
 import type { BatchStatementResult } from "./query-batch-orchestrator";
 import type { QueryExecutionStatus } from "./queryExecutionState";
 
@@ -67,6 +70,20 @@ interface QueryPanelLayoutProps {
   showplanMode?: string | null;
   resultTabGroupId?: string;
   isTabSwitching?: boolean;
+
+  // Query variables
+  queryVariables?: Record<string, QueryVariable>;
+  hasVariables?: boolean;
+  hasPositionalVariables?: boolean;
+  variableScope?: VariableScope;
+  variableStatementCount?: number;
+  showVariableBar?: boolean;
+  showVariablePanel?: boolean;
+  onToggleVariables?: () => void;
+  onCloseVariables?: () => void;
+  onVariableValueChange?: (key: string, value: string) => void;
+  onVariableTypeChange?: (key: string, type: VariableType) => void;
+  onVariableScopeChange?: (scope: VariableScope) => void;
 }
 
 function getStatementKeyword(statement: string): string {
@@ -129,6 +146,18 @@ export function QueryPanelLayout({
   showplanMode,
   resultTabGroupId = "query-result-view-mode",
   isTabSwitching = false,
+  queryVariables,
+  hasVariables = false,
+  hasPositionalVariables = false,
+  variableScope = "global",
+  variableStatementCount = 1,
+  showVariableBar = false,
+  showVariablePanel = false,
+  onToggleVariables,
+  onCloseVariables,
+  onVariableValueChange,
+  onVariableTypeChange,
+  onVariableScopeChange,
 }: QueryPanelLayoutProps) {
   const hasModeTabs = activeSupportedModes.length > 0;
   const showResultHeader = batchResults.length > 0 || hasModeTabs;
@@ -201,11 +230,23 @@ export function QueryPanelLayout({
                       }
                       onDialectDetected={onDialectDetected}
                     />
+                    {showVariableBar && queryVariables && onVariableValueChange && onVariableTypeChange && onVariableScopeChange && (
+                      <VariableBar
+                        variables={queryVariables}
+                        hasPositionalVariables={hasPositionalVariables}
+                        scope={variableScope}
+                        onScopeChange={onVariableScopeChange}
+                        onValueChange={onVariableValueChange}
+                        onTypeChange={onVariableTypeChange}
+                      />
+                    )}
                     <QueryToolbar
                       isExecuting={isExecuting}
                       hasQuery={hasQuery}
                       showResults={showResults}
                       showOutline={showOutline}
+                      showVariables={showVariablePanel}
+                      hasVariables={hasVariables}
                       dialect={selectedDialect}
                       detectedDialect={detectedDialect}
                       runLabel={runButtonLabel}
@@ -215,11 +256,35 @@ export function QueryPanelLayout({
                       onBeautify={onBeautify}
                       onToggleResults={onToggleResults}
                       onToggleOutline={onToggleOutline}
+                      onToggleVariables={onToggleVariables}
                       onDialectChange={onDialectChange}
                       showplanMode={showplanMode}
                       inTransaction={inTransaction}
                     />
                   </ResizablePanel>
+
+                  {showVariablePanel && queryVariables && onVariableValueChange && onVariableTypeChange && onVariableScopeChange && onCloseVariables && (
+                    <>
+                      <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
+                      <ResizablePanel
+                        id="qp-variables"
+                        defaultSize="25"
+                        minSize="15"
+                        maxSize="50"
+                      >
+                        <VariablePanel
+                          variables={queryVariables}
+                          hasPositionalVariables={hasPositionalVariables}
+                          scope={variableScope}
+                          statementCount={variableStatementCount}
+                          onScopeChange={onVariableScopeChange}
+                          onValueChange={onVariableValueChange}
+                          onTypeChange={onVariableTypeChange}
+                          onClose={onCloseVariables}
+                        />
+                      </ResizablePanel>
+                    </>
+                  )}
 
                   {showOutline && (
                     <>

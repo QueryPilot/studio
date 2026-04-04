@@ -20,6 +20,7 @@ import {
   type TableOutline,
   type ParseStatus,
 } from "@/components/CodeEditor/languages/sql/refactor-service";
+import { neutralizeVariables } from "@/lib/queryVariables/parser";
 
 interface QueryOutlineProps {
   sql: string;
@@ -312,7 +313,7 @@ export const QueryOutline = memo(function QueryOutline({
     setLoading(true);
     setError(null);
 
-    getOutline(debouncedSql, dialect)
+    getOutline(neutralizeVariables(debouncedSql), dialect)
       .then((result) => {
         // Ignore stale responses
         if (currentRequestId !== requestIdRef.current) return;

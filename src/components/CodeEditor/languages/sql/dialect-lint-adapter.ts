@@ -1,4 +1,5 @@
 import type { SqlDialect } from "../../types";
+import { neutralizeVariables } from "@/lib/queryVariables/parser";
 
 export interface FastLintDiagnostic {
   from: number;
@@ -532,12 +533,13 @@ export function prepareSqlForLint(
     return cached;
   }
 
-  const tokens = tokenizeSql(sql);
+  const neutralized = neutralizeVariables(sql);
+  const tokens = tokenizeSql(neutralized);
   const prepared =
-    dialect === "postgresql" ? preparePostgreSql(sql, tokens) : {
-      canonicalSql: sql,
-      offsetMap: buildIdentityOffsetMap(sql.length),
-      fastDiagnostics: buildFastDiagnostics(sql, tokens),
+    dialect === "postgresql" ? preparePostgreSql(neutralized, tokens) : {
+      canonicalSql: neutralized,
+      offsetMap: buildIdentityOffsetMap(neutralized.length),
+      fastDiagnostics: buildFastDiagnostics(neutralized, tokens),
       canRunSemantic: true,
     };
 

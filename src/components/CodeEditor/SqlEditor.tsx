@@ -91,6 +91,7 @@ import { createRefactoringExtension } from "./extensions/sql-refactoring";
 import { createFormatOnPasteExtension } from "./extensions/format-on-paste";
 import { createQueryHistoryNavExtension } from "./extensions/query-history-navigation";
 import { createCurrentStatementHighlightExtension } from "./extensions/current-statement-highlight";
+import { createVariableHighlightExtension } from "./extensions/variable-highlight";
 import { ExtractCteDialog } from "./components/ExtractCteDialog";
 import { EditorContextMenu } from "./components/EditorContextMenu";
 
@@ -751,6 +752,7 @@ export const SqlEditor = memo(
           sqlFoldService,
           foldGutter(),
           createCurrentStatementHighlightExtension(),
+          createVariableHighlightExtension(),
 
           search({ top: true }),
 

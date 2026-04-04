@@ -183,6 +183,16 @@ export const defaultCommands: Command[] = [
     handler: () => {
       const workspaceStore = useWorkspaceScreenStore.getState();
       const sidebars = workspaceStore.getSidebars();
+
+      // If panel is open and focus is inside it → toggle closed
+      const aiPanelFocused = Boolean(
+        document.activeElement?.closest('[data-slot="ai-panel"]'),
+      );
+      if (sidebars.right && aiPanelFocused) {
+        workspaceStore.toggleSidebar("right");
+        return;
+      }
+
       const emitAttach = () => {
         eventBus.emit("ai:open-with-context", { source: "command" });
       };
