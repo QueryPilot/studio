@@ -51,7 +51,7 @@ export const defaultCommands: Command[] = [
         return;
       }
 
-      commandPaletteStore.openPalette();
+      commandPaletteStore.openPalette({ mode: "objects" });
       contextService.setValue("inQuickOpen", true);
       contextService.setValue("inCommandPalette", true);
     },
@@ -75,12 +75,11 @@ export const defaultCommands: Command[] = [
       const state = useCommandPaletteStore.getState();
 
       if (state.isOpen) {
-        // If already open, just set the query to ">"
-        state.setQuery(">");
+        state.setMode("actions");
         return;
       }
 
-      commandPaletteStore.openPalette(">");
+      commandPaletteStore.openPalette({ mode: "actions" });
       contextService.setValue("inQuickOpen", true);
       contextService.setValue("inCommandPalette", true);
     },
