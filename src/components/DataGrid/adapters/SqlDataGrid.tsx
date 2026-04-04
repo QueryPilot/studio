@@ -505,14 +505,29 @@ RULES:
     (state) => state.preferences[sortGridId]?.sortColumns ?? EMPTY_SORT_COLUMNS,
   );
 
-  const sorts = useMemo<SortConfig[]>(() => {
-    if (sortColumns.length === 0) return [];
+  // Compute default sort from PK columns (or user-selected identifier columns as fallback).
+  // Not stored — always derived fresh from table structure.
+  const defaultSortColumns = useMemo<SortColumn[]>(() => {
+    const pks = tableStructure?.primaryKeys;
+    if (pks && pks.length > 0) {
+      return pks.map((col) => ({ columnId: col, direction: 'asc' as const }));
+    }
+    if (persistedRowIdentifierColumns.length > 0) {
+      return persistedRowIdentifierColumns.map((col) => ({
+        columnId: col,
+        direction: 'asc' as const,
+      }));
+    }
+    return [];
+  }, [tableStructure?.primaryKeys, persistedRowIdentifierColumns]);
 
-    return sortColumns.map(({ columnId, direction }) => ({
+  const sorts = useMemo<SortConfig[]>(() => {
+    const effective = sortColumns.length > 0 ? sortColumns : defaultSortColumns;
+    return effective.map(({ columnId, direction }) => ({
       column: columnId,
       direction,
     }));
-  }, [sortColumns]);
+  }, [sortColumns, defaultSortColumns]);
 
   // --- Data Fetching ---
   const tableDataQuery = useTableDataQuery({
@@ -1517,6 +1532,7 @@ RULES:
       <BaseDataGrid
         gridId={gridId}
         sortGridId={sortGridId !== gridId ? sortGridId : undefined}
+        defaultSortColumns={defaultSortColumns}
         rows={rows}
         columns={columns}
         connectionId={connectionId}

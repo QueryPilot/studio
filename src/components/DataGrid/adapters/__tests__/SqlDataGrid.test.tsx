@@ -1066,4 +1066,197 @@ describe('SqlDataGrid', () => {
     expect(getAdapterForConnectionMock).not.toHaveBeenCalled();
     expect(canProceedBestEffortMock).not.toHaveBeenCalled();
   });
+
+  describe('default PK sort', () => {
+    it('passes defaultSortColumns from primaryKeys to BaseDataGrid when no user sort is set', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: {
+          name: 'users',
+          schema: 'public',
+          database: 'test-db',
+          columns: [],
+          primaryKeys: ['id'],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [],
+          triggers: [],
+        },
+        isLoading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="users"
+          dbType={DbType.PostgreSQL}
+        />,
+        { wrapper: Wrapper },
+      );
+
+      const latestProps = capturedBaseGridProps.at(-1);
+      expect(latestProps?.defaultSortColumns).toEqual([
+        { columnId: 'id', direction: 'asc' },
+      ]);
+    });
+
+    it('passes composite PK as defaultSortColumns', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: {
+          name: 'orders',
+          schema: 'public',
+          database: 'test-db',
+          columns: [],
+          primaryKeys: ['tenant_id', 'order_id'],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [],
+          triggers: [],
+        },
+        isLoading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="orders"
+          dbType={DbType.PostgreSQL}
+        />,
+        { wrapper: Wrapper },
+      );
+
+      const latestProps = capturedBaseGridProps.at(-1);
+      expect(latestProps?.defaultSortColumns).toEqual([
+        { columnId: 'tenant_id', direction: 'asc' },
+        { columnId: 'order_id', direction: 'asc' },
+      ]);
+    });
+
+    it('passes empty defaultSortColumns when table has no PKs and no identifier columns', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: {
+          name: 'events',
+          schema: 'public',
+          database: 'test-db',
+          columns: [],
+          primaryKeys: [],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [],
+          triggers: [],
+        },
+        isLoading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="events"
+          dbType={DbType.PostgreSQL}
+        />,
+        { wrapper: Wrapper },
+      );
+
+      const latestProps = capturedBaseGridProps.at(-1);
+      expect(latestProps?.defaultSortColumns).toEqual([]);
+    });
+
+    it('uses PK sort in sorts passed to useTableDataQuery when no user sort is set', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: {
+          name: 'users',
+          schema: 'public',
+          database: 'test-db',
+          columns: [],
+          primaryKeys: ['id'],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [],
+          triggers: [],
+        },
+        isLoading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="users"
+          dbType={DbType.PostgreSQL}
+        />,
+        { wrapper: Wrapper },
+      );
+
+      expect(mockUseTableDataQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sorts: [{ column: 'id', direction: 'asc' }],
+        }),
+      );
+    });
+
+    it('falls back to rowIdentifierColumns as defaultSortColumns when no PKs', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: {
+          name: 'events',
+          schema: 'public',
+          database: 'test-db',
+          columns: [],
+          primaryKeys: [],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [],
+          triggers: [],
+        },
+        isLoading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      useGridPreferencesStore.setState({
+        preferences: {
+          'test-conn:test-db:public:events': {
+            columns: { order: [], widths: {}, visibility: {}, pinned: [] },
+            view: { selection: undefined, activeCell: null, scrollOffset: { x: 0, y: 0 }, pinnedColumns: [], pinnedRows: [] },
+            pinnedRows: [],
+            sortColumns: [],
+            rowIdentifierColumns: ['event_name', 'occurred_at'],
+            draftRows: {},
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        },
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="events"
+          dbType={DbType.PostgreSQL}
+        />,
+        { wrapper: Wrapper },
+      );
+
+      const latestProps = capturedBaseGridProps.at(-1);
+      expect(latestProps?.defaultSortColumns).toEqual([
+        { columnId: 'event_name', direction: 'asc' },
+        { columnId: 'occurred_at', direction: 'asc' },
+      ]);
+    });
+  });
 });
