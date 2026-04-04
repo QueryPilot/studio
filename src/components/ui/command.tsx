@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconSearch, IconCheck, IconArrowLeft } from "@tabler/icons-react";
+import { IconSearch, IconCheck, IconArrowLeft, IconX } from "@tabler/icons-react";
 
 function Command({
   className,
@@ -116,11 +116,11 @@ function CommandInput({
             <button
               type="button"
               tabIndex={-1}
-              onClick={onModeClear}
+              onClick={() => onModeClear?.()}
               className="text-muted-foreground hover:text-foreground transition-colors leading-none"
               aria-label={`Clear ${modeLabel} filter`}
             >
-              ×
+              <IconX className="size-3 shrink-0" aria-hidden="true" />
             </button>
           </span>
         )}
