@@ -32,8 +32,10 @@ export function useColumnSorting({
     (state) => state.preferences[gridId]?.sortColumns ?? EMPTY_SORT_COLUMNS
   );
 
-  const effectiveSortColumns =
-    storedSortColumns.length > 0 ? storedSortColumns : (defaultSortColumns ?? EMPTY_SORT_COLUMNS);
+  const effectiveSortColumns = useMemo(
+    () => storedSortColumns.length > 0 ? storedSortColumns : (defaultSortColumns ?? EMPTY_SORT_COLUMNS),
+    [storedSortColumns, defaultSortColumns],
+  );
   const toggleColumnSort = useGridPreferencesStore((state) => state.toggleColumnSort);
   const clearSortAction = useGridPreferencesStore((state) => state.clearSort);
 
@@ -50,7 +52,7 @@ export function useColumnSorting({
 
   useEffect(() => {
     if (sharedSortColumns === EMPTY_SORT_COLUMNS) return; // No write-through or nothing to copy
-    if (storedSortColumns.length > 0) return; // Already has sort state
+    if (storedSortColumns.length > 0) return; // Already has explicit sort state — skip (also means write-through takes precedence over defaultSortColumns by design)
     useGridPreferencesStore.getState().upsert(gridId, (draft) => {
       draft.sortColumns = [...sharedSortColumns];
     });
