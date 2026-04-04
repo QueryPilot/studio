@@ -176,6 +176,66 @@ describe("QueryStreamClient", () => {
     expect(result.fetchCount).toBe(2);
   });
 
+  it("forwards session pinning to the backend command", async () => {
+    mockInvoke.mockImplementation(
+      (
+        _command: string,
+        args: {
+          metadataChannel: { [key: symbol]: () => string };
+        },
+      ) => {
+        const metadataId = coreMockState.extractChannelId(args.metadataChannel);
+        const emitMetadata = coreMockState.callbackRegistry.get(metadataId);
+
+        if (!emitMetadata) {
+          throw new Error("Missing metadata callback registration");
+        }
+
+        emitMetadata({
+          index: 0,
+          message: {
+            type: "started",
+            columns: [],
+            estimated_rows: 0,
+          },
+        });
+
+        emitMetadata({
+          index: 1,
+          message: {
+            type: "success",
+            total_rows: 0,
+            execution_time_ms: 1,
+          },
+        });
+
+        return Promise.resolve();
+      },
+    );
+
+    const client = new QueryStreamClient();
+
+    await client.streamWithCallbacks(
+      {
+        connId: "conn-1",
+        tabId: "query-tab-1",
+        sql: "BEGIN",
+        pinSession: true,
+      },
+      {},
+    );
+
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "execute_query",
+      expect.objectContaining({
+        connId: "conn-1",
+        tabId: "query-tab-1",
+        sql: "BEGIN",
+        pinSession: true,
+      }),
+    );
+  });
+
   it("reports metadata errors once even if invoke later rejects", async () => {
     mockInvoke.mockImplementation(
       (
@@ -402,5 +462,61 @@ describe("QueryStreamClient", () => {
     await vi.runAllTimersAsync();
 
     await rejection;
+  });
+
+  it("allows metadata-only mutation success when no result rows are streamed", async () => {
+    mockInvoke.mockImplementation(
+      (
+        _command: string,
+        args: {
+          metadataChannel: { [key: symbol]: () => string };
+        },
+      ) => {
+        const metadataId = coreMockState.extractChannelId(args.metadataChannel);
+        const emitMetadata = coreMockState.callbackRegistry.get(metadataId);
+
+        if (!emitMetadata) {
+          throw new Error("Missing metadata callback registrations");
+        }
+
+        emitMetadata({
+          index: 0,
+          message: {
+            type: "started",
+            columns: [],
+            estimated_rows: 20_000,
+          },
+        });
+
+        emitMetadata({
+          index: 1,
+          message: {
+            type: "success",
+            total_rows: 20_000,
+            execution_time_ms: 12,
+          },
+        });
+
+        return Promise.resolve();
+      },
+    );
+
+    const client = new QueryStreamClient();
+
+    const result = await client.streamWithCallbacks(
+      {
+        connId: "conn-1",
+        tabId: "query-tab-1",
+        sql: "INSERT INTO order_items SELECT * FROM staging",
+      },
+      {},
+    );
+
+    expect(result.totalRows).toBe(20_000);
+    expect(mockError).not.toHaveBeenCalledWith(
+      "query-stream",
+      expect.stringContaining("Failed to decode batch"),
+      expect.anything(),
+    );
   });
 });

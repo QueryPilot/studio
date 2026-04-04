@@ -71,6 +71,7 @@ interface ExecuteSingleStatementOptions {
   internalTxnStep?: boolean;
   runContext?: "single" | "batch";
   preserveInputSql?: boolean;
+  pinSession?: boolean;
 }
 
 interface ExecuteSingleStatementResult {
@@ -243,6 +244,7 @@ export const QueryPanel = memo(function QueryPanel({
         internalTxnStep = false,
         runContext = "single",
         preserveInputSql = false,
+        pinSession,
       } = options;
       const isSingleRun = runContext === "single";
 
@@ -455,6 +457,21 @@ export const QueryPanel = memo(function QueryPanel({
           throw new Error("No active connection selected");
         }
 
+        const sqlUpper = sql.trim().toUpperCase();
+        const isTransaction =
+          sqlUpper === "BEGIN" ||
+          sqlUpper.startsWith("BEGIN TRANSACTION") ||
+          sqlUpper === "COMMIT" ||
+          sqlUpper.startsWith("COMMIT TRANSACTION") ||
+          sqlUpper === "ROLLBACK" ||
+          sqlUpper.startsWith("ROLLBACK TO ") ||
+          sqlUpper.startsWith("ROLLBACK TRANSACTION") ||
+          sqlUpper.startsWith("SAVEPOINT ") ||
+          sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
+          sqlUpper === "START TRANSACTION";
+        const shouldPinSession =
+          pinSession ?? (inTransactionRef.current || isTransaction);
+
         const streamPromise = tableStreamingService.streamQuery(
           effectiveConnectionId,
           tabId,
@@ -487,26 +504,14 @@ export const QueryPanel = memo(function QueryPanel({
             }
           },
           usePreferencesStore.getState().queryTimeoutSecs || undefined,
-          { collectRows: false },
+          { collectRows: false, pinSession: shouldPinSession },
         );
 
         const final = await streamPromise;
 
         const executionTime = final.executionTimeMs ?? 0;
-        const sqlUpper = sql.trim().toUpperCase();
         const hasReturning = sqlUpper.includes(" RETURNING ");
         const wasMutation = isMutationQuery(sql);
-        const isTransaction =
-          sqlUpper === "BEGIN" ||
-          sqlUpper.startsWith("BEGIN TRANSACTION") ||
-          sqlUpper === "COMMIT" ||
-          sqlUpper.startsWith("COMMIT TRANSACTION") ||
-          sqlUpper === "ROLLBACK" ||
-          sqlUpper.startsWith("ROLLBACK TO ") ||
-          sqlUpper.startsWith("ROLLBACK TRANSACTION") ||
-          sqlUpper.startsWith("SAVEPOINT ") ||
-          sqlUpper.startsWith("RELEASE SAVEPOINT ") ||
-          sqlUpper === "START TRANSACTION";
         const isConfig =
           sqlUpper.startsWith("SET ") || sqlUpper.startsWith("RESET ");
         const isDDL =
@@ -935,6 +940,7 @@ export const QueryPanel = memo(function QueryPanel({
               suppressAutoRefresh: true,
               internalTxnStep,
               runContext: "batch",
+              pinSession: runPlan.hasManualTransaction,
             });
 
             return {

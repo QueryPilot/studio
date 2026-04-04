@@ -8,8 +8,16 @@ const clipboardMock = vi.hoisted(() => ({
   readText: vi.fn(),
 }));
 
+const tauriCoreMock = vi.hoisted(() => ({
+  invoke: vi.fn(),
+}));
+
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
   readText: clipboardMock.readText,
+}));
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauriCoreMock.invoke,
 }));
 
 vi.mock("@/services/vaultStorage", () => ({
@@ -28,6 +36,7 @@ vi.mock("@/services/vaultStorage", () => ({
 describe("ConnectionForm", () => {
   beforeEach(() => {
     clipboardMock.readText.mockReset();
+    tauriCoreMock.invoke.mockReset();
     localStorage.clear();
   });
 
@@ -122,10 +131,63 @@ SSL_CA_FILE=/tmp/ca.pem`,
     render(<ConnectionForm />);
 
     expect(await screen.findByText("Connection Pooler")).toBeInTheDocument();
-    expect(
-      await screen.findByLabelText("Auto-detect (recommended)"),
-    ).toBeInTheDocument();
+    expect(await screen.findByLabelText("Auto-detect")).toBeInTheDocument();
     expect(await screen.findByLabelText("Enabled")).toBeInTheDocument();
     expect(await screen.findByLabelText("Disabled")).toBeInTheDocument();
+  });
+
+  it("switches pooler mode to enabled after auto-detect succeeds during test", async () => {
+    tauriCoreMock.invoke.mockImplementation((command: string, args?: unknown) => {
+      if (command === "connect") {
+        return Promise.resolve({
+          id: "test-detected-pooler",
+          pooler_mode: true,
+          ...(args as { profile?: { pooler_mode?: boolean | null } }),
+        });
+      }
+
+      if (command === "test_connection") {
+        return Promise.resolve({
+          success: true,
+          message: "Connected",
+          pooler_mode: true,
+        });
+      }
+
+      if (command === "disconnect") {
+        return Promise.resolve(undefined);
+      }
+
+      return Promise.resolve(undefined);
+    });
+
+    render(<ConnectionForm />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Test" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Enabled")).toBeChecked();
+    });
+
+    await user.click(screen.getByRole("button", { name: /tested|test/i }));
+
+    await waitFor(() => {
+      const connectCalls = tauriCoreMock.invoke.mock.calls.filter(
+        ([command]) => command === "connect",
+      );
+
+      expect(connectCalls).toHaveLength(2);
+      expect(connectCalls[0]?.[1]).toMatchObject({
+        profile: expect.objectContaining({
+          pooler_mode: null,
+        }),
+      });
+      expect(connectCalls[1]?.[1]).toMatchObject({
+        profile: expect.objectContaining({
+          pooler_mode: true,
+        }),
+      });
+    });
   });
 });

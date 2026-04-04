@@ -982,14 +982,29 @@ export function ConnectionForm() {
       const profile = buildConnectionProfile(`test-${Date.now()}`);
       const { invoke } = await import("@tauri-apps/api/core");
 
-      const connectionInfo = await invoke<{ id: string }>("connect", {
+      const connectionInfo = await invoke<{
+        id: string;
+        pooler_mode?: boolean | null;
+      }>("connect", {
         profile,
       });
-      const testResult = await invoke<{ success: boolean; message: string }>(
-        "test_connection",
-        { connId: connectionInfo.id },
-      );
+      const testResult = await invoke<{
+        success: boolean;
+        message: string;
+        pooler_mode?: boolean | null;
+      }>("test_connection", { connId: connectionInfo.id });
       await invoke("disconnect", { connId: connectionInfo.id });
+
+      const detectedPoolerMode =
+        testResult.pooler_mode ?? connectionInfo.pooler_mode;
+
+      if (
+        dbType === "postgresql" &&
+        poolerMode === "auto" &&
+        detectedPoolerMode === true
+      ) {
+        setPoolerMode("enabled");
+      }
 
       if (testResult.success) {
         setTestSuccess(true);
@@ -1918,7 +1933,7 @@ export function ConnectionForm() {
                 {[
                   {
                     value: "auto",
-                    label: "Auto-detect (recommended)",
+                    label: "Auto-detect",
                   },
                   {
                     value: "enabled",

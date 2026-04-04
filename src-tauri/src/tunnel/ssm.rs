@@ -223,6 +223,11 @@ pub async fn establish(
             &format!("127.0.0.1:{}:{}:{}", local_port, remote_host, remote_port),
             &format!("root@{}", ssm_instance_id),
         ])
+        // AWS credentials are passed via env vars — this is the only supported mechanism
+        // for session-manager-plugin when used as an SSH ProxyCommand. Credential files
+        // cannot be used here as they would overwrite the user's ~/.aws/credentials.
+        // On macOS, process env vars are not accessible to other users without root.
+        // These are short-lived session credentials, not long-lived keys.
         .env("AWS_ACCESS_KEY_ID", &credentials.access_key_id)
         .env("AWS_SECRET_ACCESS_KEY", &credentials.secret_access_key)
         .env(

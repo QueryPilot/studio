@@ -400,6 +400,42 @@ describe("QueryPanel execution state", () => {
     });
   });
 
+  it("pins a single session for explicit transaction batches", async () => {
+    streamQueryMock.mockResolvedValue({
+      columns: [],
+      rows: [],
+      totalRows: 0,
+      executionTimeMs: 0,
+    });
+
+    render(
+      <QueryPanel
+        panelId="panel-1"
+        tabId="tab-1"
+        connectionId="conn-1"
+        database="app"
+        initialSql={
+          "BEGIN;\nINSERT INTO products (name) VALUES ('Rollback Test');\nSELECT * FROM products WHERE name = 'Rollback Test';\nROLLBACK;"
+        }
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => {
+      expect(streamQueryMock).toHaveBeenCalledTimes(4);
+    });
+
+    expect(
+      streamQueryMock.mock.calls.map((call) => call[7]),
+    ).toEqual([
+      { collectRows: false, pinSession: true },
+      { collectRows: false, pinSession: true },
+      { collectRows: false, pinSession: true },
+      { collectRows: false, pinSession: true },
+    ]);
+  });
+
   it("renders result-header view tabs for a single statement result", async () => {
     streamQueryMock.mockImplementation(
       (

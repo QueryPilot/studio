@@ -412,6 +412,19 @@ async fn execute_single_fetch_stream(
     }
 }
 
+fn resolve_stream_connection_key(
+    conn_id: &str,
+    tab_id: &str,
+    is_pooler_mode: bool,
+    pin_session: bool,
+) -> String {
+    if is_pooler_mode && !pin_session {
+        conn_id.to_string()
+    } else {
+        format!("{}:{}", conn_id, tab_id)
+    }
+}
+
 /// Generic streaming implementation using the adapter's query method
 /// Works for MySQL, SQLite, and SQL Server
 async fn execute_generic_stream(
@@ -1661,53 +1674,6 @@ fn postgres_typed_columns(columns: &[tokio_postgres::Column]) -> Vec<ColumnMeta>
     columns.iter().map(postgres_typed_column).collect()
 }
 
-async fn begin_postgres_pooler_query_scope(
-    client: &deadpool_postgres::Client,
-    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
-) -> std::result::Result<(), String> {
-    client
-        .batch_execute("BEGIN")
-        .await
-        .map_err(|e| format!("Failed to begin PostgreSQL pooler transaction: {}", e))?;
-
-    if let Some(schema) = postgres_adapter.current_schema() {
-        if let Err(error) = client
-            .batch_execute(
-                crate::adapters::postgres::PostgresAdapter::local_search_path_sql(&schema).as_str(),
-            )
-            .await
-        {
-            let _ = client.batch_execute("ROLLBACK").await;
-            return Err(format!(
-                "Failed to apply PostgreSQL search_path in pooler mode: {}",
-                error
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-async fn finish_postgres_pooler_query_scope(client: &deadpool_postgres::Client, commit: bool) {
-    let sql = if commit { "COMMIT" } else { "ROLLBACK" };
-    match tokio::time::timeout(std::time::Duration::from_secs(2), client.batch_execute(sql)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            tracing::warn!(
-                "Failed to close PostgreSQL pooler transaction with {}: {}",
-                sql,
-                error
-            );
-        }
-        Err(_) => {
-            tracing::warn!(
-                "Timed out while closing PostgreSQL pooler transaction with {}",
-                sql
-            );
-        }
-    }
-}
-
 async fn fetch_zero_row_postgres_headers(
     client: &deadpool_postgres::Client,
     postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
@@ -1759,21 +1725,11 @@ async fn execute_postgres_pooler_simple_stream(
         .await
         .map_err(|e| e.to_string())?;
 
-    let backend_pid = client
-        .simple_query("SELECT pg_backend_pid()")
-        .await
-        .ok()
-        .and_then(|messages| {
-            messages.into_iter().find_map(|message| match message {
-                tokio_postgres::SimpleQueryMessage::Row(row) => {
-                    row.get(0).and_then(|value| value.parse::<i32>().ok())
-                }
-                _ => None,
-            })
-        })
-        .unwrap_or(0);
-
-    let stream_sql = postgres_adapter.decorate_simple_query_sql(sql);
+    // Prepend pg_backend_pid() to the query stream SQL so it's fetched in the same round trip.
+    // decorate_simple_query_sql prepends SET search_path, so final SQL is:
+    //   SELECT pg_backend_pid(); SET search_path TO ...; <actual query>
+    let decorated_sql = postgres_adapter.decorate_simple_query_sql(sql);
+    let stream_sql = format!("SELECT pg_backend_pid(); {}", decorated_sql);
     let query_start = std::time::Instant::now();
     let mut row_stream = Box::pin(
         client
@@ -1781,6 +1737,10 @@ async fn execute_postgres_pooler_simple_stream(
             .await
             .map_err(|e| extract_db_error_message(&e))?,
     );
+
+    // Extract pg_backend_pid from the first row of the stream (before actual query rows)
+    let mut backend_pid = 0i32;
+    let mut pid_extracted = false;
 
     let mut started = false;
     let mut total_rows = 0usize;
@@ -1793,6 +1753,10 @@ async fn execute_postgres_pooler_simple_stream(
     while let Some(message) = row_stream.next().await {
         match message.map_err(|e| extract_db_error_message(&e))? {
             tokio_postgres::SimpleQueryMessage::RowDescription(description) => {
+                // Skip RowDescription for the prepended pg_backend_pid() query
+                if !pid_extracted {
+                    continue;
+                }
                 let columns = description
                     .iter()
                     .map(|column| postgres_text_column(column.name()))
@@ -1806,6 +1770,16 @@ async fn execute_postgres_pooler_simple_stream(
                 }
             }
             tokio_postgres::SimpleQueryMessage::Row(row) => {
+                // First row is pg_backend_pid() result — extract and skip
+                if !pid_extracted {
+                    pid_extracted = true;
+                    backend_pid = row
+                        .get(0)
+                        .and_then(|v| v.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    continue;
+                }
+
                 if !started {
                     let columns = row
                         .columns()
@@ -1926,34 +1900,22 @@ async fn execute_postgres_pooler_typed_stream(
     use futures::StreamExt;
 
     let start_time = std::time::Instant::now();
-    let pool = postgres_adapter
-        .get_pool()
-        .await
-        .ok_or_else(|| "PostgreSQL pool not available".to_string())?;
     let client = postgres_adapter
         .get_client_with_schema()
         .await
         .map_err(|e| e.to_string())?;
 
-    begin_postgres_pooler_query_scope(&client, postgres_adapter).await?;
-
-    let backend_pid = client
-        .query_one("SELECT pg_backend_pid()", &[])
-        .await
-        .ok()
-        .map(|row| row.get::<_, i32>(0))
-        .unwrap_or(0);
+    // search_path is set by get_client_with_schema() on every connection checkout.
+    // query_typed_raw pipelines Parse+Bind+Execute in a single TCP write (1 RTT).
 
     let query_start = std::time::Instant::now();
     let typed_params: Vec<(&(dyn ToSql + Sync), PgType)> = Vec::new();
-    let row_stream_result = client.query_typed_raw(sql, typed_params).await;
-    let mut row_stream = match row_stream_result {
-        Ok(row_stream) => Box::pin(row_stream),
-        Err(error) => {
-            finish_postgres_pooler_query_scope(&client, false).await;
-            return Err(extract_db_error_message(&error));
-        }
-    };
+    let mut row_stream = Box::pin(
+        client
+            .query_typed_raw(sql, typed_params)
+            .await
+            .map_err(|e| extract_db_error_message(&e))?,
+    );
 
     let mut started = false;
     let mut total_rows = 0usize;
@@ -1974,18 +1936,7 @@ async fn execute_postgres_pooler_typed_stream(
                 .send(tauri::ipc::Response::new(vec![]))
                 .is_err()
         {
-            if backend_pid > 0 {
-                let cancel_pool = pool.clone();
-                tokio::spawn(async move {
-                    if let Ok(cancel_conn) = cancel_pool.get().await {
-                        let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                        let _ = cancel_conn.execute(&cancel_sql, &[]).await;
-                    }
-                });
-            }
-
             drop(row_stream);
-            finish_postgres_pooler_query_scope(&client, false).await;
             let _ = metadata_channel.send(StreamMessage::Interrupted {
                 resumable: false,
                 message: "Query cancelled by user".to_string(),
@@ -2026,19 +1977,7 @@ async fn execute_postgres_pooler_typed_stream(
                     send_count += 1;
 
                     if send_result.is_err() {
-                        if backend_pid > 0 {
-                            let cancel_pool = pool.clone();
-                            tokio::spawn(async move {
-                                if let Ok(cancel_conn) = cancel_pool.get().await {
-                                    let cancel_sql =
-                                        format!("SELECT pg_cancel_backend({})", backend_pid);
-                                    let _ = cancel_conn.execute(&cancel_sql, &[]).await;
-                                }
-                            });
-                        }
-
                         drop(row_stream);
-                        finish_postgres_pooler_query_scope(&client, false).await;
                         let _ = metadata_channel.send(StreamMessage::Interrupted {
                             resumable: false,
                             message: "Query cancelled by user".to_string(),
@@ -2048,7 +1987,6 @@ async fn execute_postgres_pooler_typed_stream(
                 }
             }
             Err(error) => {
-                finish_postgres_pooler_query_scope(&client, false).await;
                 return Err(extract_db_error_message(&error));
             }
         }
@@ -2072,7 +2010,6 @@ async fn execute_postgres_pooler_typed_stream(
             .send(tauri::ipc::Response::new(rows_msgpack))
             .is_err()
         {
-            finish_postgres_pooler_query_scope(&client, false).await;
             let _ = metadata_channel.send(StreamMessage::Interrupted {
                 resumable: false,
                 message: "Query cancelled by user".to_string(),
@@ -2082,8 +2019,6 @@ async fn execute_postgres_pooler_typed_stream(
         send_time_ms += send_start.elapsed().as_millis() as u64;
         send_count += 1;
     }
-
-    finish_postgres_pooler_query_scope(&client, true).await;
 
     if !started {
         let columns = if is_select_query(sql) {
@@ -2627,12 +2562,21 @@ pub async fn execute_query(
     sql: String,
     _batch_size: Option<usize>,
     timeout_secs: Option<u64>,
+    pin_session: Option<bool>,
     metadata_channel: tauri::ipc::Channel<StreamMessage>,
     data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
-    // Use composite key for tab-specific connection (transaction isolation)
-    let connection_key = format!("{}:{}", conn_id, tab_id);
+    // Pooler-mode PostgreSQL normally shares the base connection key to avoid
+    // extra reconnects, but explicit transactions must be pinned to a tab-scoped
+    // session or PgBouncer-style transaction pooling can scatter statements
+    // across different backend sessions.
+    let connection_key = resolve_stream_connection_key(
+        &conn_id,
+        &tab_id,
+        manager.is_pooler_mode(&conn_id),
+        pin_session.unwrap_or(false),
+    );
 
     // Safe mode guard (synchronous lookup — no DashMap lock held across await)
     let op_kind = crate::core::safe_mode::classify_sql(&sql);
@@ -3089,5 +3033,29 @@ mod tests {
         assert_eq!(parse_mssql_spid_text(Some("SELECT @@SPID")), None);
         assert_eq!(parse_mssql_spid_text(Some("abc")), None);
         assert_eq!(parse_mssql_spid_text(None), None);
+    }
+
+    #[test]
+    fn test_resolve_stream_connection_key_uses_base_key_for_pooler_mode_by_default() {
+        assert_eq!(
+            resolve_stream_connection_key("conn-1", "tab-1", true, false),
+            "conn-1".to_string()
+        );
+    }
+
+    #[test]
+    fn test_resolve_stream_connection_key_pins_pooler_transactions_to_tab_session() {
+        assert_eq!(
+            resolve_stream_connection_key("conn-1", "tab-1", true, true),
+            "conn-1:tab-1".to_string()
+        );
+    }
+
+    #[test]
+    fn test_resolve_stream_connection_key_keeps_tab_scoped_connections_in_normal_mode() {
+        assert_eq!(
+            resolve_stream_connection_key("conn-1", "tab-1", false, false),
+            "conn-1:tab-1".to_string()
+        );
     }
 }

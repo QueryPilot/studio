@@ -47,21 +47,12 @@ impl PostgresAdapter {
         format!("\"{}\"", identifier.replace('"', "\"\""))
     }
 
-    fn search_path_sql(schema: &str) -> String {
+    pub(crate) fn search_path_sql(schema: &str) -> String {
         let quoted_schema = Self::quote_identifier(schema);
         if schema.eq_ignore_ascii_case("public") {
             format!("SET search_path TO {}", quoted_schema)
         } else {
             format!("SET search_path TO {}, public", quoted_schema)
-        }
-    }
-
-    pub(crate) fn local_search_path_sql(schema: &str) -> String {
-        let quoted_schema = Self::quote_identifier(schema);
-        if schema.eq_ignore_ascii_case("public") {
-            format!("SET LOCAL search_path TO {}", quoted_schema)
-        } else {
-            format!("SET LOCAL search_path TO {}, public", quoted_schema)
         }
     }
 
@@ -81,14 +72,7 @@ impl PostgresAdapter {
     }
 
     fn should_pin_single_session(profile: &ConnectionProfile) -> bool {
-        is_tab_scoped_connection_id(&profile.id) || profile.pooler_mode == Some(true)
-    }
-
-    fn should_recreate_pool_after_detection(
-        requested_mode: Option<bool>,
-        resolved_mode: bool,
-    ) -> bool {
-        requested_mode.is_none() && resolved_mode
+        is_tab_scoped_connection_id(&profile.id)
     }
 
     pub fn pooler_mode(&self) -> Option<bool> {
@@ -202,62 +186,23 @@ impl PostgresAdapter {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
-        if self.pooler_mode() != Some(true) {
-            let schema = self.current_schema();
-            if let Some(schema) = schema {
-                client
-                    .batch_execute(Self::search_path_sql(&schema).as_str())
-                    .await
-                    .map_err(|e| {
-                        AppError::DatabaseError(format!(
-                            "Failed to apply PostgreSQL search_path: {}",
-                            e
-                        ))
-                    })?;
-            }
+        // Set search_path on every connection checkout.
+        // In pooler mode (PgBouncer transaction pooling), each connection may have been
+        // used by another client, so session state must be re-applied every time.
+        let schema = self.current_schema();
+        if let Some(schema) = schema {
+            client
+                .batch_execute(Self::search_path_sql(&schema).as_str())
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to apply PostgreSQL search_path: {}",
+                        e
+                    ))
+                })?;
         }
 
         Ok(client)
-    }
-
-    async fn begin_pooler_query_scope(
-        &self,
-        client: &deadpool_postgres::Client,
-    ) -> Result<bool, AppError> {
-        let Some(schema) = self.current_schema() else {
-            return Ok(false);
-        };
-
-        client.batch_execute("BEGIN").await.map_err(|e| {
-            AppError::DatabaseError(format!(
-                "Failed to begin PostgreSQL pooler transaction: {}",
-                e
-            ))
-        })?;
-
-        if let Err(error) = client
-            .batch_execute(Self::local_search_path_sql(&schema).as_str())
-            .await
-        {
-            let _ = client.batch_execute("ROLLBACK").await;
-            return Err(AppError::DatabaseError(format!(
-                "Failed to apply PostgreSQL search_path in pooler mode: {}",
-                error
-            )));
-        }
-
-        Ok(true)
-    }
-
-    async fn finish_pooler_query_scope(client: &deadpool_postgres::Client, commit: bool) {
-        let sql = if commit { "COMMIT" } else { "ROLLBACK" };
-        if let Err(error) = client.batch_execute(sql).await {
-            tracing::warn!(
-                "Failed to close PostgreSQL pooler transaction with {}: {}",
-                sql,
-                error
-            );
-        }
     }
 
     async fn resolve_pooler_mode(
@@ -335,20 +280,14 @@ impl PostgresAdapter {
     }
 
     async fn execute_typed_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
+        // get_client() sets search_path on every checkout
         let client = self.get_client().await?;
-        let scoped_schema = self.begin_pooler_query_scope(&client).await?;
-        let typed_params: Vec<(&(dyn ToSql + Sync), Type)> = Vec::new();
 
-        let rows_result = client
+        let typed_params: Vec<(&(dyn ToSql + Sync), Type)> = Vec::new();
+        let rows = client
             .query_typed(sql, &typed_params)
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Pooler-safe query failed: {}", e)));
-
-        if scoped_schema {
-            Self::finish_pooler_query_scope(&client, rows_result.is_ok()).await;
-        }
-
-        let rows = rows_result?;
+            .map_err(|e| AppError::DatabaseError(format!("Pooler-safe query failed: {}", e)))?;
         let columns = rows
             .first()
             .map(capability_columns_from_row)
@@ -589,7 +528,7 @@ impl BaseCapability for PostgresAdapter {
             }
         }
 
-        let mut pool = Self::create_pool(&cfg, profile)?;
+        let pool = Self::create_pool(&cfg, profile)?;
 
         // Test connection with timeout to prevent indefinite hangs on unreachable hosts
         let connect_timeout = std::time::Duration::from_secs(15);
@@ -608,22 +547,6 @@ impl BaseCapability for PostgresAdapter {
             *guard = Some(resolved_pooler_mode);
         }
 
-        if Self::should_recreate_pool_after_detection(profile.pooler_mode, resolved_pooler_mode) {
-            drop(client);
-            pool.close();
-            cfg.pool = Some(PoolConfig::new(1));
-            pool = Self::create_pool(&cfg, profile)?;
-            let _ = tokio::time::timeout(connect_timeout, pool.get())
-                .await
-                .map_err(|_| {
-                    AppError::ConnectionClosed(format!(
-                        "Connection timed out after {} seconds - host may be unreachable",
-                        connect_timeout.as_secs()
-                    ))
-                })?
-                .map_err(|e| AppError::Internal(format!("Failed to reconnect: {}", e)))?;
-        }
-
         *self.pool.write().await = Some(pool);
         Ok(())
     }
@@ -631,8 +554,6 @@ impl BaseCapability for PostgresAdapter {
     async fn disconnect(&self) -> Result<(), AppError> {
         let mut pool_guard = self.pool.write().await;
         if let Some(pool) = pool_guard.take() {
-            // Close the pool to immediately terminate all connections
-            // This prevents stale connections from lingering after disconnect
             pool.close();
         }
         Ok(())
@@ -765,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn manual_pooler_mode_is_pinned_to_single_session() {
+    fn pooler_mode_uses_default_pool_size() {
         let profile = ConnectionProfile {
             id: "conn-1".to_string(),
             name: "test".to_string(),
@@ -789,21 +710,8 @@ mod tests {
             pooler_mode: Some(true),
         };
 
-        assert!(PostgresAdapter::should_pin_single_session(&profile));
-    }
-
-    #[test]
-    fn auto_detected_pooler_mode_recreates_pool_with_single_session() {
-        assert!(PostgresAdapter::should_recreate_pool_after_detection(
-            None, true
-        ));
-        assert!(!PostgresAdapter::should_recreate_pool_after_detection(
-            Some(true),
-            true
-        ));
-        assert!(!PostgresAdapter::should_recreate_pool_after_detection(
-            None, false
-        ));
+        // Pooler mode should NOT pin to single session — allows parallel queries
+        assert!(!PostgresAdapter::should_pin_single_session(&profile));
     }
 
     #[test]

@@ -461,6 +461,7 @@ class TableStreamingService {
     timeoutSecs?: number,
     options?: {
       collectRows?: boolean;
+      pinSession?: boolean;
     },
   ): Promise<StreamingTableResult> {
     this.cancel(); // Abort any previous query
@@ -489,6 +490,7 @@ class TableStreamingService {
             sql,
             batchSize: pageSize,
             timeoutSecs,
+            pinSession: options?.pinSession,
           },
           {
             onStarted: (columns, estimatedRows) => {

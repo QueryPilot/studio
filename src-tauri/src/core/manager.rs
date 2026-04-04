@@ -853,6 +853,21 @@ impl ConnectionManager {
         })
     }
 
+    /// Check if a base connection is in PostgreSQL pooler mode.
+    /// Used to decide whether tab-scoped connections should be skipped.
+    pub fn is_pooler_mode(&self, conn_id: &str) -> bool {
+        let base_id = conn_id.split(':').next().unwrap_or(conn_id);
+        self.connections
+            .get(base_id)
+            .and_then(|entry| {
+                entry
+                    .adapter
+                    .as_postgres()
+                    .and_then(|pg| pg.pooler_mode())
+            })
+            .unwrap_or(false)
+    }
+
     /// Touch connection to update last_used timestamp (prevents idle timeout)
     pub fn touch_connection(&self, conn_id: &str) -> Result<()> {
         if let Some(entry) = self.connections.get(conn_id) {

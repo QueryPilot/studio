@@ -20,6 +20,8 @@ export interface QueryStreamParams {
   batchSize?: number;
   /** Query timeout in seconds. Default: 300 (5 minutes) */
   timeoutSecs?: number;
+  /** Force a tab-scoped backend session, even when the connection is in pooler mode. */
+  pinSession?: boolean;
 }
 
 export interface StreamBatch {
@@ -238,7 +240,14 @@ export class QueryStreamClient {
       return Promise.reject(error);
     }
 
-    const { connId, tabId, sql, batchSize = 1000, timeoutSecs } = params;
+    const {
+      connId,
+      tabId,
+      sql,
+      batchSize = 1000,
+      timeoutSecs,
+      pinSession,
+    } = params;
 
     const decodeWorker = getStreamDecodeWorker();
 
@@ -264,6 +273,9 @@ export class QueryStreamClient {
       const drainPendingDecode = async (
         expectedRows: number,
         expectedBatches?: number,
+        options?: {
+          skipRowExpectation?: boolean;
+        },
       ) => {
         const deadline = Date.now() + 2000;
 
@@ -282,7 +294,8 @@ export class QueryStreamClient {
           }
 
           const decodeQueueStable = snapshot === pendingDecode;
-          const haveExpectedRows = totalRows >= expectedRows;
+          const haveExpectedRows =
+            options?.skipRowExpectation === true || totalRows >= expectedRows;
           const haveExpectedBatches =
             expectedBatches === undefined || batchCount >= expectedBatches;
 
@@ -314,8 +327,14 @@ export class QueryStreamClient {
 
         finalizingSuccess = true;
         const result = successResult;
+        const isMetadataOnlyMutation =
+          result.columns.length === 0 &&
+          batchCount === 0 &&
+          result.totalRows > 0;
 
-        void drainPendingDecode(result.totalRows, result.fetchCount)
+        void drainPendingDecode(result.totalRows, result.fetchCount, {
+          skipRowExpectation: isMetadataOnlyMutation,
+        })
           .catch((error: unknown) => {
             logger.error(
               "query-stream",
@@ -330,7 +349,7 @@ export class QueryStreamClient {
               return;
             }
 
-            if (totalRows !== result.totalRows) {
+            if (!isMetadataOnlyMutation && totalRows !== result.totalRows) {
               const mismatchError = new Error(
                 `Stream completed with ${totalRows} decoded rows, expected ${result.totalRows}`,
               );
@@ -497,6 +516,7 @@ export class QueryStreamClient {
           sql,
           batchSize,
           timeoutSecs,
+          pinSession,
           metadataChannel,
           dataChannel,
         })
