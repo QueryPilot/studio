@@ -202,8 +202,9 @@ export function useDocumentData(
   );
 
   // Convert sort columns to MongoDB sort format: { field: 1 | -1 }
+  // Defaults to { _id: 1 } when no user sort is set — MongoDB's natural PK.
   const mongoSort = useMemo(() => {
-    if (sortColumns.length === 0) return undefined;
+    if (sortColumns.length === 0) return { _id: 1 as const };
 
     const sort: Record<string, 1 | -1> = {};
     for (const { columnId, direction } of sortColumns) {
