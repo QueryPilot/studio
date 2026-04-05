@@ -670,6 +670,10 @@ class DatabaseService {
     schema: string,
   ): Promise<Array<{ table: string; column: string; type: string }>> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       // Use single efficient query via IntrospectionService
       return await IntrospectionService.getForeignKeyTargets(
         connectionId,
@@ -694,6 +698,10 @@ class DatabaseService {
    */
   async listDatabases(connectionId: string): Promise<string[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const databases = await IntrospectionService.getDatabases(connectionId);
       return databases.map((db) => db.name);
     } catch (error) {
@@ -710,6 +718,10 @@ class DatabaseService {
     _database: string,
   ): Promise<string[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const schemas = await IntrospectionService.getSchemas(connectionId);
       return schemas.map((s) => s.name);
     } catch (error) {
@@ -764,6 +776,10 @@ class DatabaseService {
     schema: string,
   ): Promise<TableMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       logger.info(
         `[DatabaseService] listTables called for ${connectionId}, schema: ${schema}`,
       );
@@ -826,6 +842,10 @@ class DatabaseService {
     schema: string,
   ): Promise<FunctionMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const functions = await IntrospectionService.getFunctions(
         connectionId,
         schema,
@@ -850,6 +870,10 @@ class DatabaseService {
     schema: string,
   ): Promise<SequenceMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       return await IntrospectionService.getSequences(connectionId, schema);
     } catch (error) {
       logger.error("Failed to list sequences:", error);
@@ -863,6 +887,10 @@ class DatabaseService {
     schema: string,
   ): Promise<PackageMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       return await IntrospectionService.getPackages(connectionId, schema);
     } catch (error) {
       logger.error("Failed to list packages:", error);
@@ -876,6 +904,10 @@ class DatabaseService {
     schema: string,
   ): Promise<SynonymMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       return await IntrospectionService.getSynonyms(connectionId, schema);
     } catch (error) {
       logger.error("Failed to list synonyms:", error);
@@ -928,6 +960,10 @@ class DatabaseService {
     table: string,
   ): Promise<ColumnMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const columns = await IntrospectionService.getColumns(
         connectionId,
         schema,
@@ -1082,6 +1118,10 @@ class DatabaseService {
     table: string,
   ): Promise<IndexUsageStats[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       return await IntrospectionService.getIndexUsageStats(
         connectionId,
         schema,
@@ -1105,6 +1145,10 @@ class DatabaseService {
       const cached = this.indexTypeCache.get(connectionId);
       if (cached && Date.now() - cached.timestamp < this.INDEX_TYPE_CACHE_TTL) {
         return cached.types;
+      }
+
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
       }
 
       // Fetch using dialect-aware introspection
@@ -1148,6 +1192,10 @@ class DatabaseService {
         Date.now() - cached.timestamp < this.COLUMN_TYPE_CACHE_TTL
       ) {
         return cached.types;
+      }
+
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
       }
 
       // Fetch using dialect-aware introspection

@@ -42,6 +42,7 @@ import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { useTabStateStore } from "@/stores/tabStateStore";
 import { useTabLoadingStore } from "@/stores/tabLoadingStore";
+import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { FeatureErrorBoundary } from "@/components/FeatureErrorBoundary";
 import { writeClipboardText } from "@/lib/clipboard";
 
@@ -113,6 +114,11 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
     const connection = getConnection(connectionId);
     const dbType = connection?.profile.db_type;
     const type = metadata?.type || "table";
+
+    // Check if connection is still being established
+    const isConnecting = useWorkspaceBundleStore(
+      (state) => state.activeWorkspace?.connections.get(connectionId)?.status === "connecting",
+    );
 
     // For table tabs, load/persist viewType to tabStateStore
     const loadTabStateAsync = useTabStateStore((state) => state.loadTabStateAsync);
@@ -240,6 +246,16 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
       return (
         <div className="flex items-center justify-center h-full">
           <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    // Show connecting message while backend connection is being established
+    if (isConnecting) {
+      return (
+        <div className="flex items-center justify-center h-full gap-2 text-muted-foreground text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          Connecting to database...
         </div>
       );
     }

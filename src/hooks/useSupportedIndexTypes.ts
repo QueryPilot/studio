@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { IntrospectionService } from "@/services/introspectionService";
+import { databaseService } from "@/services/databaseService";
 import { DbType } from "@/types/connection";
 
 interface UseSupportedIndexTypesParams {
@@ -66,7 +66,7 @@ const DEFAULT_INDEX_TYPES: Record<DbType, { types: string[]; default: string }> 
 /**
  * Hook for fetching supported index types for a database connection.
  *
- * Uses IntrospectionService to query available index types and falls back
+ * Uses databaseService to query available index types and falls back
  * to sensible defaults if the query fails.
  *
  * @param connectionId - The active connection ID
@@ -89,7 +89,7 @@ export function useSupportedIndexTypes({
     queryKey: ["indexTypes", connectionId, dbType],
     queryFn: async () => {
       try {
-        const types = await IntrospectionService.getSupportedIndexTypes(connectionId);
+        const types = await databaseService.getSupportedIndexTypes(connectionId);
 
         // Normalize to lowercase for consistent comparison
         const normalizedTypes = types.map((t) => t.toLowerCase());

@@ -11,6 +11,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { IntrospectionService } from "@/services/introspectionService";
+import { databaseService } from "@/services/databaseService";
 import { DbType, isMySQLCompatible } from "@/types/connection";
 import type { Partition } from "@/services/backend";
 
@@ -50,6 +51,9 @@ export function usePartitionsQuery({
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["partitions", connectionId, schema, table],
     queryFn: async () => {
+      if (!databaseService.isConnectionActive(connectionId)) {
+        await databaseService.connectById(connectionId);
+      }
       return IntrospectionService.getPartitions(connectionId, schema, table);
     },
     enabled: shouldFetch,

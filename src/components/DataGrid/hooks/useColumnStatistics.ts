@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { BackendAPI } from "@/services/backend";
+import { databaseService } from "@/services/databaseService";
 
 export interface ColumnStats {
   /** Column name */
@@ -120,6 +121,10 @@ export function useColumnStatistics({
       }
 
       try {
+        if (!databaseService.isConnectionActive(connectionId)) {
+          await databaseService.connectById(connectionId);
+        }
+
         const sql = buildStatsQuery(schema, table, columns);
         const result = await BackendAPI.query(connectionId, sql);
 

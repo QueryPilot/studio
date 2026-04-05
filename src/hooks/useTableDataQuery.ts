@@ -1,4 +1,5 @@
 import { logger } from "@/lib/logger";
+import { databaseService } from "@/services/databaseService";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   useInfiniteQuery,
@@ -320,6 +321,10 @@ export function useTableDataQuery(
         // Only do progressive updates for first page (initial load)
         // For pagination, skip progressive updates to avoid lag
         const enableProgressiveUpdates = currentOffset === 0;
+
+        if (!databaseService.isConnectionActive(connectionId)) {
+          await databaseService.connectById(connectionId);
+        }
 
         const pageResult = await streamEntityPage({
           connectionId,

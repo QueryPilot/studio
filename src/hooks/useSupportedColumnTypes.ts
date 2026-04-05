@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { IntrospectionService } from "@/services/introspectionService";
+import { databaseService } from "@/services/databaseService";
 import { DbType } from "@/types/connection";
 import {
   POSTGRES_STANDARD_TYPES,
@@ -60,7 +60,7 @@ const DEFAULT_COLUMN_TYPES: Record<DbType, { types: string[]; default: string }>
 /**
  * Hook for fetching supported column types for a database connection.
  *
- * Uses IntrospectionService to query available column types and falls back
+ * Uses databaseService to query available column types and falls back
  * to sensible defaults if the query fails.
  */
 export function useSupportedColumnTypes({
@@ -75,7 +75,7 @@ export function useSupportedColumnTypes({
     queryFn: async () => {
       try {
         const types =
-          await IntrospectionService.getSupportedColumnTypes(connectionId);
+          await databaseService.getSupportedColumnTypes(connectionId);
         // Normalize to lowercase for consistent display
         const normalized = types.map((t) => t.toLowerCase());
         return normalized.length > 0 ? normalized : defaults.types;
