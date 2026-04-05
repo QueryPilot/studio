@@ -127,7 +127,7 @@ rand_core = "0.6"
 tauri-plugin-os = "2.3"
 
 # Telemetry (optional, enabled via telemetry feature flag)
-sentry = { version = "0.34", optional = true, default-features = false, features = ["backtrace", "contexts", "panic", "rustls"] }
+sentry = { version = "0.34", optional = true, default-features = false, features = ["backtrace", "contexts", "panic", "reqwest", "rustls"] }
 sentry-tracing = { version = "0.34", optional = true }
 tauri-plugin-deep-link = "2.4"
 

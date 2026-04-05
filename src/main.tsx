@@ -23,6 +23,7 @@ import { initializeSentry, configureTelemetryBackend } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
 import { runSessionMigration } from "@/lib/db/sessionMigration";
+import packageJson from "../package.json";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -31,7 +32,7 @@ enableMapSet();
 
 // Initialize Sentry for error tracking (only in production, opt-in via preferences)
 const telemetryPrefs = usePreferencesStore.getState().telemetry;
-initializeSentry(telemetryPrefs, "0.4.0");
+initializeSentry(telemetryPrefs, packageJson.version);
 
 // Sync telemetry preference to backend (fire-and-forget)
 void configureTelemetryBackend(telemetryPrefs.sentryEnabled);

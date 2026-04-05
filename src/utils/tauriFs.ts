@@ -1,6 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /**
+ * Read a UTF-8 text file using Tauri's fs plugin.
+ */
+export async function readTextFile(path: string): Promise<string> {
+  return invoke<string>("plugin:fs|read_text_file", { path });
+}
+
+/**
  * Write a UTF-8 string to a file using Tauri's fs plugin.
  *
  * The plugin expects the file path as an IPC header and the content

@@ -37,6 +37,8 @@ export function toDbType(dbType: string | DbType): DbType {
       return DbType.SQLServer;
     case "oracle":
       return DbType.Oracle;
+    case "trino":
+      return DbType.Trino;
     default:
       return DbType.PostgreSQL;
   }
@@ -133,6 +135,7 @@ export function formatValue(value: unknown, dbType: DbType | string): string {
     switch (type) {
       case DbType.PostgreSQL:
       case DbType.Oracle:
+      case DbType.Trino:
         return value ? "TRUE" : "FALSE";
       case DbType.MySQL:
       case DbType.SQLite:

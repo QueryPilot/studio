@@ -10,7 +10,8 @@ export type DatabaseType =
   | "mssql"
   | "oracle"
   | "mongodb"
-  | "redis";
+  | "redis"
+  | "trino";
 
 export interface ParsedEnvConfig {
   dbType?: DatabaseType;
@@ -243,6 +244,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
       config.dbType = "mongodb";
     } else if (connLower === "redis") {
       config.dbType = "redis";
+    } else if (connLower === "trino") {
+      config.dbType = "trino";
     }
   } else if (hasPrefix("POSTGRES_") || hasPrefix("PG_") || hasPrefix("PGHOST")) {
     config.dbType = "postgresql";
@@ -262,6 +265,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     config.dbType = "mongodb";
   } else if (hasPrefix("REDIS_")) {
     config.dbType = "redis";
+  } else if (hasPrefix("TRINO_")) {
+    config.dbType = "trino";
   }
 
   // Map environment variables to config fields
@@ -1307,6 +1312,8 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
     dbType = "mongodb";
   } else if (protocol === "redis" || protocol === "rediss") {
     dbType = "redis";
+  } else if (protocol === "trino") {
+    dbType = "trino";
   } else {
     throw new Error(`Unsupported protocol: ${protocol}`);
   }
@@ -1565,6 +1572,7 @@ export function buildConnectionUri(
     [DbType.Oracle]: "oracle",
     [DbType.MongoDB]: "mongodb",
     [DbType.Redis]: "redis",
+    [DbType.Trino]: "trino",
   };
 
   const scheme = schemeMap[db_type] || db_type.toLowerCase();

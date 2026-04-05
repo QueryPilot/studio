@@ -90,7 +90,7 @@ const CONNECTION_TEMPLATES: {
 ];
 import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke } from "@tauri-apps/api/core";
+import { readTextFile } from "@/utils/tauriFs";
 import { isTauri } from "@/utils/tauri";
 
 function mapDatabaseType(dbType: string): DbType {
@@ -103,6 +103,7 @@ function mapDatabaseType(dbType: string): DbType {
     oracle: DbType.Oracle,
     mongodb: DbType.MongoDB,
     redis: DbType.Redis,
+    trino: DbType.Trino,
   };
   return mapping[dbType] || DbType.PostgreSQL;
 }
@@ -217,7 +218,7 @@ export function WelcomeSection() {
         });
 
         if (selected) {
-          const content = await invoke<string>("read_text_file", { path: selected });
+          const content = await readTextFile(selected);
           await processImportedContent(content, selected);
         }
       } catch (error) {
