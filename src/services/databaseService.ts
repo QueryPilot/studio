@@ -893,6 +893,10 @@ class DatabaseService {
     table: string,
   ): Promise<TriggerMeta[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const triggers = await IntrospectionService.getTriggers(
         connectionId,
         schema,
@@ -973,6 +977,10 @@ class DatabaseService {
     table: string,
   ): Promise<TableIndex[]> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const indexes = await IntrospectionService.getIndexes(
         connectionId,
         schema,
@@ -1224,6 +1232,10 @@ class DatabaseService {
     } = options;
 
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       // Fetch all table metadata in parallel for performance
       // Use targeted getTableStats() instead of fetching ALL tables in the schema
       const [columns, constraints, indexes, triggers, tableStats] =
@@ -1365,6 +1377,10 @@ class DatabaseService {
     objectType: ObjectDefinitionType,
   ): Promise<string> {
     try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+
       const definition = await IntrospectionService.getObjectDefinition(
         connectionId,
         objectType,

@@ -201,7 +201,12 @@ impl TrinoAdapter {
 
         let mut resp = self.submit_query(sql).await?;
         let mut columns: Option<Vec<TrinoColumn>> = resp.columns;
-        let mut all_rows: Vec<Vec<serde_json::Value>> = resp.data.unwrap_or_default();
+        let mut all_rows: Vec<Vec<serde_json::Value>> = resp
+            .data
+            .unwrap_or_default()
+            .iter()
+            .map(|row| row.iter().map(|cell| convert_trino_cell(cell)).collect())
+            .collect();
 
         // Snapshot connection state once before the polling loop to avoid
         // acquiring 6 RwLock read locks on every follow-up request.
@@ -254,7 +259,11 @@ impl TrinoAdapter {
                 columns = resp.columns;
             }
             if let Some(data) = resp.data {
-                all_rows.extend(data);
+                all_rows.extend(
+                    data.iter().map(|row| {
+                        row.iter().map(|cell| convert_trino_cell(cell)).collect::<Vec<_>>()
+                    }),
+                );
             }
         }
 
@@ -328,25 +337,90 @@ impl Default for TrinoAdapter {
     }
 }
 
+/// Convert a raw Trino JSON cell to a serde_json::Value with precision preservation.
+///
+/// Without `arbitrary_precision`, serde_json converts ALL JSON numbers to f64, losing
+/// precision for DECIMAL(38,x) and integers > u64::MAX. By using RawValue we get the
+/// raw JSON text and choose the right representation:
+/// - Small integers (within JS Number.MAX_SAFE_INTEGER = 2^53): i64/u64 Number
+/// - Integers > 2^53: String (frontend Decimal.js handles display)
+/// - Decimal/scientific with >15 significant digits: String
+/// - Everything else: normal serde_json parsing
+fn convert_trino_cell(raw: &serde_json::value::RawValue) -> serde_json::Value {
+    let s = raw.get();
+
+    match s {
+        "null" => return serde_json::Value::Null,
+        "true" => return serde_json::Value::Bool(true),
+        "false" => return serde_json::Value::Bool(false),
+        _ => {}
+    }
+
+    let first = s.as_bytes().first().copied().unwrap_or(0);
+    if first == b'"' || first == b'[' || first == b'{' {
+        return serde_json::from_str(s).unwrap_or(serde_json::Value::Null);
+    }
+
+    let is_decimal = s.contains('.') || s.contains('e') || s.contains('E');
+    if is_decimal {
+        let digit_count = s.bytes().filter(|b| b.is_ascii_digit()).count();
+        if digit_count > 15 {
+            return serde_json::Value::String(s.to_string());
+        }
+        if let Ok(f) = s.parse::<f64>() {
+            return serde_json::json!(f);
+        }
+        return serde_json::Value::String(s.to_string());
+    }
+
+    const JS_SAFE_MAX: i64 = 9_007_199_254_740_992; // 2^53
+    if let Ok(i) = s.parse::<i64>() {
+        return if i >= -JS_SAFE_MAX && i <= JS_SAFE_MAX {
+            serde_json::json!(i)
+        } else {
+            serde_json::Value::String(s.to_string())
+        };
+    }
+    if let Ok(u) = s.parse::<u64>() {
+        return if u <= JS_SAFE_MAX as u64 {
+            serde_json::json!(u)
+        } else {
+            serde_json::Value::String(s.to_string())
+        };
+    }
+    serde_json::Value::String(s.to_string())
+}
+
 fn map_trino_type(type_name: &str) -> String {
-    let lower = type_name.to_lowercase();
+    let lower = type_name.trim().to_lowercase();
     let base = lower.split('(').next().unwrap_or(&lower).trim();
+    let has_tz = lower.contains("with time zone");
+
+    // For complex/parameterized types, preserve the full normalized type string.
+    // This gives users meaningful display: "decimal(18,3)", "array(bigint)", "map(varchar, bigint)"
+    if matches!(
+        base,
+        "decimal" | "varchar" | "char" | "array" | "map" | "row" | "interval"
+    ) {
+        return lower;
+    }
 
     match base {
         "boolean" => "boolean",
         "tinyint" | "smallint" | "integer" | "int" | "bigint" => "integer",
-        "real" | "double" | "decimal" => "decimal",
-        "varchar" | "char" => "varchar",
+        "real" | "double" => "double",
         "varbinary" => "varbinary",
         "date" => "date",
-        "time" | "time with time zone" => "time",
-        "timestamp" | "timestamp with time zone" => "timestamp",
+        "time" if has_tz => "timetz",
+        "time" => "time",
+        "timestamp" if has_tz => "timestamptz",
+        "timestamp" => "timestamp",
         "json" => "json",
         "uuid" => "uuid",
-        "ipaddress" => "varchar",
-        "array" => "array",
-        "map" | "row" => "json",
-        _ => "varchar",
+        "ipaddress" => "ipaddress",
+        "hyperloglog" | "p4hyperloglog" | "quantiledigest" | "tdigest" => base,
+        "color" | "geometry" | "sphericalgeography" | "bingtile" | "bing tile" => base,
+        _ => base,
     }
     .to_string()
 }

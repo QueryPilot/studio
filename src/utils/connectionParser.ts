@@ -67,10 +67,10 @@ function looksLikeConnectionUri(text: string): boolean {
   if (!trimmed) return false;
 
   if (/^jdbc:/i.test(trimmed)) return true;
-  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle|duckdb):\/\//i.test(trimmed)) {
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle|duckdb|trino):\/\//i.test(trimmed)) {
     return true;
   }
-  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle|duckdb):/i.test(trimmed)) {
+  if (/^(postgres|postgresql|mysql|mariadb|mssql|sqlserver|sqlite|oracle|duckdb|trino):/i.test(trimmed)) {
     return true;
   }
   if (/^\(DESCRIPTION\s*=/i.test(trimmed)) {

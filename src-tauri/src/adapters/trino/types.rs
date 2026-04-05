@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use serde_json::value::RawValue;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -7,7 +8,7 @@ pub struct TrinoQueryResponse {
     pub info_uri: Option<String>,
     pub next_uri: Option<String>,
     pub columns: Option<Vec<TrinoColumn>>,
-    pub data: Option<Vec<Vec<serde_json::Value>>>,
+    pub data: Option<Vec<Vec<Box<RawValue>>>>, // RawValue prevents f64 precision loss for large numbers
     pub stats: Option<TrinoStats>,
     pub error: Option<TrinoError>,
     pub update_type: Option<String>,

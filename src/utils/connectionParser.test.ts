@@ -65,6 +65,11 @@ describe("connectionParser", () => {
         const uri = "duckdb:///tmp/analytics.duckdb";
         expect(detectConnectionFormat(uri)).toBe("uri");
       });
+
+      it("should detect Trino URI", () => {
+        const uri = "trino://user@localhost:8080/tpch";
+        expect(detectConnectionFormat(uri)).toBe("uri");
+      });
     });
 
     describe("ENV format detection", () => {
