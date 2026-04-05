@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import { writeTextToClipboard } from "../hooks/useClipboardBridge";
 import { normalizeKeybindingLabel } from "@/lib/keyboardDispatch";
+import { FKEmbedSubmenu } from "./FKEmbedSubmenu";
 
 export interface GridContextMenuItemsProps {
   selectedRows: GridRowModel[];
@@ -65,6 +66,10 @@ export interface GridContextMenuItemsProps {
   onBestEffortDeleteRows?: () => void;
   onSelectIdentifierColumns?: () => void;
   onPaste?: () => void;
+  /** The column of the right-clicked cell — used to show FK embed submenu */
+  cellColumn?: GridColumnV2;
+  connectionId?: string;
+  referencedTableColumns?: Record<string, Array<{ name: string; db_type: string }>>;
 }
 
 export function GridContextMenuItems({
@@ -92,6 +97,9 @@ export function GridContextMenuItems({
   onBestEffortDeleteRows,
   onSelectIdentifierColumns,
   onPaste,
+  cellColumn,
+  connectionId,
+  referencedTableColumns,
 }: GridContextMenuItemsProps) {
   const hasSelection = selectedRows.length > 0;
 
@@ -608,6 +616,17 @@ export function GridContextMenuItems({
           )}
         </ContextMenuSubContent>
       </ContextMenuSub>
+
+      {/* FK embed submenu — only when right-clicked cell is in a FK column */}
+      {cellColumn?.meta?.is_fk && connectionId && (
+        <FKEmbedSubmenu
+          column={cellColumn}
+          connectionId={connectionId}
+          schema={schema ?? "public"}
+          table={tableName}
+          referencedTableColumns={referencedTableColumns?.[cellColumn.name]}
+        />
+      )}
 
       {/* Pin/Unpin */}
       {selectedUnpinnedKeys.length > 0 && (
