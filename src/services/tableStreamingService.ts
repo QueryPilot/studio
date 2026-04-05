@@ -19,6 +19,7 @@ import { IntrospectionService } from "./introspectionService";
 export interface StreamProgress {
   rowsFetched: number;
   totalRows?: number;
+  isEstimatedCount?: boolean;
   percentage?: number;
   executionTimeMs?: number;
   started?: boolean;
@@ -173,19 +174,20 @@ export async function streamEntityPage(
     const fetchEstimatedTotal = async () => {
       if (offset === 0 && !estimatedTotal) {
         try {
-          const count = await IntrospectionService.getTableCount(
+          const countInfo = await IntrospectionService.getTableCount(
             connectionId,
             schema,
             entityName,
             { exact: useExactCount },
           );
-          if (count > 0) {
-            estimatedTotal = count;
-            isEstimatedCount = !useExactCount;
+          if (countInfo.count >= 0) {
+            estimatedTotal = countInfo.count;
+            isEstimatedCount = countInfo.isEstimated;
             if (onProgress) {
               onProgress({
                 rowsFetched: 0,
                 totalRows: estimatedTotal,
+                isEstimatedCount,
                 started: true,
               });
             }
@@ -285,6 +287,7 @@ export async function streamEntityPage(
                 onProgress({
                   rowsFetched: rows.length,
                   totalRows: estimatedTotal,
+                  isEstimatedCount,
                 });
               }
 
@@ -312,14 +315,13 @@ export async function streamEntityPage(
               // ignore mapping errors here, they'll have been logged
             })
             .then(async () => {
-              if (useExactCount) {
-                await countPromise;
-              }
+              await countPromise;
               executionTimeMs = result.executionTimeMs;
               if (onProgress) {
                 onProgress({
                   rowsFetched: result.totalRows,
                   totalRows: estimatedTotal ?? result.totalRows,
+                  isEstimatedCount,
                   executionTimeMs: result.executionTimeMs,
                   completed: true,
                 });

@@ -191,12 +191,89 @@ impl TrinoAdapter {
         Self::parse_response(resp)
     }
 
-    async fn follow_next_uri(&self, next_uri: &str) -> Result<TrinoQueryResponse, AppError> {
+    /// Execute a query and collect all pages of results.
+    /// Safety: capped at MAX_RESULT_ROWS to prevent OOM on unbounded queries.
+    async fn execute_full_query(
+        &self,
+        sql: &str,
+    ) -> Result<(Vec<TrinoColumn>, Vec<Vec<serde_json::Value>>), AppError> {
+        const MAX_RESULT_ROWS: usize = 5_000_000;
+
+        let mut resp = self.submit_query(sql).await?;
+        let mut columns: Option<Vec<TrinoColumn>> = resp.columns;
+        let mut all_rows: Vec<Vec<serde_json::Value>> = resp.data.unwrap_or_default();
+
+        // Snapshot connection state once before the polling loop to avoid
+        // acquiring 6 RwLock read locks on every follow-up request.
         let (client, _base_url, username, catalog, schema, options) =
             self.snapshot_state().await?;
 
+        let query_timeout: Duration = options
+            .get("trino.query_timeout_secs")
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::from_secs(300));
+
+        let start = Instant::now();
+        // Exponential backoff for polling: start at 5ms, double each empty poll, cap at 100ms.
+        // Fast queries (< 10ms execution) get results within 1-2 polls at 5ms each.
+        // Slow queries gradually back off to avoid hammering the server.
+        let mut poll_delay_ms: u64 = 5;
+
+        while let Some(next_uri) = resp.next_uri {
+            if start.elapsed() > query_timeout {
+                let _ = self.cancel_query(&next_uri).await;
+                return Err(AppError::Timeout(format!(
+                    "Trino query exceeded {}s timeout",
+                    query_timeout.as_secs()
+                )));
+            }
+
+            if all_rows.len() > MAX_RESULT_ROWS {
+                let _ = self.cancel_query(&next_uri).await;
+                return Err(AppError::Internal(format!(
+                    "Trino query exceeded {} row safety limit. Use LIMIT to constrain results.",
+                    MAX_RESULT_ROWS
+                )));
+            }
+
+            resp = self
+                .follow_next_uri_with_client(&client, &username, &catalog, &schema, &options, &next_uri)
+                .await?;
+
+            if resp.data.is_none() {
+                // Still queued/planning — back off before next poll
+                tokio::time::sleep(Duration::from_millis(poll_delay_ms)).await;
+                poll_delay_ms = (poll_delay_ms * 2).min(100);
+            } else {
+                // Data is flowing — reset delay and follow nextUri immediately
+                poll_delay_ms = 5;
+            }
+
+            if columns.is_none() {
+                columns = resp.columns;
+            }
+            if let Some(data) = resp.data {
+                all_rows.extend(data);
+            }
+        }
+
+        Ok((columns.unwrap_or_default(), all_rows))
+    }
+
+    /// Like `follow_next_uri` but uses a pre-snapshotted client to avoid
+    /// repeated RwLock acquisitions in the polling loop.
+    async fn follow_next_uri_with_client(
+        &self,
+        client: &Client,
+        username: &str,
+        catalog: &Option<String>,
+        schema: &Option<String>,
+        options: &HashMap<String, String>,
+        next_uri: &str,
+    ) -> Result<TrinoQueryResponse, AppError> {
         let request = client.get(next_uri);
-        let request = Self::apply_headers(request, &username, &catalog, &schema, &options);
+        let request = Self::apply_headers(request, username, catalog, schema, options);
 
         let response = request
             .send()
@@ -221,64 +298,6 @@ impl TrinoAdapter {
             .map_err(|e| AppError::Driver(format!("Failed to parse Trino response: {}", e)))?;
 
         Self::parse_response(resp)
-    }
-
-    /// Execute a query and collect all pages of results.
-    /// Safety: capped at MAX_RESULT_ROWS to prevent OOM on unbounded queries.
-    async fn execute_full_query(
-        &self,
-        sql: &str,
-    ) -> Result<(Vec<TrinoColumn>, Vec<Vec<serde_json::Value>>), AppError> {
-        const MAX_RESULT_ROWS: usize = 5_000_000;
-
-        let mut resp = self.submit_query(sql).await?;
-        let mut columns: Option<Vec<TrinoColumn>> = resp.columns;
-        let mut all_rows: Vec<Vec<serde_json::Value>> = resp.data.unwrap_or_default();
-
-        let options = self.options.read().await;
-        let query_timeout: Duration = options
-            .get("trino.query_timeout_secs")
-            .and_then(|v| v.parse::<u64>().ok())
-            .map(Duration::from_secs)
-            .unwrap_or(Duration::from_secs(300));
-        drop(options);
-
-        let start = Instant::now();
-
-        while let Some(next_uri) = resp.next_uri {
-            if start.elapsed() > query_timeout {
-                let _ = self.cancel_query(&next_uri).await;
-                return Err(AppError::Timeout(format!(
-                    "Trino query exceeded {}s timeout",
-                    query_timeout.as_secs()
-                )));
-            }
-
-            if all_rows.len() > MAX_RESULT_ROWS {
-                let _ = self.cancel_query(&next_uri).await;
-                return Err(AppError::Internal(format!(
-                    "Trino query exceeded {} row safety limit. Use LIMIT to constrain results.",
-                    MAX_RESULT_ROWS
-                )));
-            }
-
-            resp = self.follow_next_uri(&next_uri).await?;
-
-            // Only sleep when Trino is still queued/planning (no data yet).
-            // Once data is flowing, follow nextUri immediately for throughput.
-            if resp.data.is_none() {
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-
-            if columns.is_none() {
-                columns = resp.columns;
-            }
-            if let Some(data) = resp.data {
-                all_rows.extend(data);
-            }
-        }
-
-        Ok((columns.unwrap_or_default(), all_rows))
     }
 
     async fn cancel_query(&self, next_uri: &str) -> Result<(), AppError> {

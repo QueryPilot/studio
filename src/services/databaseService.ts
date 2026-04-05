@@ -172,6 +172,10 @@ class DatabaseService {
       storedProfile.default_schema
         ? { postgres_current_schema: storedProfile.default_schema }
         : {}),
+      ...(storedProfile.db_type === ConnectionDbType.Trino &&
+      storedProfile.default_schema
+        ? { default_schema: storedProfile.default_schema }
+        : {}),
     };
 
     return {
@@ -523,6 +527,26 @@ class DatabaseService {
         options: {
           ...stored.profile.options,
           oracle_current_schema: schema,
+        },
+      };
+
+      await vaultStorage.updateConnection(connectionId, updatedProfile);
+
+      if (this.isConnectionActive(connectionId)) {
+        await this.disconnect(connectionId);
+      }
+
+      await this.connectById(connectionId);
+      return;
+    }
+
+    if (stored && dbType === ConnectionDbType.Trino) {
+      const updatedProfile: ConnectionProfile = {
+        ...stored.profile,
+        default_schema: schema,
+        options: {
+          ...stored.profile.options,
+          default_schema: schema,
         },
       };
 

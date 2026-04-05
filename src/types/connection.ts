@@ -20,7 +20,7 @@ export interface ConnectionProfile {
   tunnel_remote_port?: number;
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
-  default_schema?: string; // Default schema for PostgreSQL/SQLServer (e.g., "myschema" instead of "public")
+  default_schema?: string; // Default schema for schema-aware SQL databases (e.g., PostgreSQL, SQL Server, Trino)
   safe_mode?: SafeMode; // Per-connection safe mode (defaults to "full_access")
   pooler_mode?: boolean | null; // PostgreSQL connection pooler override: true, false, or auto-detect (null)
 }

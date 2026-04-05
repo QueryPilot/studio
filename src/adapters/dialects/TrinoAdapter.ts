@@ -1,5 +1,4 @@
 import { DbType } from "@/types/connection";
-import type { SelectOptions, TableRef } from "../types";
 import type { ObjectDefinitionType } from "../types";
 import { PostgreSQLAdapter } from "./PostgreSQLAdapter";
 
@@ -14,7 +13,6 @@ import { PostgreSQLAdapter } from "./PostgreSQLAdapter";
  * Mapped to Query Pilot as: database → schema → table
  *
  * Key differences from PostgreSQL:
- * - No OFFSET support (use keyset pagination or client-side)
  * - No table_constraints in information_schema
  * - No indexes, triggers, or functions metadata
  * - SHOW CREATE TABLE for DDL definitions
@@ -75,13 +73,18 @@ ORDER BY table_name`;
 SELECT
   column_name AS name,
   data_type AS data_type,
+  NULL AS type_oid,
   is_nullable = 'YES' AS nullable,
+  false AS is_primary_key,
   column_default AS default_value,
-  ordinal_position,
   NULL AS comment,
-  NULL AS character_maximum_length,
-  NULL AS numeric_precision,
-  NULL AS numeric_scale
+  NULL AS type_category,
+  NULL AS enum_values,
+  false AS is_computed,
+  false AS is_identity,
+  NULL AS character_set,
+  NULL AS collation,
+  NULL AS extra
 FROM information_schema.columns
 WHERE table_schema = '${this.escapeString(schema)}'
   AND table_name = '${this.escapeString(table)}'
@@ -123,7 +126,10 @@ ORDER BY ordinal_position`;
     return `SELECT NULL WHERE false`;
   }
 
-  getTableCountQuery(schema: string, table: string, _exact?: boolean): string {
+  getTableCountQuery(schema: string, table: string, exact?: boolean): string {
+    if (!exact) {
+      return `SHOW STATS FOR ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+    }
     return `SELECT count(*) AS count FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
   }
 
@@ -161,51 +167,13 @@ WHERE table_schema = '${this.escapeString(schema)}'
     return `SELECT '-- ${this.escapeString(objectType)} definition not available in Trino' AS definition`;
   }
 
-  /**
-   * Trino does not support OFFSET. Strip it and only emit LIMIT.
-   */
-  protected formatLimit(limit: number, _offset?: number): string {
-    return ` LIMIT ${limit}`;
-  }
-
-  /**
-   * Override select to wrap with row_number() for offset pagination.
-   * Trino doesn't support OFFSET, so we use a subquery with ROW_NUMBER().
-   */
-  select(target: TableRef, options?: SelectOptions): string {
-    if (options?.offset && options.offset > 0) {
-      const innerSql = super.select(target, {
-        ...options,
-        offset: undefined,
-        limit: undefined,
-      });
-
-      const limit = options.limit ?? 100;
-      const start = options.offset + 1;
-      const end = options.offset + limit;
-
-      return `SELECT * FROM (SELECT *, ROW_NUMBER() OVER () AS __qp_rn FROM (${innerSql}) __qp_inner) __qp_outer WHERE __qp_rn BETWEEN ${start} AND ${end}`;
+  protected formatLimit(limit: number, offset?: number): string {
+    // Trino requires OFFSET before LIMIT (unlike PostgreSQL/MySQL)
+    let clause = "";
+    if (offset !== undefined && offset > 0) {
+      clause += ` OFFSET ${offset}`;
     }
-    return super.select(target, options);
-  }
-
-  /**
-   * Same row_number trick for selectWithEmbeddedFK.
-   */
-  selectWithEmbeddedFK(target: TableRef, options: SelectOptions): string {
-    if (options.offset && options.offset > 0) {
-      const innerSql = super.selectWithEmbeddedFK(target, {
-        ...options,
-        offset: undefined,
-        limit: undefined,
-      });
-
-      const limit = options.limit ?? 100;
-      const start = options.offset + 1;
-      const end = options.offset + limit;
-
-      return `SELECT * FROM (SELECT *, ROW_NUMBER() OVER () AS __qp_rn FROM (${innerSql}) __qp_inner) __qp_outer WHERE __qp_rn BETWEEN ${start} AND ${end}`;
-    }
-    return super.selectWithEmbeddedFK(target, options);
+    clause += ` LIMIT ${limit}`;
+    return clause;
   }
 }

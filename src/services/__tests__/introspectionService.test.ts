@@ -43,6 +43,65 @@ describe("IntrospectionService", () => {
     expect(columns[1]?.nullable).toBe(true);
   });
 
+  it("reads Trino SHOW STATS summary rows as estimated table counts", async () => {
+    const adapter = {
+      dbType: "Trino",
+      getTableCountQuery: vi
+        .fn()
+        .mockImplementation((_schema: string, _table: string, exact?: boolean) =>
+          exact ? "COUNT_SQL" : "SHOW_STATS_SQL",
+        ),
+    };
+
+    (getSqlAdapterForConnection as unknown as Mock).mockResolvedValue(adapter);
+    (BackendAPI.query as unknown as Mock).mockResolvedValue({
+      rows: [
+        ["nationkey", null, null, null, null, "0", "24"],
+        [null, null, null, null, 25, null, null],
+      ],
+    });
+
+    const result = await IntrospectionService.getTableCount(
+      "conn-1",
+      "tpch",
+      "nation",
+    );
+
+    expect(result).toEqual({ count: 25, isEstimated: true });
+    expect(BackendAPI.query).toHaveBeenCalledWith("conn-1", "SHOW_STATS_SQL");
+  });
+
+  it("falls back to an exact count when Trino statistics are unavailable", async () => {
+    const queryMock = BackendAPI.query as unknown as Mock;
+    const adapter = {
+      dbType: "Trino",
+      getTableCountQuery: vi
+        .fn()
+        .mockImplementation((_schema: string, _table: string, exact?: boolean) =>
+          exact ? "COUNT_SQL" : "SHOW_STATS_SQL",
+        ),
+    };
+
+    (getSqlAdapterForConnection as unknown as Mock).mockResolvedValue(adapter);
+    queryMock
+      .mockResolvedValueOnce({
+        rows: [[null, null, null, null, null, null, null]],
+      })
+      .mockResolvedValueOnce({
+        rows: [[100]],
+      });
+
+    const result = await IntrospectionService.getTableCount(
+      "conn-1",
+      "tpch",
+      "orders",
+    );
+
+    expect(result).toEqual({ count: 100, isEstimated: false });
+    expect(queryMock).toHaveBeenNthCalledWith(1, "conn-1", "SHOW_STATS_SQL");
+    expect(queryMock).toHaveBeenNthCalledWith(2, "conn-1", "COUNT_SQL");
+  });
+
   it("retries with index stats fallback query when primary query fails", async () => {
     const queryMock = BackendAPI.query as unknown as Mock;
     const adapter = {

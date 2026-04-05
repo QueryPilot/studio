@@ -530,9 +530,15 @@ export function ConnectionForm() {
       if (config.sslMode !== undefined) setSslMode(config.sslMode);
 
       const remainingOptions: Record<string, string> = {};
+      let parsedDefaultSchema: string | undefined;
       if (config.options && Object.keys(config.options).length > 0) {
         for (const [key, value] of Object.entries(config.options)) {
           const normalized = key.toLowerCase().replace(/[\s-]+/g, "_");
+
+          if (normalized === "default_schema") {
+            parsedDefaultSchema = value;
+            continue;
+          }
 
           if (
             [
@@ -580,6 +586,10 @@ export function ConnectionForm() {
 
           remainingOptions[key] = value;
         }
+      }
+
+      if (config.dbType === "trino") {
+        setDefaultSchema(parsedDefaultSchema ?? "");
       }
 
       // Set connection options from query parameters

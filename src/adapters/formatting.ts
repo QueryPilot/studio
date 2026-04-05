@@ -297,6 +297,8 @@ function castToText(column: string, dbType: DbType): string {
       return `CAST(${column} AS TEXT)`;
     case DbType.SQLServer:
       return `CAST(${column} AS NVARCHAR(MAX))`;
+    case DbType.Trino:
+      return `CAST(${column} AS VARCHAR)`;
     default:
       return `${column}::text`;
   }
@@ -621,18 +623,23 @@ export function filterConfigToWhereClause(
   // Raw WHERE clause takes precedence (AI-generated filters)
   if (filter.rawWhereClause) {
     // Strip SQL line comments (-- description) that may be present from AI output
-    const clause = filter.rawWhereClause
+    let clause = filter.rawWhereClause
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("--"))
       .join("\n")
       .trim();
     if (!clause) return undefined;
+    const resolvedType = toDbType(dbType);
+    // Trino doesn't support PostgreSQL ::type cast syntax — convert to CAST(expr AS type)
+    if (resolvedType === DbType.Trino) {
+      clause = clause.replace(/((?:"[^"]*"|\w+))::([\w]+)/g, "CAST($1 AS $2)");
+    }
     if (columnPrefix && columnNames?.length) {
       return qualifyRawWhereClause(
         clause,
         columnPrefix,
         columnNames,
-        toDbType(dbType),
+        resolvedType,
       );
     }
     return clause;

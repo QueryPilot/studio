@@ -816,6 +816,24 @@ DB_PORT=5432`;
       });
     });
 
+    describe("Trino URIs", () => {
+      it("should parse catalog and default schema from a Trino URI path", () => {
+        const uri =
+          "trino://analyst@localhost:8443/tpch/tiny?trino.source=query-pilot";
+        const config = parseConnectionUri(uri);
+
+        expect(config.dbType).toBe("trino");
+        expect(config.host).toBe("localhost");
+        expect(config.port).toBe("8443");
+        expect(config.username).toBe("analyst");
+        expect(config.database).toBe("tpch");
+        expect(config.options).toEqual({
+          default_schema: "tiny",
+          "trino.source": "query-pilot",
+        });
+      });
+    });
+
     describe("SSL modes", () => {
       it("should parse disable SSL mode", () => {
         const uriDisable = "postgresql://user:pass@localhost/db?sslmode=disable";
@@ -1035,6 +1053,25 @@ DB_PORT=5432`;
     it("classifies DuckDB as SQL with the default main schema", () => {
       expect(isSql(DbType.DuckDB)).toBe(true);
       expect(getDefaultSchema(DbType.DuckDB)).toBe("main");
+    });
+  });
+
+  describe("buildConnectionUri", () => {
+    it("includes Trino default_schema in the URI path", () => {
+      const uri = buildConnectionUri({
+        id: "trino-1",
+        name: "Trino TPCH",
+        db_type: DbType.Trino,
+        host: "localhost",
+        port: 8080,
+        database: "tpch",
+        username: "analyst",
+        password: "secret",
+        default_schema: "tiny",
+        options: {},
+      });
+
+      expect(uri).toBe("trino://analyst@localhost:8080/tpch/tiny");
     });
   });
 });

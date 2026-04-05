@@ -1325,7 +1325,23 @@ function parseStandardUrl(uri: string): ParsedUriConfig {
   if (url.username) config.username = decodeURIComponent(url.username);
   if (url.password) config.password = decodeURIComponent(url.password);
   if (url.pathname && url.pathname !== "/") {
-    config.database = decodeURIComponent(url.pathname.substring(1));
+    if (dbType === "trino") {
+      const parts = url.pathname
+        .split("/")
+        .filter(Boolean)
+        .map((part) => decodeURIComponent(part));
+      if (parts[0]) {
+        config.database = parts[0];
+      }
+      if (parts[1]) {
+        config.options = {
+          ...(config.options ?? {}),
+          default_schema: parts[1],
+        };
+      }
+    } else {
+      config.database = decodeURIComponent(url.pathname.substring(1));
+    }
   }
 
   applyQueryParams(config, url.searchParams);
@@ -1592,7 +1608,16 @@ export function buildConnectionUri(
   const portPart = port ? `:${port}` : "";
 
   // Build database part (Redis doesn't typically have a database name in URI)
-  const dbPart = database && db_type !== DbType.Redis ? `/${encodeURIComponent(database)}` : "";
+  let dbPart = database && db_type !== DbType.Redis
+    ? `/${encodeURIComponent(database)}`
+    : "";
+
+  if (db_type === DbType.Trino) {
+    const schemaPart = profile.default_schema || profile.options.default_schema;
+    if (database && schemaPart) {
+      dbPart = `/${encodeURIComponent(database)}/${encodeURIComponent(schemaPart)}`;
+    }
+  }
 
   return `${scheme}://${userPart}${hostPart}${portPart}${dbPart}`;
 }

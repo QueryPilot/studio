@@ -70,4 +70,54 @@ describe("databaseService.switchSchema", () => {
     expect(disconnectSpy).toHaveBeenCalledWith("oracle-conn");
     expect(reconnectSpy).toHaveBeenCalledWith("oracle-conn");
   });
+
+  it("persists Trino default_schema and reconnects the session", async () => {
+    const profile: ConnectionProfile = {
+      id: "trino-conn",
+      name: "Trino Dev",
+      db_type: DbType.Trino,
+      host: "localhost",
+      port: 8080,
+      database: "tpch",
+      username: "analyst",
+      options: {
+        trino_source: "query-pilot",
+      },
+    };
+
+    (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
+      profile,
+      metadata: {
+        favorite: false,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastUsed: null,
+      },
+    });
+    (vaultStorageMock.updateConnection as unknown as Mock).mockResolvedValue(undefined);
+
+    vi.spyOn(databaseService, "isConnectionActive").mockReturnValue(true);
+    const disconnectSpy = vi
+      .spyOn(databaseService, "disconnect")
+      .mockResolvedValue(undefined);
+    const reconnectSpy = vi.spyOn(databaseService, "connectById").mockResolvedValue({
+      connection_id: "trino-conn",
+      server_version: "Trino 480",
+    });
+
+    await databaseService.switchSchema("trino-conn", "tiny");
+
+    expect(vaultStorageMock.updateConnection).toHaveBeenCalledWith(
+      "trino-conn",
+      expect.objectContaining({
+        options: expect.objectContaining({
+          default_schema: "tiny",
+          trino_source: "query-pilot",
+        }),
+      }),
+    );
+    expect(disconnectSpy).toHaveBeenCalledWith("trino-conn");
+    expect(reconnectSpy).toHaveBeenCalledWith("trino-conn");
+  });
 });

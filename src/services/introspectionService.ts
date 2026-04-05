@@ -6,6 +6,7 @@
  */
 
 import { logger } from "@/lib/logger";
+import { DbType } from "@/types/connection";
 import {
   BackendAPI,
   type Database,
@@ -26,6 +27,10 @@ import {
 } from "./backend";
 import { getSqlAdapterForConnection } from "@/adapters";
 import type { ObjectDefinitionType } from "@/adapters/types";
+
+function normalizeSql(sql: string): string {
+  return sql.replace(/\s+/g, " ").trim().toLowerCase();
+}
 
 /**
  * Helper to safely get a string value from a cell
@@ -649,38 +654,57 @@ export const IntrospectionService = {
     schema: string,
     table: string,
     options?: { exact?: boolean },
-  ): Promise<number> {
+  ): Promise<{ count: number; isEstimated: boolean }> {
     const adapter = await getSqlAdapterForConnection(connectionId);
-    if (!adapter) return 0;
+    if (!adapter) return { count: 0, isEstimated: false };
+
+    const exactSql = adapter.getTableCountQuery(schema, table, true);
 
     if (options?.exact) {
-      const exactSql = adapter.getTableCountQuery(schema, table, true);
       const exactResult = await BackendAPI.query(connectionId, exactSql);
       if (exactResult.rows.length > 0) {
-        return getNumber(exactResult.rows[0]?.[0]) ?? 0;
+        return {
+          count: getNumber(exactResult.rows[0]?.[0]) ?? 0,
+          isEstimated: false,
+        };
       }
-      return 0;
+      return { count: 0, isEstimated: false };
     }
 
     // Try estimated count first
     const estimatedSql = adapter.getTableCountQuery(schema, table, false);
     const estimatedResult = await BackendAPI.query(connectionId, estimatedSql);
 
-    if (estimatedResult.rows.length > 0) {
-      const count = getNumber(estimatedResult.rows[0]?.[0]) ?? -1;
+    let estimatedCount: number | undefined;
+    if (adapter.dbType === DbType.Trino) {
+      const summaryRow = estimatedResult.rows.find(
+        (row) => row[0] === null || row[0] === undefined,
+      );
+      estimatedCount = getNumber(summaryRow?.[4]);
+    } else if (estimatedResult.rows.length > 0) {
+      estimatedCount = getNumber(estimatedResult.rows[0]?.[0]);
+    }
+
+    if (estimatedCount != null) {
+      const count = estimatedCount;
       if (count >= 0) {
-        return count;
+        return {
+          count,
+          isEstimated: normalizeSql(estimatedSql) !== normalizeSql(exactSql),
+        };
       }
     }
 
     // Fall back to exact count
-    const exactSql = adapter.getTableCountQuery(schema, table, true);
     const exactResult = await BackendAPI.query(connectionId, exactSql);
 
     if (exactResult.rows.length > 0) {
-      return getNumber(exactResult.rows[0]?.[0]) ?? 0;
+      return {
+        count: getNumber(exactResult.rows[0]?.[0]) ?? 0,
+        isEstimated: false,
+      };
     }
-    return 0;
+    return { count: 0, isEstimated: false };
   },
 
   /**

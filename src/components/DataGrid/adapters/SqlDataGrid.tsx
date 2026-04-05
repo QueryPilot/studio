@@ -156,12 +156,15 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         : "table";
 
   const isViewOrMatView = kind === "View" || kind === "MaterializedView";
-  const isReadOnly = readOnly || isViewOrMatView;
+  const isTrinoReadOnly = dbType === DbType.Trino;
+  const isReadOnly = readOnly || isViewOrMatView || isTrinoReadOnly;
   const viewReadOnlyReason =
     kind === "View"
       ? "Read-only: View"
       : kind === "MaterializedView"
         ? "Read-only: Materialized View"
+        : isTrinoReadOnly
+          ? "Read-only: Trino"
         : undefined;
 
   // --- Table Structure (needed for FK metadata before data query) ---
@@ -275,7 +278,7 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
     dbType === DbType.Oracle && entityType === "table";
 
   // Map DbType to dialect for AI filter
-  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" | "oracle" => {
+  const dialect = useMemo((): "postgresql" | "mysql" | "sqlite" | "mssql" | "oracle" | "trino" => {
     switch (dbType) {
       case DbType.PostgreSQL:
         return "postgresql";
@@ -288,6 +291,8 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         return "mssql";
       case DbType.Oracle:
         return "oracle";
+      case DbType.Trino:
+        return "trino";
       default:
         return "postgresql";
     }
@@ -478,6 +483,32 @@ RULES:
     clientSideFiltering: false,
     gridId: sortGridId,
   });
+  const [isApplyingQuickFilter, setIsApplyingQuickFilter] = useState(false);
+  const quickFilterReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const isFetchingRef = useRef(false);
+
+  const clearQuickFilterLoadingBridge = useCallback(() => {
+    if (quickFilterReleaseTimerRef.current) {
+      clearTimeout(quickFilterReleaseTimerRef.current);
+      quickFilterReleaseTimerRef.current = null;
+    }
+  }, []);
+
+  const handleQuickFilterSubmit = useCallback(() => {
+    clearQuickFilterLoadingBridge();
+    setIsApplyingQuickFilter(true);
+
+    void handleFilterSubmit().finally(() => {
+      quickFilterReleaseTimerRef.current = setTimeout(() => {
+        if (!isFetchingRef.current) {
+          setIsApplyingQuickFilter(false);
+        }
+        quickFilterReleaseTimerRef.current = null;
+      }, 250);
+    });
+  }, [clearQuickFilterLoadingBridge, handleFilterSubmit]);
 
   // Warmup silent agent for faster AI filter responses
   // This proactively starts the agent so it's ready when user types #
@@ -573,15 +604,30 @@ RULES:
 
   const isLoading = status === "loading";
   const isError = status === "error";
+  isFetchingRef.current = isFetching;
+  const tabLoading = isFetching || quickFilterLoading || isApplyingQuickFilter;
+
+  useEffect(() => {
+    if (isFetching) {
+      clearQuickFilterLoadingBridge();
+      setIsApplyingQuickFilter(false);
+    }
+  }, [clearQuickFilterLoadingBridge, isFetching]);
+
+  useEffect(() => {
+    return () => {
+      clearQuickFilterLoadingBridge();
+    };
+  }, [clearQuickFilterLoadingBridge]);
 
   // Sync loading state to tab loading store for the progress indicator.
   // isFetching covers initial load, refetch, filter/sort changes, pagination.
   const tabId = props.tabId;
   useEffect(() => {
     if (!tabId) return;
-    useTabLoadingStore.getState().setLoading(tabId, isFetching || quickFilterLoading);
+    useTabLoadingStore.getState().setLoading(tabId, tabLoading);
     return () => { useTabLoadingStore.getState().setLoading(tabId, false); };
-  }, [tabId, isFetching, quickFilterLoading]);
+  }, [tabId, tabLoading]);
 
   // --- FK Metadata ---
   // Build FK reference map from table structure (needed before columns)
@@ -1457,9 +1503,9 @@ RULES:
                 mode={quickFilterMode}
                 onValueChange={setQuickFilterValue}
                 onModeChange={setQuickFilterMode}
-                onSubmit={handleFilterSubmit}
+                onSubmit={handleQuickFilterSubmit}
                 onClear={clearQuickFilter}
-                isLoading={quickFilterLoading}
+                isLoading={quickFilterLoading || isApplyingQuickFilter}
                 error={quickFilterError}
                 explanation={aiExplanation}
                 clientSideFiltering={false}

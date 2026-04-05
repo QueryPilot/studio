@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { SqlDataGrid } from '../SqlDataGrid';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import { ConstraintType } from '@/services/backend';
 import { useTableFullStructure } from '@/hooks/useTableFullStructure';
 import { useTableDataQuery } from '@/hooks/useTableDataQuery';
 import { useGridPreferencesStore } from '../../stores/gridPreferencesStore';
+import { useTabLoadingStore } from '@/stores/tabLoadingStore';
 import { GridCellKind, type GridCell } from '@glideapps/glide-data-grid';
 
 const {
@@ -47,11 +48,19 @@ const {
 }));
 
 const capturedBaseGridProps: Array<Record<string, unknown>> = [];
+const capturedQuickFilterProps: Array<Record<string, unknown>> = [];
 
 vi.mock('../../base/BaseDataGrid', () => ({
   BaseDataGrid: (props: Record<string, unknown>) => {
     capturedBaseGridProps.push(props);
     return <div data-testid="base-datagrid" />;
+  },
+}));
+
+vi.mock('../components/QuickFilter', () => ({
+  QuickFilter: (props: Record<string, unknown>) => {
+    capturedQuickFilterProps.push(props);
+    return <div data-testid="quick-filter" />;
   },
 }));
 
@@ -198,7 +207,9 @@ describe('SqlDataGrid', () => {
   const mockUseTableDataQuery = vi.mocked(useTableDataQuery);
 
   beforeEach(() => {
+    vi.useRealTimers();
     capturedBaseGridProps.length = 0;
+    capturedQuickFilterProps.length = 0;
     createUpdateCommandMock.mockClear();
     createInsertCommandMock.mockClear();
     createDeleteCommandMock.mockClear();
@@ -208,6 +219,7 @@ describe('SqlDataGrid', () => {
     getAdapterForConnectionMock.mockResolvedValue({});
     canProceedBestEffortMock.mockResolvedValue({ ok: true, matchCount: 1 });
     useGridPreferencesStore.setState({ preferences: {} });
+    useTabLoadingStore.setState({ loadingTabs: new Set() });
     mockUseTableFullStructure.mockReturnValue({
       structure: null,
       isLoading: false,
@@ -215,6 +227,10 @@ describe('SqlDataGrid', () => {
       refresh: vi.fn(),
     });
     mockUseTableDataQuery.mockReturnValue(makeTableDataQueryResult());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('should render SQL data grid with BaseDataGrid', () => {
@@ -315,6 +331,24 @@ describe('SqlDataGrid', () => {
 
     // Should render something (may not have data-testid in all states)
     expect(container.firstChild).toBeTruthy();
+  });
+
+  it('forces Trino grids into read-only mode', () => {
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="tpch"
+        schema="tiny"
+        table="nation"
+        dbType={DbType.Trino}
+        kind="Table"
+      />,
+      { wrapper: Wrapper }
+    );
+
+    const latestProps = capturedBaseGridProps.at(-1);
+    expect(latestProps?.readOnly).toBe(true);
+    expect(latestProps?.readOnlyReason).toBe('Read-only: Trino');
   });
 
   it('uses BaseDataGrid row context for getCellContent to keep row indices aligned', () => {

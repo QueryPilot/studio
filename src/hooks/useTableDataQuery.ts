@@ -179,14 +179,24 @@ export function useTableDataQuery(
       let columnsHint: ColumnMeta[] | undefined;
       let structureRowCount: number | undefined;
       let estimatedTotalHint: number | undefined;
-      if (currentOffset === 0) {
-        const structure = await loadStructure();
-        columnsHint = structure?.columns;
-        // Only use positive row counts (reltuples can be -1 for unanalyzed tables)
-        const rowCount = structure?.rowCount;
-        if (rowCount != null && rowCount > 0) {
-          structureRowCount = rowCount;
-          estimatedTotalHint = rowCount;
+      let isEstimatedCountHint: boolean | undefined;
+
+      // Start structure load in parallel with the stream — it's only needed as a hint.
+      // If cached, this resolves immediately; otherwise it runs concurrently with the query.
+      const structurePromise =
+        currentOffset === 0 ? loadStructure() : Promise.resolve(undefined);
+
+      // Check cache synchronously first so we can pass columnsHint to the stream right away
+      if (currentOffset === 0 && reuseStructure) {
+        const cached = queryClient.getQueryData<TableStructure>(structureKey);
+        if (cached) {
+          columnsHint = cached.columns;
+          const rowCount = cached.rowCount;
+          if (rowCount != null && rowCount > 0) {
+            structureRowCount = rowCount;
+            estimatedTotalHint = rowCount;
+            isEstimatedCountHint = true;
+          }
         }
       }
 
@@ -201,6 +211,11 @@ export function useTableDataQuery(
         estimatedTotalHint = existing?.pages.find(
           (page) => page.estimatedTotal != null,
         )?.estimatedTotal;
+      }
+      if (isEstimatedCountHint == null) {
+        isEstimatedCountHint = existing?.pages.find(
+          (page) => page.isEstimatedCount != null,
+        )?.isEstimatedCount;
       }
 
       // Declare outside try block so finally can access it
@@ -326,8 +341,53 @@ export function useTableDataQuery(
           onProgress: (progress) => {
             setProgress(progress);
             // Update estimated total if we received it in progress
-            if (progress.totalRows) {
+            if (progress.totalRows != null) {
               estimatedTotalHint = progress.totalRows;
+              if (progress.isEstimatedCount != null) {
+                isEstimatedCountHint = progress.isEstimatedCount;
+              }
+
+              queryClient.setQueryData<InfiniteData<TableDataPage>>(
+                queryKey,
+                (old) => {
+                  if (!old) {
+                    return old;
+                  }
+
+                  const pageIndex = old.pages.findIndex(
+                    (page) => page.offset === currentOffset,
+                  );
+                  if (pageIndex === -1) {
+                    return old;
+                  }
+
+                  const newPages = [...old.pages];
+                  const existingPage = newPages[pageIndex];
+                  if (!existingPage) {
+                    return old;
+                  }
+                  const totalRows = progress.totalRows;
+                  if (totalRows == null) {
+                    return old;
+                  }
+                  const rowsLoaded = existingPage.rows.length;
+                  const hasMore = totalRows > rowsLoaded + currentOffset;
+
+                  newPages[pageIndex] = {
+                    ...existingPage,
+                    estimatedTotal: totalRows,
+                    isEstimatedCount:
+                      progress.isEstimatedCount ??
+                      existingPage.isEstimatedCount,
+                    hasMore,
+                  };
+
+                  return {
+                    ...old,
+                    pages: newPages,
+                  };
+                },
+              );
             }
           },
           onBatch: (batchRows, _rowOffset) => {
@@ -348,6 +408,16 @@ export function useTableDataQuery(
           rafId = undefined;
         }
 
+        // Collect structure result — by now it's almost certainly already resolved
+        // since the stream takes longer than a cache/network fetch.
+        if (currentOffset === 0 && structureRowCount == null) {
+          const structure = await structurePromise;
+          const rowCount = structure?.rowCount;
+          if (rowCount != null && rowCount > 0) {
+            structureRowCount = rowCount;
+          }
+        }
+
         return {
           ...pageResult,
           estimatedTotal:
@@ -355,6 +425,8 @@ export function useTableDataQuery(
             structureRowCount ??
             estimatedTotalHint ??
             undefined,
+          isEstimatedCount:
+            pageResult.isEstimatedCount ?? isEstimatedCountHint,
           offset: currentOffset,
         };
       } finally {
@@ -388,6 +460,8 @@ export function useTableDataQuery(
       loadStructure,
       queryClient,
       queryKey,
+      reuseStructure,
+      structureKey,
     ],
   );
 

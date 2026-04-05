@@ -388,4 +388,57 @@ describe('formatting utilities', () => {
       });
     });
   });
+
+  describe('Trino filter casting', () => {
+    it('casts non-text quick filters with CAST(... AS VARCHAR) instead of ::text', () => {
+      const sql = filterConfigToWhereClause(
+        {
+          root: {
+            id: 'root',
+            type: 'group',
+            logical: 'AND',
+            conditions: [
+              {
+                id: 'cond-1',
+                column: 'orderkey',
+                operator: 'ILIKE' as const,
+                value: '%42%',
+                castToText: true,
+              },
+            ],
+          },
+        },
+        DbType.Trino,
+        't',
+      );
+
+      expect(sql).toBe('CAST(t."orderkey" AS VARCHAR) LIKE \'%42%\'');
+      expect(sql).not.toContain('::text');
+    });
+
+    it('converts ::type casts in rawWhereClause to CAST syntax for Trino', () => {
+      const sql = filterConfigToWhereClause(
+        {
+          root: { id: 'root', type: 'group', logical: 'AND', conditions: [] },
+          rawWhereClause: '"nationkey"::text LIKE \'%1%\'',
+        },
+        DbType.Trino,
+      );
+
+      expect(sql).toBe('CAST("nationkey" AS text) LIKE \'%1%\'');
+      expect(sql).not.toContain('::');
+    });
+
+    it('does not modify ::type casts in rawWhereClause for PostgreSQL', () => {
+      const sql = filterConfigToWhereClause(
+        {
+          root: { id: 'root', type: 'group', logical: 'AND', conditions: [] },
+          rawWhereClause: '"nationkey"::text LIKE \'%1%\'',
+        },
+        DbType.PostgreSQL,
+      );
+
+      expect(sql).toBe('"nationkey"::text LIKE \'%1%\'');
+    });
+  });
 });

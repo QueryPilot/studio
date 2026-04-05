@@ -101,4 +101,50 @@ describe("databaseService.connectById", () => {
       }),
     );
   });
+
+  it("forwards Trino default_schema into backend options during connect", async () => {
+    const profile: ConnectionProfile = {
+      id: "trino-conn",
+      name: "Trino Dev",
+      db_type: DbType.Trino,
+      host: "localhost",
+      port: 8080,
+      database: "tpch",
+      username: "analyst",
+      password: "secret",
+      default_schema: "tiny",
+      options: {
+        trino_source: "query-pilot-test",
+      },
+    };
+
+    (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
+      profile,
+      metadata: {
+        favorite: false,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastUsed: null,
+      },
+    });
+    (BackendAPI.connect as unknown as Mock).mockResolvedValue({
+      id: "trino-conn",
+      db_type: DbType.Trino,
+      database: "tpch",
+      version: "Trino 480",
+      pooler_mode: null,
+    });
+
+    await databaseService.connectById("trino-conn");
+
+    expect(BackendAPI.connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          default_schema: "tiny",
+          trino_source: "query-pilot-test",
+        }),
+      }),
+    );
+  });
 });
