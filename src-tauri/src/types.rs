@@ -96,6 +96,8 @@ pub enum DbType {
     // New paradigms
     MongoDB,
     Redis,
+    // Analytics engines
+    Trino,
 }
 
 /// Database paradigm - categorizes databases by their query model
@@ -132,7 +134,8 @@ impl DbType {
             | DbType::SQLite
             | DbType::DuckDB
             | DbType::SQLServer
-            | DbType::Oracle => DatabaseParadigm::Sql,
+            | DbType::Oracle
+            | DbType::Trino => DatabaseParadigm::Sql,
             DbType::MongoDB => DatabaseParadigm::Document,
             DbType::Redis => DatabaseParadigm::KeyValue,
         }

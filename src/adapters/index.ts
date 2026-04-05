@@ -73,6 +73,8 @@ const sqlAdapterModules: Partial<
     import("./dialects/MSSQLAdapter").then((m) => m.MSSQLAdapter),
   [DbType.Oracle]: () =>
     import("./dialects/OracleAdapter").then((m) => m.OracleAdapter),
+  [DbType.Trino]: () =>
+    import("./dialects/TrinoAdapter").then((m) => m.TrinoAdapter),
 };
 
 export function isSqlParadigm(dbType: DbType): boolean {

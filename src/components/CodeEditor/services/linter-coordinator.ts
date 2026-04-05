@@ -48,6 +48,7 @@ export function resolveSchemaForLint(
     case "postgresql":
     case "plsql":
       return "public";
+    case "trino":
     case "mysql":
     default:
       return null;

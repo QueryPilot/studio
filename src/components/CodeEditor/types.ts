@@ -6,7 +6,8 @@ export type SqlDialect =
   | "oracle"
   | "mysql"
   | "sqlite"
-  | "mssql";
+  | "mssql"
+  | "trino";
 export type EditorTheme = "light" | "dark" | "auto";
 export type EditorDiagnosticsStatus =
   | "idle"

@@ -88,6 +88,10 @@ const LINTER_STRATEGIES: Record<SqlDialect, LinterStrategy> = {
     linter: (config) => createTwoStageLinter("plsql", config),
     description: "Two-stage SQL linter (fast pass + Rust semantic validation)",
   },
+  trino: {
+    linter: (config) => createTwoStageLinter("trino", config),
+    description: "Two-stage SQL linter (fast pass + Rust semantic validation)",
+  },
 };
 
 /**

@@ -72,7 +72,8 @@ export function SchemaDropdown({
   const supportsSchemas =
     dbType === DbType.PostgreSQL ||
     dbType === DbType.SQLServer ||
-    dbType === DbType.Oracle;
+    dbType === DbType.Oracle ||
+    dbType === DbType.Trino;
   const canCreateSchema =
     dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 

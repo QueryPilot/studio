@@ -165,6 +165,7 @@ pub async fn get_tool_status(db_type: DbType) -> Result<ToolStatus, String> {
         DbType::SQLServer => "SQLServer",
         DbType::Oracle => "Oracle",
         DbType::Redis => "Redis",
+        DbType::Trino => "Trino",
     };
 
     // Get tool requirements from registry

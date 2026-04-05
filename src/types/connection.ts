@@ -36,6 +36,8 @@ export enum DbType {
   // New paradigms
   MongoDB = "MongoDB",
   Redis = "Redis",
+  // Analytics engines
+  Trino = "Trino",
 }
 
 /** Database paradigm - categorizes databases by their query model */
@@ -53,6 +55,7 @@ export function getParadigm(dbType: DbType): DatabaseParadigm {
     case DbType.DuckDB:
     case DbType.SQLServer:
     case DbType.Oracle:
+    case DbType.Trino:
       return 'sql';
     case DbType.MongoDB:
       return 'document';
@@ -112,6 +115,7 @@ export function getDefaultSchema(dbType: DbType, database?: string): string | nu
     case DbType.SQLServer:
       return 'dbo';
     case DbType.Oracle:
+    case DbType.Trino:
       return null;
     case DbType.MongoDB:
     case DbType.Redis:

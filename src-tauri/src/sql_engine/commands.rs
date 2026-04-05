@@ -123,6 +123,7 @@ fn parse_dialect(dialect: &str) -> SqlDialect {
         "mssql" | "sqlserver" | "transactsql" => SqlDialect::MsSQL,
         "oracle" => SqlDialect::Oracle,
         "plsql" => SqlDialect::PlSQL,
+        "trino" => SqlDialect::Trino,
         _ => SqlDialect::PostgreSQL, // Default
     }
 }
@@ -134,6 +135,7 @@ fn default_schema_name(dialect: &SqlDialect) -> Option<&'static str> {
         SqlDialect::PostgreSQL | SqlDialect::PlSQL => Some("public"),
         SqlDialect::Oracle => None,
         SqlDialect::MySQL => None,
+        SqlDialect::Trino => None,
     }
 }
 

@@ -405,6 +405,9 @@ async fn execute_single_fetch_stream(
         DbType::SQLServer => {
             execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
         }
+        DbType::Trino => {
+            execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
+        }
         // Non-SQL databases don't use SQL streaming - handled by their own commands
         DbType::MongoDB | DbType::Redis => {
             Err("SQL streaming not supported for non-SQL databases".to_string())

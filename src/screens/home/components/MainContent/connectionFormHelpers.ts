@@ -49,6 +49,10 @@ const SSL_MODE_OPTIONS_BY_DB: Record<DatabaseType, SslModeOption[]> = {
     { value: SslMode.Disable, label: "Disable" },
     { value: SslMode.Require, label: "Require" },
   ],
+  trino: [
+    { value: SslMode.Disable, label: "Disable" },
+    { value: SslMode.Require, label: "Require" },
+  ],
 };
 
 export function getSslModeOptionsForDb(dbType: DatabaseType): SslModeOption[] {
@@ -79,6 +83,7 @@ export function normalizeSslModeForDb(
       return sslMode === SslMode.Disable ? SslMode.Disable : sslMode === SslMode.VerifyFull ? SslMode.VerifyFull : SslMode.Require;
     case "mongodb":
     case "redis":
+    case "trino":
       return sslMode === SslMode.Disable ? SslMode.Disable : SslMode.Require;
     case "sqlite":
     case "duckdb":

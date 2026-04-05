@@ -31,6 +31,7 @@ make seed-all       # Seed all databases
 | SQLite | - | - | - | - | seeds/sqlite/query_pilot_test.db |
 | SQL Server | localhost | 11435 | sa | DevPass123 | todoapp |
 | Oracle | localhost | 11521 | todoapp | DevPass123 | XE (service) |
+| Trino | localhost | 18080 | trino | (none) | tpch |
 
 ## Seed Data
 
@@ -40,6 +41,19 @@ Seed scripts are in the `seeds/` directory:
 - `seeds/sqlite/` - SQLite database file
 
 The seed data provides a `todoapp` sample database for testing.
+
+### Trino
+
+Trino ships with built-in catalogs:
+- `tpch` - TPC-H benchmark dataset (schemas: `tiny`, `sf1`, `sf10`, etc.)
+- `memory` - In-memory connector for ephemeral tables
+
+Example queries:
+```sql
+SHOW CATALOGS;
+SHOW SCHEMAS FROM tpch;
+SELECT * FROM tpch.tiny.orders LIMIT 10;
+```
 
 ## Connecting in Development
 

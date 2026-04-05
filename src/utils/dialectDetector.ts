@@ -161,6 +161,15 @@ export function detectSqlDialect(
     return "oracle";
   }
 
+  // Trino
+  if (
+    normalizedDbType === DbType.Trino.toLowerCase() ||
+    normalizedDbType === "trino" ||
+    normalizedDbType.includes("trino")
+  ) {
+    return "trino";
+  }
+
   // Default to PostgreSQL
   return "postgresql";
 }

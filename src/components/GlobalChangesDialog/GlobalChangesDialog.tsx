@@ -61,6 +61,7 @@ const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.Oracle]: "oracle",
   [DbType.MongoDB]: "postgresql",
   [DbType.Redis]: "postgresql",
+  [DbType.Trino]: "trino",
 };
 
 const dbTypeToEditorLanguage: Record<DbType, CodeEditorLanguage> = {
@@ -73,6 +74,7 @@ const dbTypeToEditorLanguage: Record<DbType, CodeEditorLanguage> = {
   [DbType.Oracle]: "sql",
   [DbType.MongoDB]: "json",
   [DbType.Redis]: "redis",
+  [DbType.Trino]: "sql",
 };
 
 interface GlobalChangesDialogProps {

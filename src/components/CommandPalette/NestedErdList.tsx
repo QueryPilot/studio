@@ -41,7 +41,7 @@ interface NestedErdListProps {
 // --- Helpers ---
 
 function supportsSchemas(dbType: DbType): boolean {
-  return dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
+  return dbType === DbType.PostgreSQL || dbType === DbType.SQLServer || dbType === DbType.Trino;
 }
 
 function getTargetLabel(target: ErdTarget): string {

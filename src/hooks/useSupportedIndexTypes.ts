@@ -54,7 +54,11 @@ const DEFAULT_INDEX_TYPES: Record<DbType, { types: string[]; default: string }> 
     default: "single",
   },
   [DbType.Redis]: {
-    types: [], // Redis doesn't have indexes in the traditional sense
+    types: [],
+    default: "",
+  },
+  [DbType.Trino]: {
+    types: [],
     default: "",
   },
 };

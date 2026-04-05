@@ -20,37 +20,48 @@ The test environment includes:
 Each database is seeded with a comprehensive **E-Commerce** schema containing three domains:
 
 ### 1. E-Commerce Domain (Realistic Data)
-| Table | Rows | Description |
-|-------|------|-------------|
-| customers | 20 | Realistic customer profiles with names, emails, phones |
-| products | 17 | Tech products (laptops, headphones, watches, etc.) |
-| categories | 6 | Hierarchical product categories |
-| suppliers | 7 | Product suppliers with contact info |
-| orders | 100-500 | Order history with multiple statuses |
-| order_items | 250-1250 | Order line items with quantities and prices |
-| reviews | 100-200 | Product reviews with ratings |
-| inventory | 17 | Stock levels per product |
-| addresses | ~40 | Customer shipping/billing addresses |
+
+
+| Table       | Rows     | Description                                            |
+| ----------- | -------- | ------------------------------------------------------ |
+| customers   | 20       | Realistic customer profiles with names, emails, phones |
+| products    | 17       | Tech products (laptops, headphones, watches, etc.)     |
+| categories  | 6        | Hierarchical product categories                        |
+| suppliers   | 7        | Product suppliers with contact info                    |
+| orders      | 100-500  | Order history with multiple statuses                   |
+| order_items | 250-1250 | Order line items with quantities and prices            |
+| reviews     | 100-200  | Product reviews with ratings                           |
+| inventory   | 17       | Stock levels per product                               |
+| addresses   | ~40      | Customer shipping/billing addresses                    |
+
 
 ### 2. Edge Cases Domain (Data Type Testing)
-| Table | Purpose |
-|-------|---------|
-| all_data_types | Every database-specific data type |
-| null_patterns | NULL handling patterns (sparse, never-null, all-null) |
-| unicode_samples | International text (Japanese, Chinese, Arabic, emoji) |
-| numeric_extremes | Min/max integers, floats, precision edge cases |
-| json_documents | Nested JSON, arrays, empty objects |
+
+
+| Table            | Purpose                                               |
+| ---------------- | ----------------------------------------------------- |
+| all_data_types   | Every database-specific data type                     |
+| null_patterns    | NULL handling patterns (sparse, never-null, all-null) |
+| unicode_samples  | International text (Japanese, Chinese, Arabic, emoji) |
+| numeric_extremes | Min/max integers, floats, precision edge cases        |
+| json_documents   | Nested JSON, arrays, empty objects                    |
+
 
 ### 3. Scale Test Domain (Performance Testing)
-| Table | Rows | Purpose |
-|-------|------|---------|
-| large_table | 100,000 | Pagination, sorting, filtering performance |
-| wide_table | 100 | 50 columns - horizontal scrolling, many fields |
-| empty_table | 0 | Empty state handling |
-| single_row_table | 1 | Single record display |
+
+
+| Table            | Rows    | Purpose                                        |
+| ---------------- | ------- | ---------------------------------------------- |
+| large_table      | 100,000 | Pagination, sorting, filtering performance     |
+| wide_table       | 100     | 50 columns - horizontal scrolling, many fields |
+| empty_table      | 0       | Empty state handling                           |
+| single_row_table | 1       | Single record display                          |
+
 
 ### Database Objects
+
 Each SQL database includes:
+
 - **5 Views** - Order details, product inventory, customer summary, top sellers, recent orders
 - **4-8 Triggers** - Timestamp updates, audit logging, rating calculations
 - **4 Stored Procedures** - Order processing, restocking, archival, reporting
@@ -85,20 +96,23 @@ make dev
 
 ## Database Connection Details
 
-| Database   | Host      | Port  | Username | Password    | Database Name                    |
-| ---------- | --------- | ----- | -------- | ----------- | -------------------------------- |
-| PostgreSQL | localhost | 15432 | devuser  | devpass123  | todoapp                          |
-| MySQL      | localhost | 13306 | devuser  | devpass123  | todoapp                          |
-| MariaDB    | localhost | 13307 | devuser  | devpass123  | todoapp                          |
-| SQLite     | -         | -     | -        | -           | seeds/sqlite/query_pilot_test.db |
-| SQL Server | localhost | 11435 | sa       | DevPass123  | master (then switch to todoapp)  |
-| Oracle     | localhost | 11521 | system   | DevPass123  | XE (service)                     |
-| MongoDB    | localhost | 17017 | devuser  | devpass123  | todoapp                          |
-| Redis      | localhost | 16379 | -        | devpass123  | 0 (default)                      |
+
+| Database   | Host      | Port  | Username | Password   | Database Name                    |
+| ---------- | --------- | ----- | -------- | ---------- | -------------------------------- |
+| PostgreSQL | localhost | 15432 | devuser  | devpass123 | todoapp                          |
+| MySQL      | localhost | 13306 | devuser  | devpass123 | todoapp                          |
+| MariaDB    | localhost | 13307 | devuser  | devpass123 | todoapp                          |
+| SQLite     | -         | -     | -        | -          | seeds/sqlite/query_pilot_test.db |
+| SQL Server | localhost | 11435 | sa       | DevPass123 | master (then switch to todoapp)  |
+| Oracle     | localhost | 11521 | system   | DevPass123 | XE (service)                     |
+| MongoDB    | localhost | 17017 | devuser  | devpass123 | todoapp                          |
+| Redis      | localhost | 16379 | -        | devpass123 | 0 (default)                      |
+
 
 ## Connection Strings
 
 Tip: You can paste most of these into the Connection Form (Paste Config) to auto-fill fields:
+
 - Standard URIs: `postgresql://`, `mysql://`, `mssql://`, `sqlite://`, `mongodb://`, `mongodb+srv://`, `redis://`, `rediss://`
 - JDBC URIs: `jdbc:postgresql://`, `jdbc:mysql://`, `jdbc:sqlserver://`
 - SQL Server ADO.NET strings: `Server=...;Database=...;User Id=...;Password=...;`
@@ -332,7 +346,7 @@ When connecting from Query Pilot, use these settings:
 - Service Name: `XE`
 - Username: `system`
 - Password: `DevPass123`
-- **Note**: Oracle requires manual schema setup due to SQL\*Plus limitations with complex DDL
+- **Note**: Oracle requires manual schema setup due to SQLPlus limitations with complex DDL
 
 ### MongoDB Connection
 
@@ -385,36 +399,42 @@ cd seeds/sqlite && python3 seed_sqlite.py
 ## Data Types Showcase
 
 ### PostgreSQL
+
 - **Native Types**: UUID, JSONB, arrays, money, inet, tsvector, hstore
 - **Custom Types**: ENUMs (order_status, payment_method, address_type)
 - **Extensions**: uuid-ossp, hstore, pg_trgm
 - **Special**: Partitioned tables, materialized views, GIN indexes
 
 ### MySQL
+
 - **JSON Types**: JSON columns for preferences, dimensions, attributes
 - **Spatial**: POINT, GEOMETRY types
 - **Full-text**: FULLTEXT indexes on products
 - **Partitions**: Orders partitioned by RANGE on created_at
 
 ### SQLite
+
 - **JSON**: Stored as TEXT with JSON functions
 - **FTS5**: Full-text search virtual table for products
 - **Triggers**: 8 triggers for timestamps, audit, FTS sync
 - **Views**: 5 views for common queries
 
 ### SQL Server
+
 - **XML**: XMLTYPE for structured data
 - **Spatial**: GEOGRAPHY types for locations
 - **Hierarchical**: Categories with parent relationships
 - **Partitions**: Orders partitioned by date
 
 ### MongoDB
+
 - **BSON Types**: ObjectId, Date, Decimal128, Binary, arrays
 - **Embedded Documents**: Addresses, order items nested in documents
 - **Aggregation**: Pre-built pipelines for analytics
 - **Indexes**: Compound, text, geospatial indexes
 
 ### Redis
+
 - **Strings**: Sessions, config, counters, cache with TTL
 - **Hashes**: Customer profiles, product details, orders
 - **Lists**: Job queues, activity feeds, recent items
@@ -429,17 +449,20 @@ cd seeds/sqlite && python3 seed_sqlite.py
 The test data represents a comprehensive e-commerce platform with:
 
 ### Customers Table
+
 - Profile information (name, email, phone, date of birth)
 - Authentication flags (active, verified)
 - Loyalty points and preferences as JSON
 
 ### Products Table
+
 - Full product details (SKU, name, description, price, cost)
 - Category and supplier relationships
 - Ratings, tags, dimensions, weights
 - Featured and active flags
 
 ### Orders Table
+
 - Customer relationship
 - Status workflow (pending → confirmed → processing → shipped → delivered)
 - Payment information
@@ -447,6 +470,7 @@ The test data represents a comprehensive e-commerce platform with:
 - Partitioned by creation date
 
 ### Supporting Tables
+
 - Categories (hierarchical with parent_id)
 - Suppliers (contact info, ratings)
 - Inventory (stock levels, reorder points)
@@ -540,3 +564,4 @@ rm seeds/sqlite/query_pilot_test.db
 # Remove any lingering data
 docker volume prune
 ```
+

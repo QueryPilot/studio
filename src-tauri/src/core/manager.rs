@@ -13,6 +13,7 @@ use crate::adapters::oracle::OracleAdapter;
 use crate::adapters::postgres::PostgresAdapter;
 use crate::adapters::redis::RedisAdapter;
 use crate::adapters::sqlite::SqliteAdapter;
+use crate::adapters::trino::TrinoAdapter;
 use crate::core::backup_capability::BackupCapable;
 use crate::core::capabilities::{
     BaseCapability, CapabilityTestResult, DocumentQueryable, RichKeyValueOperable, SqlQueryable,
@@ -57,6 +58,7 @@ pub struct UnifiedAdapter {
     duckdb: Option<*const DuckDbAdapter>,
     mongo: Option<*const MongoDbAdapter>,
     redis: Option<*const RedisAdapter>,
+    trino: Option<*const TrinoAdapter>,
 
     /// Database type
     db_type: DbType,
@@ -88,6 +90,7 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: None,
             redis: None,
+            trino: None,
             db_type: DbType::PostgreSQL,
         }
     }
@@ -112,6 +115,7 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: None,
             redis: None,
+            trino: None,
             db_type,
         }
     }
@@ -136,6 +140,7 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: None,
             redis: None,
+            trino: None,
             db_type: DbType::SQLite,
         }
     }
@@ -160,6 +165,7 @@ impl UnifiedAdapter {
             duckdb: Some(ptr),
             mongo: None,
             redis: None,
+            trino: None,
             db_type: DbType::DuckDB,
         }
     }
@@ -184,6 +190,7 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: None,
             redis: None,
+            trino: None,
             db_type: DbType::SQLServer,
         }
     }
@@ -207,6 +214,7 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: None,
             redis: None,
+            trino: None,
             db_type: DbType::Oracle,
         }
     }
@@ -231,6 +239,7 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: Some(ptr),
             redis: None,
+            trino: None,
             db_type: DbType::MongoDB,
         }
     }
@@ -255,7 +264,32 @@ impl UnifiedAdapter {
             duckdb: None,
             mongo: None,
             redis: Some(ptr),
+            trino: None,
             db_type: DbType::Redis,
+        }
+    }
+
+    /// Create a new UnifiedAdapter for Trino
+    pub fn trino(adapter: TrinoAdapter) -> Self {
+        let boxed = Box::new(adapter);
+        let ptr = &*boxed as *const TrinoAdapter;
+        let sql_ptr: *const dyn SqlQueryable = ptr;
+        Self {
+            inner: boxed,
+            sql: Some(sql_ptr),
+            document: None,
+            keyvalue: None,
+            backup: None,
+            postgres: None,
+            mysql: None,
+            mssql: None,
+            sqlite: None,
+            oracle: None,
+            duckdb: None,
+            mongo: None,
+            redis: None,
+            trino: Some(ptr),
+            db_type: DbType::Trino,
         }
     }
 
@@ -335,6 +369,10 @@ impl UnifiedAdapter {
 
     pub fn as_redis(&self) -> Option<&RedisAdapter> {
         self.redis.map(|p| unsafe { &*p })
+    }
+
+    pub fn as_trino(&self) -> Option<&TrinoAdapter> {
+        self.trino.map(|p| unsafe { &*p })
     }
 }
 
@@ -1112,6 +1150,7 @@ impl ConnectionManager {
             DbType::Oracle => Ok(UnifiedAdapter::oracle(OracleAdapter::new())),
             DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),
             DbType::Redis => Ok(UnifiedAdapter::redis(RedisAdapter::new())),
+            DbType::Trino => Ok(UnifiedAdapter::trino(TrinoAdapter::new())),
         }
     }
 

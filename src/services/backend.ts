@@ -15,6 +15,8 @@ export enum DbType {
   // New paradigms
   MongoDB = "MongoDB",
   Redis = "Redis",
+  // Analytics engines
+  Trino = "Trino",
 }
 
 export enum SslMode {

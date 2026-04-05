@@ -18,6 +18,7 @@ pub enum SqlDialect {
     Oracle,
     PlSQL,
     DuckDB,
+    Trino,
 }
 
 impl SqlDialect {
@@ -31,6 +32,7 @@ impl SqlDialect {
             SqlDialect::Oracle => Box::new(GenericDialect {}),
             SqlDialect::PlSQL => Box::new(GenericDialect {}),
             SqlDialect::DuckDB => Box::new(DuckDbDialect {}),
+            SqlDialect::Trino => Box::new(GenericDialect {}),
         }
     }
 
@@ -44,6 +46,7 @@ impl SqlDialect {
             SqlDialect::Oracle => "oracle",
             SqlDialect::PlSQL => "plsql",
             SqlDialect::DuckDB => "duckdb",
+            SqlDialect::Trino => "trino",
         }
     }
 }
@@ -58,6 +61,7 @@ impl From<&str> for SqlDialect {
             "oracle" => SqlDialect::Oracle,
             "plsql" => SqlDialect::PlSQL,
             "duckdb" => SqlDialect::DuckDB,
+            "trino" => SqlDialect::Trino,
             _ => SqlDialect::PostgreSQL,
         }
     }
@@ -73,6 +77,7 @@ impl From<crate::types::DbType> for SqlDialect {
             crate::types::DbType::DuckDB => SqlDialect::DuckDB,
             crate::types::DbType::SQLServer => SqlDialect::MsSQL,
             crate::types::DbType::Oracle => SqlDialect::Oracle,
+            crate::types::DbType::Trino => SqlDialect::Trino,
             // Non-SQL databases default to PostgreSQL dialect (they won't use SQL parsing anyway)
             crate::types::DbType::MongoDB | crate::types::DbType::Redis => SqlDialect::PostgreSQL,
         }

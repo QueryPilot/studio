@@ -9,6 +9,7 @@ type SqlFormatterLanguage =
   | "sqlite"
   | "plsql"
   | "tsql"
+  | "trino"
   | "sql";
 
 const SQL_FORMAT_OPTIONS = {
@@ -27,6 +28,7 @@ const SQL_LANGUAGE_MAP: Record<SqlDialect, SqlFormatterLanguage> = {
   oracle: "plsql",
   plsql: "plsql",
   mssql: "tsql",
+  trino: "trino",
 };
 
 function uniqueLanguages(

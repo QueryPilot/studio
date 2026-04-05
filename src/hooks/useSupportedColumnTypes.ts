@@ -54,6 +54,7 @@ const DEFAULT_COLUMN_TYPES: Record<DbType, { types: string[]; default: string }>
   [DbType.Oracle]: { types: ORACLE_STANDARD_TYPES, default: "number" },
   [DbType.MongoDB]: { types: [], default: "" },
   [DbType.Redis]: { types: [], default: "" },
+  [DbType.Trino]: { types: [], default: "" },
 };
 
 /**

@@ -117,6 +117,8 @@ function getDefaultPort(type: DatabaseType): string {
       return "27017";
     case "redis":
       return "6379";
+    case "trino":
+      return "8080";
     default:
       return "";
   }
@@ -192,6 +194,7 @@ export function ConnectionForm() {
         oracle: "oracle",
         mongodb: "mongodb",
         redis: "redis",
+        trino: "trino",
       };
       const key = connection.profile.db_type.toString().toLowerCase();
       return dbTypeMap[key] || "postgresql";
@@ -212,9 +215,10 @@ export function ConnectionForm() {
   const [sslMode, setSslMode] = useState<SslMode>(
     connection?.profile.ssl_mode || SslMode.Disable,
   );
-  const [safeMode, setSafeMode] = useState<SafeMode>(
-    connection?.profile.safe_mode || "full_access",
-  );
+  const [safeMode, setSafeMode] = useState<SafeMode>(() => {
+    if (connection?.profile.safe_mode) return connection.profile.safe_mode;
+    return "full_access";
+  });
   const [poolerMode, setPoolerMode] = useState<
     "auto" | "enabled" | "disabled"
   >(() => {
@@ -442,6 +446,12 @@ export function ConnectionForm() {
       setSslMode(normalizedMode);
     }
   }, [dbType, sslMode]);
+
+  useEffect(() => {
+    if (!connection && dbType === "trino") {
+      setSafeMode("read_only");
+    }
+  }, [dbType, connection]);
 
   useEffect(() => {
     if (useSSHAgent) {
@@ -831,7 +841,9 @@ export function ConnectionForm() {
                   ? DbType.MongoDB
                   : dbType === "redis"
                     ? DbType.Redis
-                    : DbType.SQLServer,
+                    : dbType === "trino"
+                      ? DbType.Trino
+                      : DbType.SQLServer,
       host: !isFileBased ? host : "localhost",
       port:
         !isFileBased
@@ -1127,6 +1139,12 @@ export function ConnectionForm() {
       value: "redis",
       label: "Redis",
       logo: getDatabaseLogo(DbType.Redis),
+      beta: true,
+    },
+    {
+      value: "trino",
+      label: "Trino",
+      logo: getDatabaseLogo(DbType.Trino),
       beta: true,
     },
   ];
@@ -1579,7 +1597,9 @@ export function ConnectionForm() {
                   <Label htmlFor="database" className="text-xs">
                     {dbType === "oracle" && oracleConnectMode === "service_name"
                       ? "Service Name"
-                      : "Database"}
+                      : dbType === "trino"
+                        ? "Catalog"
+                        : "Database"}
                   </Label>
                   <Input
                     id="database"
@@ -1596,10 +1616,10 @@ export function ConnectionForm() {
                     disabled={isTesting}
                   />
                 </div>
-                {(dbType === "postgresql" || dbType === "mssql") && (
+                {(dbType === "postgresql" || dbType === "mssql" || dbType === "trino") && (
                   <div>
                     <Label htmlFor="defaultSchema" className="text-xs">
-                      Default Schema
+                      {dbType === "trino" ? "Default Schema (optional)" : "Default Schema"}
                     </Label>
                     <Input
                       id="defaultSchema"
@@ -1608,7 +1628,7 @@ export function ConnectionForm() {
                       onChange={(e) => {
                         setDefaultSchema(e.target.value);
                       }}
-                      placeholder={dbType === "postgresql" ? "public" : "dbo"}
+                      placeholder={dbType === "postgresql" ? "public" : dbType === "trino" ? "default" : "dbo"}
                       disabled={isTesting}
                     />
                   </div>

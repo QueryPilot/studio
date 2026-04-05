@@ -152,6 +152,22 @@ services:
       retries: 10
       start_period: 180s
 
+  trino:
+    image: trinodb/trino:latest
+    container_name: query-pilot-trino
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./seeds/trino/catalog:/etc/trino/catalog
+    networks:
+      - query-pilot-network
+    healthcheck:
+      test: ["CMD", "trino", "--execute", "SELECT 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
   ssh-bastion-password:
     build:
       context: ./tests

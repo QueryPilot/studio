@@ -43,6 +43,7 @@ function mapDatabaseType(dbType: string): DbType {
     oracle: DbType.Oracle,
     mongodb: DbType.MongoDB,
     redis: DbType.Redis,
+    trino: DbType.Trino,
   };
   return mapping[dbType] || DbType.PostgreSQL;
 }
@@ -56,6 +57,7 @@ const DB_DISPLAY_NAMES: Record<string, string> = {
   [DbType.Oracle]: "Oracle",
   [DbType.MongoDB]: "MongoDB",
   [DbType.Redis]: "Redis",
+  [DbType.Trino]: "Trino",
 };
 
 function getDefaultPort(dbType: DbType): number {
@@ -73,6 +75,8 @@ function getDefaultPort(dbType: DbType): number {
       return 27017;
     case DbType.Redis:
       return 6379;
+    case DbType.Trino:
+      return 8080;
     case DbType.SQLite:
     case DbType.DuckDB:
       return 0;
