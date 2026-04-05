@@ -618,7 +618,7 @@ export function GridContextMenuItems({
       </ContextMenuSub>
 
       {/* FK embed submenu — only when right-clicked cell is in a FK column */}
-      {cellColumn?.meta?.is_fk && connectionId && (
+      {cellColumn?.meta?.is_fk && connectionId && tableName && (
         <FKEmbedSubmenu
           column={cellColumn}
           connectionId={connectionId}
