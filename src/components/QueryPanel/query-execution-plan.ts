@@ -71,6 +71,13 @@ export function hasManualTransactionControl(statements: string[]): boolean {
   return false;
 }
 
+/** Databases that do not support transaction wrapping. */
+function supportsAutoTransaction(dbType?: DbType | string): boolean {
+  const normalized = (dbType ?? "").toLowerCase();
+  // Trino is read-only and has no transaction support in V1
+  return normalized !== DbType.Trino.toLowerCase();
+}
+
 export function buildTransactionCommands(
   dbType?: DbType | string,
 ): TransactionCommands {
@@ -118,7 +125,10 @@ export function buildRunAllPlan({
   const normalizedStatements = normalizeStatements(statements);
   const hasManualTransaction = hasManualTransactionControl(normalizedStatements);
   const shouldAutoWrap =
-    autoTransaction && normalizedStatements.length > 0 && !hasManualTransaction;
+    autoTransaction &&
+    normalizedStatements.length > 0 &&
+    !hasManualTransaction &&
+    supportsAutoTransaction(dbType);
 
   return {
     statements: normalizedStatements,

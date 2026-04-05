@@ -89,4 +89,15 @@ describe("buildRunAllPlan", () => {
     expect(plan.hasManualTransaction).toBe(true);
     expect(plan.transactionCommands).toBeNull();
   });
+
+  it("does not auto-wrap for Trino (no transaction support)", () => {
+    const plan = buildRunAllPlan({
+      statements: ["SELECT 1", "SELECT 2"],
+      dbType: DbType.Trino,
+      autoTransaction: true,
+    });
+
+    expect(plan.shouldAutoWrap).toBe(false);
+    expect(plan.transactionCommands).toBeNull();
+  });
 });

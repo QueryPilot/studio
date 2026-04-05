@@ -434,6 +434,24 @@ fn is_well_formed_comment_on_view_statement(stmt_text: &str, dialect: SqlDialect
     Parser::parse_sql(&*parser_dialect, &rewritten).is_ok()
 }
 
+/// sqlparser-rs (GenericDialect) does not understand Trino-specific SHOW syntax.
+/// Accept these as valid no-op statements rather than surfacing false parse errors.
+fn is_trino_show_parser_gap(stmt_text: &str, dialect: SqlDialect) -> bool {
+    if dialect != SqlDialect::Trino {
+        return false;
+    }
+    let upper = stmt_text.trim_start().to_uppercase();
+    upper.starts_with("SHOW CATALOGS")
+        || upper.starts_with("SHOW SCHEMAS")
+        || upper.starts_with("SHOW TABLES")
+        || upper.starts_with("SHOW COLUMNS")
+        || upper.starts_with("SHOW STATS")
+        || upper.starts_with("SHOW CREATE")
+        || upper.starts_with("SHOW FUNCTIONS")
+        || upper.starts_with("SHOW SESSION")
+        || upper.starts_with("SHOW GRANTS")
+}
+
 fn is_comment_on_view_parser_gap(message: &str, stmt_text: &str, dialect: SqlDialect) -> bool {
     let lower = message.to_lowercase();
     if !(lower.contains("comment object_type") && lower.contains("found: view")) {
@@ -503,6 +521,15 @@ pub fn parse_document(sql: &str, dialect: SqlDialect) -> ParsedDocument {
                 if is_comment_on_view_parser_gap(&message, &text, dialect) {
                     statements.push(build_fallback_statement(
                         Some("COMMENT".to_string()),
+                        (start, end),
+                        text,
+                    ));
+                    continue;
+                }
+
+                if is_trino_show_parser_gap(&text, dialect) {
+                    statements.push(build_fallback_statement(
+                        Some("SHOW".to_string()),
                         (start, end),
                         text,
                     ));
