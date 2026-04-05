@@ -1,6 +1,6 @@
 [package]
 name = "query-pilot"
-version = "2026.1.0-beta.14"
+version = "2026.1.0-beta.15"
 edition = "2021"
 default-run = "query-pilot"
 

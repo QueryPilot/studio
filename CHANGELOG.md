@@ -5,6 +5,20 @@
 <!-- The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), -->
 <!-- and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). -->
 
+## [2026.1.0-beta.15] - 2026-04-05
+
+### New Features
+- Added native Trino support. You can now create Trino connections, browse catalogs and schemas, and run Trino queries from the same workspace as your other databases.
+
+### Improvements
+- Improved the SQL editor for Trino with dialect-aware linting, completion, and formatting. Generated queries now use Trino-friendly boolean syntax, which reduces manual cleanup before execution.
+- Improved Trino connection setup across the app. Query Pilot now recognizes Trino connection strings and environment-based configs more reliably, making it easier to import existing setups.
+- Updated in-app version reporting so the version shown in the UI matches the build you installed.
+
+### Bug Fixes
+- Fixed a production startup issue that could cause the app to open and immediately close in some builds with error reporting enabled.
+- Fixed file loading in the Welcome screen so onboarding and local file access work correctly in Tauri 2 builds.
+
 ## [2026.1.0-beta.14] - 2026-04-04
 
 ### New Features
