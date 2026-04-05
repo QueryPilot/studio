@@ -164,6 +164,10 @@ export function UnifiedContextMenu({
   const sortDirection = currentHeaderColumn ? getSortDirection(headerColumnId) : null;
   const isColumnPinned = currentHeaderColumn ? pinnedColumns.includes(headerColumnId) : false;
 
+  // Get cell column for cell context menu FK submenu
+  const cellColumn =
+    menuTarget?.type === "cell" ? columns[menuTarget.columnIndex] : undefined;
+
   return (
     <>
       <ContextMenu onOpenChange={handleOpenChange}>
@@ -221,6 +225,9 @@ export function UnifiedContextMenu({
               onBestEffortDeleteRows={onBestEffortDeleteRows}
               onSelectIdentifierColumns={onSelectIdentifierColumns}
               onPaste={onPaste}
+              cellColumn={cellColumn}
+              connectionId={connectionId}
+              referencedTableColumns={referencedTableColumns}
             />
           )}
         </ContextMenuContent>
