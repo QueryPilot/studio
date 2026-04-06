@@ -115,6 +115,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
+import { CatalogSection } from "./CatalogSection";
+import { CatalogSchemaFilter } from "./CatalogSchemaFilter";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { ConfirmDeleteDialog } from "@/components/shared/ConfirmDeleteDialog";
@@ -305,6 +307,14 @@ export const ConnectionSection = forwardRef<
   const isDocumentDb = paradigm === "document";
   const isKeyValueDb = paradigm === "keyvalue";
   const isMySQLDb = isMySQLCompatible(dbType);
+  const isTrinoDb = dbType === DbType.Trino;
+
+  // Trino: catalogs from profile, filtered by store
+  const trinoCatalogs = profile.trino_catalogs ?? (profile.database ? [profile.database] : []);
+  const trinoCatalogFilter = useWorkspaceBundleStore(
+    (s) => s.activeWorkspace?.connections.get(connectionId)?.trinoCatalogFilter,
+  );
+  const visibleTrinoCatalogs = trinoCatalogFilter ?? trinoCatalogs;
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
@@ -2725,8 +2735,18 @@ export const ConnectionSection = forwardRef<
             {profile.name}
           </span>
 
-          {/* Schema dropdown inline (SQL databases only) - stop propagation to prevent toggle */}
-          {isSqlDb && (
+          {/* Catalog filter (Trino only, when multiple catalogs configured) */}
+          {isTrinoDb && trinoCatalogs.length > 1 && (
+            <div onClick={(e) => e.stopPropagation()} className="shrink-0 -mt-1">
+              <CatalogSchemaFilter
+                connectionId={connectionId}
+                catalogs={trinoCatalogs}
+              />
+            </div>
+          )}
+
+          {/* Schema dropdown inline (SQL databases only, not Trino) - stop propagation to prevent toggle */}
+          {isSqlDb && !isTrinoDb && (
             <div
               onClick={(e) => {
                 e.stopPropagation();
@@ -2957,8 +2977,26 @@ export const ConnectionSection = forwardRef<
             </div>
           )}
 
-          {/* Object tree - SQL databases */}
-          {isSqlDb && !showLoadingSkeleton && !schemaError && (
+          {/* Object tree - Trino: catalog → schema → table hierarchy */}
+          {isTrinoDb && !showLoadingSkeleton && !schemaError && (
+            <div className="px-1 py-1">
+              {visibleTrinoCatalogs.length === 0 && (
+                <p className="text-xs text-muted-foreground px-2 py-1 italic">
+                  No catalogs configured. Edit the connection to add catalogs.
+                </p>
+              )}
+              {visibleTrinoCatalogs.map((catalog) => (
+                <CatalogSection
+                  key={catalog}
+                  connectionId={connectionId}
+                  catalog={catalog}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Object tree - SQL databases (non-Trino) */}
+          {isSqlDb && !isTrinoDb && !showLoadingSkeleton && !schemaError && (
             <div className="pb-2">
               {/* Starred Section */}
               {starredItemsRaw.length > 0 && (
