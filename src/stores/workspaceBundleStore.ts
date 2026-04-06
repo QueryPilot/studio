@@ -78,6 +78,7 @@ interface WorkspaceBundleStore {
     database: string,
     schema: string,
   ) => void;
+  setTrinoCatalogFilter: (connectionId: string, catalogs: string[] | undefined) => void;
   reconnectConnection: (connectionId: string) => Promise<void>;
   reconnectDisconnectedConnections: () => Promise<void>;
 
@@ -742,6 +743,19 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
             connections: newConnections,
           },
           isDirty: true,
+        };
+      });
+    },
+
+    setTrinoCatalogFilter: (connectionId, catalogs) => {
+      set((s) => {
+        if (!s.activeWorkspace) return s;
+        const conn = s.activeWorkspace.connections.get(connectionId);
+        if (!conn) return s;
+        const next = new Map(s.activeWorkspace.connections);
+        next.set(connectionId, { ...conn, trinoCatalogFilter: catalogs });
+        return {
+          activeWorkspace: { ...s.activeWorkspace, connections: next },
         };
       });
     },

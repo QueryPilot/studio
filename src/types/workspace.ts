@@ -58,6 +58,8 @@ export interface OpenConnection {
   schema: string;
   /** Error message if status is "error" */
   error?: string;
+  /** Trino: which catalogs are currently visible in the sidebar (undefined = all visible) */
+  trinoCatalogFilter?: string[];
 }
 
 /**
