@@ -156,15 +156,12 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         : "table";
 
   const isViewOrMatView = kind === "View" || kind === "MaterializedView";
-  const isTrinoReadOnly = dbType === DbType.Trino;
-  const isReadOnly = readOnly || isViewOrMatView || isTrinoReadOnly;
+  const isReadOnly = readOnly || isViewOrMatView;
   const viewReadOnlyReason =
     kind === "View"
       ? "Read-only: View"
       : kind === "MaterializedView"
         ? "Read-only: Materialized View"
-        : isTrinoReadOnly
-          ? "Read-only: Trino"
         : undefined;
 
   // --- Table Structure (needed for FK metadata before data query) ---
