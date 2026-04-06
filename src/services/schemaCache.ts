@@ -145,6 +145,48 @@ class SchemaCache {
     return promise;
   }
 
+  /**
+   * Get tables for a specific Trino catalog+schema.
+   * Cache key: `tables:${connectionId}:${catalog}.${schema}`
+   * This avoids colliding with the single-schema cache keys used by other adapters.
+   */
+  async getTablesForCatalogSchema(
+    connectionId: string,
+    catalog: string,
+    schema: string,
+  ): Promise<TableMeta[]> {
+    const key = `tables:${connectionId}:${catalog}.${schema}`;
+    const cached = this.get<TableMeta[]>(key);
+    if (cached) {
+      this.recordAccess(key);
+      return cached.data;
+    }
+
+    // Coalesce concurrent fetches
+    const existing = this.inFlight.get(key) as Promise<TableMeta[]> | undefined;
+    if (existing) {
+      return existing;
+    }
+
+    this.metrics.misses++;
+    const promise = databaseService
+      .listTablesForCatalogSchema(connectionId, catalog, schema)
+      .then((tables) => {
+        this.set(key, tables, {
+          ttl: this.ttlConfig.tables,
+          priority: "medium",
+          connectionId,
+        });
+        return tables;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
+
+    this.inFlight.set(key, promise);
+    return promise;
+  }
+
   async getTableColumns(
     connectionId: string,
     schema: string,

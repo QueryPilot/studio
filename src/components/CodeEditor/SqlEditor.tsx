@@ -112,6 +112,7 @@ import {
 import { clearInstanceCaches } from "./languages/sql/shared";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
 
 // Extracted hooks
 import { useSqlEditorSetup } from "./hooks/useSqlEditorSetup";
@@ -415,6 +416,12 @@ export const SqlEditor = memo(
     // Stable reference for schema
     const defaultSchema = schema || getFallbackSchema(dbType, database);
 
+    // Get Trino catalogs from connection profile for cross-catalog table lookup
+    const trinoCatalogs = useConnectionStore((state) => {
+      const conn = state.getConnection(connectionId);
+      return conn?.profile.trino_catalogs ?? [];
+    });
+
     const handlePickedCompletion = useCallback(
       (picked: { label: string; type?: string | null }) => {
         const normalizedLabel = picked.label
@@ -487,6 +494,7 @@ export const SqlEditor = memo(
         connectionId,
         defaultSchema,
         effectiveDialect,
+        trinoCatalogs,
       );
       return [
         sqlLang,
@@ -499,7 +507,7 @@ export const SqlEditor = memo(
         createSqlHoverExtension(provider, defaultSchema),
         createExpandStarExtension(provider, defaultSchema, effectiveDialect),
       ];
-    }, [connectionId, defaultSchema, effectiveDialect, sqlLang]);
+    }, [connectionId, defaultSchema, effectiveDialect, sqlLang, trinoCatalogs]);
 
     // Completion extension
     const completionExtension = useMemo(() => {

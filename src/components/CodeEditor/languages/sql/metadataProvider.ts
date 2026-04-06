@@ -19,15 +19,18 @@ export class SqlMetadataProvider implements MetadataProvider {
   private connectionId: string;
   private defaultSchema: string;
   private dialect: SqlDialect;
+  private catalogs: string[];
 
   constructor(
     connectionId: string,
     defaultSchema: string = "public",
-    dialect: SqlDialect = "postgresql"
+    dialect: SqlDialect = "postgresql",
+    catalogs: string[] = [],
   ) {
     this.connectionId = connectionId;
     this.defaultSchema = defaultSchema;
     this.dialect = dialect;
+    this.catalogs = catalogs;
   }
 
   private isSameTable(
@@ -132,6 +135,23 @@ export class SqlMetadataProvider implements MetadataProvider {
 
     try {
       const tables = await schemaCache.getTables(this.connectionId, targetSchema);
+
+      // For Trino: if no tables found under bare schema name, search across all configured catalogs
+      if (tables.length === 0 && this.dialect === "trino" && this.catalogs.length > 0) {
+        for (const catalog of this.catalogs) {
+          const catTables = await schemaCache
+            .getTablesForCatalogSchema(this.connectionId, catalog, targetSchema)
+            .catch(() => [] as import("@/services/databaseService").TableMeta[]);
+          if (catTables.length > 0) {
+            return catTables.map((t) => ({
+              name: t.name,
+              type: this.mapTableKind(t.kind),
+              schema: t.schema || targetSchema,
+              description: undefined,
+            }));
+          }
+        }
+      }
 
       return tables.map((t) => ({
         name: t.name,
@@ -487,22 +507,24 @@ const providerCache = new Map<string, MetadataProvider>();
 
 /**
  * Factory function to create or retrieve a cached SqlMetadataProvider.
- * Memoizes instances by connectionId + schema to avoid recreation on every extension rebuild.
+ * Memoizes instances by connectionId + schema + catalogs to avoid recreation on every extension rebuild.
  */
 export function createSqlMetadataProvider(
   connectionId: string,
   defaultSchema?: string,
-  dialect: SqlDialect = "postgresql"
+  dialect: SqlDialect = "postgresql",
+  catalogs: string[] = [],
 ): MetadataProvider {
   const schema = defaultSchema || "public";
-  const cacheKey = `${connectionId}:${schema}:${dialect}`;
-  
+  const catalogsKey = catalogs.join(",");
+  const cacheKey = `${connectionId}:${schema}:${dialect}:${catalogsKey}`;
+
   let provider = providerCache.get(cacheKey);
   if (!provider) {
-    provider = new SqlMetadataProvider(connectionId, schema, dialect);
+    provider = new SqlMetadataProvider(connectionId, schema, dialect, catalogs);
     providerCache.set(cacheKey, provider);
   }
-  
+
   return provider;
 }
 
