@@ -92,6 +92,14 @@
         "release": "1"
       }
     },
+    "windows": {
+      "certificateThumbprint": "",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.comodoca.com",
+      "nsis": {
+        "installMode": "both"
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "10.15",
       "signingIdentity": "Developer ID Application: Hieu Vu (S5PPDYUJ5F)",

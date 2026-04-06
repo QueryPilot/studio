@@ -136,6 +136,10 @@ jobs:
             platform: linux
             target: x86_64-unknown-linux-gnu
             arch: x86_64
+          - os: windows-latest
+            platform: windows
+            target: x86_64-pc-windows-msvc
+            arch: x86_64
 
     steps:
       - name: Checkout code
@@ -161,6 +165,19 @@ jobs:
             libglib2.0-dev \
             libgtk-3-dev \
             libfuse2
+
+      - name: Import Windows certificate
+        if: matrix.platform == 'windows'
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          New-Item -ItemType directory -Path certificate
+          Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
+          certutil -decode certificate/tempCert.txt certificate/certificate.pfx
+          Remove-Item -path certificate -include tempCert.txt
+          Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
+        shell: powershell
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -312,6 +329,25 @@ jobs:
             pnpm tauri build --target ${{ matrix.target }}
           fi
 
+      - name: Build Tauri app (Windows)
+        if: matrix.platform == 'windows'
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          VITE_DISABLE_SOURCEMAPS: "true"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        shell: bash
+        run: |
+          if [ -n "$SENTRY_DSN" ]; then
+            echo "🚀 Building with telemetry feature enabled"
+            pnpm tauri build --target ${{ matrix.target }} -- --features telemetry
+          else
+            echo "🚀 Building without telemetry"
+            pnpm tauri build --target ${{ matrix.target }}
+          fi
+
       # ============================================
       # Upload Artifacts to Release
       # ============================================
@@ -385,6 +421,42 @@ jobs:
           if [ -n "$UPDATER_ARCHIVE" ] && [ -n "$UPDATER_SIG" ]; then
             ARCHIVE_NAME="QueryPilot_${VERSION}_${ARCH}.AppImage.tar.gz"
             SIG_NAME="QueryPilot_${VERSION}_${ARCH}.AppImage.tar.gz.sig"
+            cp "$UPDATER_ARCHIVE" "$ARCHIVE_NAME"
+            cp "$UPDATER_SIG" "$SIG_NAME"
+            UPLOAD_FILES="$UPLOAD_FILES $ARCHIVE_NAME $SIG_NAME"
+          fi
+
+          echo "🚀 Uploading: $UPLOAD_FILES"
+          gh release upload "$VERSION" $UPLOAD_FILES --clobber
+
+      - name: Find and upload Windows artifacts
+        if: matrix.platform == 'windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+
+          # Find NSIS installer
+          NSIS_PATH=$(find target/${{ matrix.target }}/release/bundle/nsis -name "*.exe" | head -n 1)
+          # Find updater archives
+          UPDATER_ARCHIVE=$(find target/${{ matrix.target }}/release/bundle -name "*.nsis.zip" | head -n 1)
+          UPDATER_SIG=$(find target/${{ matrix.target }}/release/bundle -name "*.nsis.zip.sig" | head -n 1)
+
+          if [ -z "$NSIS_PATH" ]; then
+            echo "❌ ERROR: No NSIS installer found!"
+            exit 1
+          fi
+
+          # Name artifacts
+          NSIS_NAME="QueryPilot_${VERSION}_${ARCH}-setup.exe"
+          mv "$NSIS_PATH" "$NSIS_NAME"
+          UPLOAD_FILES="$NSIS_NAME"
+
+          if [ -n "$UPDATER_ARCHIVE" ] && [ -n "$UPDATER_SIG" ]; then
+            ARCHIVE_NAME="QueryPilot_${VERSION}_${ARCH}.nsis.zip"
+            SIG_NAME="QueryPilot_${VERSION}_${ARCH}.nsis.zip.sig"
             cp "$UPDATER_ARCHIVE" "$ARCHIVE_NAME"
             cp "$UPDATER_SIG" "$SIG_NAME"
             UPLOAD_FILES="$UPLOAD_FILES $ARCHIVE_NAME $SIG_NAME"
