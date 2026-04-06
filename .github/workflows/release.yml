@@ -432,9 +432,11 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           echo "📥 Downloading release assets..."
-          gh release download "$VERSION" --pattern "*.app.tar.gz"
-          gh release download "$VERSION" --pattern "*.app.tar.gz.sig"
-          ls -lh *.app.tar.gz *.app.tar.gz.sig
+          gh release download "$VERSION" --pattern "*.app.tar.gz" || true
+          gh release download "$VERSION" --pattern "*.app.tar.gz.sig" || true
+          gh release download "$VERSION" --pattern "*.AppImage.tar.gz" || true
+          gh release download "$VERSION" --pattern "*.AppImage.tar.gz.sig" || true
+          ls -lh *.tar.gz *.sig 2>/dev/null || true
 
       - name: Generate update manifest
         env:
@@ -462,7 +464,7 @@ jobs:
 
           BASE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/$VERSION"
 
-          # Arch-specific updater archives
+          # macOS artifacts (required)
           AARCH64_ARCHIVE="QueryPilot_${VERSION}_aarch64.app.tar.gz"
           AARCH64_SIG="QueryPilot_${VERSION}_aarch64.app.tar.gz.sig"
           X86_64_ARCHIVE="QueryPilot_${VERSION}_x86_64.app.tar.gz"
@@ -470,7 +472,7 @@ jobs:
 
           for f in "$AARCH64_ARCHIVE" "$AARCH64_SIG" "$X86_64_ARCHIVE" "$X86_64_SIG"; do
             if [ ! -f "$f" ]; then
-              echo "❌ Missing updater asset: $f"
+              echo "❌ Missing macOS updater asset: $f"
               exit 1
             fi
           done
@@ -478,26 +480,59 @@ jobs:
           AARCH64_SIGNATURE=$(tr -d '\r\n' < "$AARCH64_SIG")
           X86_64_SIGNATURE=$(tr -d '\r\n' < "$X86_64_SIG")
 
-          jq -n \
-            --arg version "$VERSION_NUMBER" \
-            --arg notes "$RAW_NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --arg aarch64_sig "$AARCH64_SIGNATURE" \
-            --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
-            --arg x86_64_sig "$X86_64_SIGNATURE" \
-            --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
-            '{
-              version: $version,
-              notes: $notes,
-              pub_date: $pub_date,
-              platforms: {
-                "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
-                "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url }
-              }
-            }' > latest.json
-          echo "✓ Generated arch-specific updater manifest"
+          # Linux artifacts (optional - may not be built yet)
+          LINUX_X86_64_ARCHIVE="QueryPilot_${VERSION}_x86_64.AppImage.tar.gz"
+          LINUX_X86_64_SIG="QueryPilot_${VERSION}_x86_64.AppImage.tar.gz.sig"
+          INCLUDE_LINUX="false"
 
-          echo "✓ Update manifest generated"
+          if [ -f "$LINUX_X86_64_ARCHIVE" ] && [ -f "$LINUX_X86_64_SIG" ]; then
+            INCLUDE_LINUX="true"
+            LINUX_X86_64_SIGNATURE=$(tr -d '\r\n' < "$LINUX_X86_64_SIG")
+          fi
+
+          # Build manifest
+          if [ "$INCLUDE_LINUX" = "true" ]; then
+            jq -n \
+              --arg version "$VERSION_NUMBER" \
+              --arg notes "$RAW_NOTES" \
+              --arg pub_date "$PUB_DATE" \
+              --arg aarch64_sig "$AARCH64_SIGNATURE" \
+              --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
+              --arg x86_64_sig "$X86_64_SIGNATURE" \
+              --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
+              --arg linux_x86_64_sig "$LINUX_X86_64_SIGNATURE" \
+              --arg linux_x86_64_url "$BASE_URL/$LINUX_X86_64_ARCHIVE" \
+              '{
+                version: $version,
+                notes: $notes,
+                pub_date: $pub_date,
+                platforms: {
+                  "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
+                  "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url },
+                  "linux-x86_64": { signature: $linux_x86_64_sig, url: $linux_x86_64_url }
+                }
+              }' > latest.json
+          else
+            jq -n \
+              --arg version "$VERSION_NUMBER" \
+              --arg notes "$RAW_NOTES" \
+              --arg pub_date "$PUB_DATE" \
+              --arg aarch64_sig "$AARCH64_SIGNATURE" \
+              --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
+              --arg x86_64_sig "$X86_64_SIGNATURE" \
+              --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
+              '{
+                version: $version,
+                notes: $notes,
+                pub_date: $pub_date,
+                platforms: {
+                  "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
+                  "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url }
+                }
+              }' > latest.json
+          fi
+
+          echo "✓ Generated updater manifest (linux=$INCLUDE_LINUX)"
           cat latest.json
 
       - name: Upload manifest to source release
@@ -541,6 +576,10 @@ jobs:
           gh release download "$VERSION" --pattern "*.app.tar.gz"
           gh release download "$VERSION" --pattern "*.app.tar.gz.sig"
           gh release download "$VERSION" --pattern "latest.json"
+          gh release download "$VERSION" --pattern "*.AppImage" || true
+          gh release download "$VERSION" --pattern "*.deb" || true
+          gh release download "$VERSION" --pattern "*.AppImage.tar.gz" || true
+          gh release download "$VERSION" --pattern "*.AppImage.tar.gz.sig" || true
           ls -lh
 
       - name: Extract release notes
@@ -618,6 +657,10 @@ jobs:
             *.dmg \
             *.app.tar.gz \
             *.app.tar.gz.sig \
+            *.AppImage \
+            *.deb \
+            *.AppImage.tar.gz \
+            *.AppImage.tar.gz.sig \
             latest.json \
             CHANGELOG.md
 
