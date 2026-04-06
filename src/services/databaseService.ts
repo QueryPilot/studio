@@ -20,6 +20,8 @@ import type {
 import type { ObjectDefinitionType } from "@/adapters/types";
 import { ConstraintType, TableKind } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
+import { getSqlAdapterForConnection } from "@/adapters";
+import { TrinoAdapter } from "@/adapters/dialects/TrinoAdapter";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -726,6 +728,69 @@ class DatabaseService {
       return schemas.map((s) => s.name);
     } catch (error) {
       logger.error("Failed to list schemas:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * List schemas in a specific Trino catalog without switching the active catalog.
+   * Uses cross-catalog information_schema query.
+   */
+  async listSchemasForCatalog(
+    connectionId: string,
+    catalog: string,
+  ): Promise<string[]> {
+    try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+      const adapter = await getSqlAdapterForConnection(connectionId);
+      if (!adapter || !(adapter instanceof TrinoAdapter)) {
+        throw new Error("listSchemasForCatalog requires a Trino connection");
+      }
+      const sql = adapter.getSchemasForCatalog(catalog);
+      const result = await BackendAPI.query(connectionId, sql);
+      return result.rows.map((row) => String(row[0] ?? "")).filter(Boolean);
+    } catch (error) {
+      logger.error("Failed to list schemas for catalog:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * List tables and views in a specific Trino catalog.schema without switching the active catalog.
+   */
+  async listTablesForCatalogSchema(
+    connectionId: string,
+    catalog: string,
+    schema: string,
+  ): Promise<TableMeta[]> {
+    try {
+      if (!this.isConnectionActive(connectionId)) {
+        await this.connectById(connectionId);
+      }
+      const adapter = await getSqlAdapterForConnection(connectionId);
+      if (!adapter || !(adapter instanceof TrinoAdapter)) {
+        throw new Error("listTablesForCatalogSchema requires a Trino connection");
+      }
+      const sql = adapter.getTablesForCatalogSchema(catalog, schema);
+      const result = await BackendAPI.query(connectionId, sql);
+      return result.rows.map((row) => {
+        const kind = String(row[2] ?? "regular");
+        const mappedKind: TableMeta["kind"] =
+          kind === "view" ? "View" : "Table";
+        return {
+          schema: String(row[0] ?? ""),
+          name: String(row[1] ?? ""),
+          kind: mappedKind,
+          owner: undefined,
+          size: undefined,
+          row_count: undefined,
+          comment: undefined,
+        };
+      });
+    } catch (error) {
+      logger.error("Failed to list tables for catalog schema:", error);
       throw error;
     }
   }

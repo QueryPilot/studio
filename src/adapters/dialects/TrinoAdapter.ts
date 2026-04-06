@@ -24,6 +24,16 @@ export class TrinoAdapter extends PostgreSQLAdapter {
     return `SHOW CATALOGS`;
   }
 
+  /** Query schemas in any catalog without reconnecting (cross-catalog information_schema) */
+  getSchemasForCatalog(catalog: string): string {
+    return `SELECT schema_name AS name, NULL AS owner FROM ${this.quoteIdentifier(catalog)}.information_schema.schemata WHERE schema_name NOT IN ('information_schema') ORDER BY schema_name`;
+  }
+
+  /** Query tables + views in any catalog.schema without reconnecting */
+  getTablesForCatalogSchema(catalog: string, schema: string): string {
+    return `SELECT table_schema AS schema_name, table_name, CASE table_type WHEN 'BASE TABLE' THEN 'regular' WHEN 'VIEW' THEN 'view' ELSE 'regular' END AS kind, NULL AS owner, NULL AS size, NULL AS row_count, NULL AS comment FROM ${this.quoteIdentifier(catalog)}.information_schema.tables WHERE table_schema = '${this.escapeString(schema)}' AND table_type IN ('BASE TABLE', 'VIEW') ORDER BY table_name`;
+  }
+
   getSchemasQuery(): string {
     return `
 SELECT
