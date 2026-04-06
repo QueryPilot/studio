@@ -783,10 +783,6 @@ class DatabaseService {
           schema: String(row[0] ?? ""),
           name: String(row[1] ?? ""),
           kind: mappedKind,
-          owner: undefined,
-          size: undefined,
-          row_count: undefined,
-          comment: undefined,
         };
       });
     } catch (error) {
