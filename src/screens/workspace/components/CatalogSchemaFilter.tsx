@@ -93,9 +93,9 @@ export function CatalogSchemaFilter({
               <Checkbox
                 id={`cat-filter-${connectionId}-${catalog}`}
                 checked={visibleSet.has(catalog)}
-                onCheckedChange={(checked) =>
-                  toggleCatalog(catalog, !!checked)
-                }
+                onCheckedChange={(checked) => {
+                  toggleCatalog(catalog, checked === true);
+                }}
                 className="h-3.5 w-3.5"
               />
               <Label

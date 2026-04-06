@@ -750,7 +750,7 @@ class DatabaseService {
       }
       const sql = adapter.getSchemasForCatalog(catalog);
       const result = await BackendAPI.query(connectionId, sql);
-      return result.rows.map((row) => String(row[0] ?? "")).filter(Boolean);
+      return result.rows.map((row) => String((row[0] as string | null) ?? "")).filter(Boolean);
     } catch (error) {
       logger.error("Failed to list schemas for catalog:", error);
       throw error;
@@ -776,12 +776,12 @@ class DatabaseService {
       const sql = adapter.getTablesForCatalogSchema(catalog, schema);
       const result = await BackendAPI.query(connectionId, sql);
       return result.rows.map((row) => {
-        const kind = String(row[2] ?? "regular");
+        const kind = String((row[2] as string | null) ?? "regular");
         const mappedKind: TableMeta["kind"] =
           kind === "view" ? "View" : "Table";
         return {
-          schema: String(row[0] ?? ""),
-          name: String(row[1] ?? ""),
+          schema: String((row[0] as string | null) ?? ""),
+          name: String((row[1] as string | null) ?? ""),
           kind: mappedKind,
         };
       });
