@@ -1,17 +1,17 @@
-# QueryPilot/QueryPilot Repository Setup Guide
+# QueryPilot/studio Repository Setup Guide
 
-This guide explains how to set up the `QueryPilot/QueryPilot` repository for public release distribution and auto-updates.
+This guide explains how to set up the `QueryPilot/studio` repository for public release distribution and auto-updates.
 
 ## Overview
 
-The **QueryPilot/QueryPilot** repository serves as the public-facing release distribution point:
+The **QueryPilot/studio** repository serves as the public-facing release distribution point:
 
 - 📦 **Hosts release binaries** (DMG, exe, AppImage)
 - 📝 **User-facing documentation** (README, CHANGELOG)
 - 🔄 **Update manifest endpoint** (`latest.json`)
 - 🌐 **Public download page** (GitHub Releases)
 
-**Source code** remains private in `QueryPilot/studio`, while **releases** are published to `QueryPilot/QueryPilot`.
+**Source code** remains private in `QueryPilot/studio`, while **releases** are published to `QueryPilot/studio`.
 
 ---
 
@@ -32,7 +32,7 @@ The **QueryPilot/QueryPilot** repository serves as the public-facing release dis
 Clone the repository and create the initial structure:
 
 ```bash
-git clone https://github.com/QueryPilot/QueryPilot.git
+git clone https://github.com/QueryPilot/studio.git
 cd QueryPilot  # the cloned repo directory
 ```
 
@@ -42,7 +42,7 @@ cd QueryPilot  # the cloned repo directory
 # Query Pilot
 
 <p align="center">
-  <img src="https://github.com/QueryPilot/QueryPilot/raw/main/assets/logo.png" width="200" alt="Query Pilot Logo">
+  <img src="https://github.com/QueryPilot/studio/raw/main/assets/logo.png" width="200" alt="Query Pilot Logo">
 </p>
 
 <p align="center">
@@ -50,14 +50,14 @@ cd QueryPilot  # the cloned repo directory
 </p>
 
 <p align="center">
-  <a href="https://github.com/QueryPilot/QueryPilot/releases/latest">
-    <img src="https://img.shields.io/github/v/release/QueryPilot/QueryPilot?style=for-the-badge" alt="Latest Release">
+  <a href="https://github.com/QueryPilot/studio/releases/latest">
+    <img src="https://img.shields.io/github/v/release/QueryPilot/studio?style=for-the-badge" alt="Latest Release">
   </a>
-  <a href="https://github.com/QueryPilot/QueryPilot/releases">
-    <img src="https://img.shields.io/github/downloads/QueryPilot/QueryPilot/total?style=for-the-badge" alt="Downloads">
+  <a href="https://github.com/QueryPilot/studio/releases">
+    <img src="https://img.shields.io/github/downloads/QueryPilot/studio/total?style=for-the-badge" alt="Downloads">
   </a>
   <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/QueryPilot/QueryPilot?style=for-the-badge" alt="License">
+    <img src="https://img.shields.io/github/license/QueryPilot/studio?style=for-the-badge" alt="License">
   </a>
 </p>
 
@@ -81,7 +81,7 @@ cd QueryPilot  # the cloned repo directory
 
 **Apple Silicon (M1/M2/M3)**
 
-[Download QueryPilot_aarch64.dmg](https://github.com/QueryPilot/QueryPilot/releases/latest)
+[Download QueryPilot_aarch64.dmg](https://github.com/QueryPilot/studio/releases/latest)
 
 **Installation:**
 
@@ -126,10 +126,10 @@ Coming soon
 
 ## 📚 Documentation
 
-- [User Guide](https://github.com/QueryPilot/QueryPilot/wiki)
-- [Keyboard Shortcuts](https://github.com/QueryPilot/QueryPilot/wiki/Keyboard-Shortcuts)
-- [SSH Tunneling Guide](https://github.com/QueryPilot/QueryPilot/wiki/SSH-Tunneling)
-- [AI Assistant Guide](https://github.com/QueryPilot/QueryPilot/wiki/AI-Assistant)
+- [User Guide](https://github.com/QueryPilot/studio/wiki)
+- [Keyboard Shortcuts](https://github.com/QueryPilot/studio/wiki/Keyboard-Shortcuts)
+- [SSH Tunneling Guide](https://github.com/QueryPilot/studio/wiki/SSH-Tunneling)
+- [AI Assistant Guide](https://github.com/QueryPilot/studio/wiki/AI-Assistant)
 
 ---
 
@@ -141,9 +141,9 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
 
 ## 💬 Community & Support
 
-- 🐛 [Report a Bug](https://github.com/QueryPilot/QueryPilot/issues/new?template=bug_report.md)
-- 💡 [Request a Feature](https://github.com/QueryPilot/QueryPilot/issues/new?template=feature_request.md)
-- 💬 [Discussions](https://github.com/QueryPilot/QueryPilot/discussions)
+- 🐛 [Report a Bug](https://github.com/QueryPilot/studio/issues/new?template=bug_report.md)
+- 💡 [Request a Feature](https://github.com/QueryPilot/studio/issues/new?template=feature_request.md)
+- 💬 [Discussions](https://github.com/QueryPilot/studio/discussions)
 
 ---
 
@@ -281,7 +281,7 @@ Any other context, mockups, or examples.
 
 ## Step 3: Configure GitHub Secrets
 
-The cross-repository publish workflow in `QueryPilot/studio` needs access to `QueryPilot/QueryPilot`.
+The cross-repository publish workflow in `QueryPilot/studio` needs access to `QueryPilot/studio`.
 
 1. Go to https://github.com/settings/tokens
 2. Click "Generate new token (classic)"
@@ -301,7 +301,7 @@ The cross-repository publish workflow in `QueryPilot/studio` needs access to `Qu
 
 ## Step 4: Enable GitHub Releases
 
-1. Go to https://github.com/QueryPilot/QueryPilot/settings
+1. Go to https://github.com/QueryPilot/studio/settings
 2. Scroll to "Features"
 3. Ensure "Releases" is checked ✅
 
@@ -311,7 +311,7 @@ The cross-repository publish workflow in `QueryPilot/studio` needs access to `Qu
 
 Protect the main branch to prevent accidental changes:
 
-1. Go to https://github.com/QueryPilot/QueryPilot/settings/branches
+1. Go to https://github.com/QueryPilot/studio/settings/branches
 2. Click "Add rule"
 3. Branch name pattern: `main`
 4. Enable:
@@ -326,7 +326,7 @@ Protect the main branch to prevent accidental changes:
 Create a placeholder release to test the setup:
 
 ```bash
-# In the QueryPilot/QueryPilot repository
+# In the QueryPilot/studio repository
 git tag v0.4.0
 git push origin v0.4.0
 
@@ -344,7 +344,7 @@ Test the update manifest endpoint:
 
 ```bash
 # After publishing a release with latest.json
-curl https://github.com/QueryPilot/QueryPilot/releases/latest/download/latest.json
+curl https://github.com/QueryPilot/studio/releases/latest/download/latest.json
 ```
 
 Expected response:
@@ -357,7 +357,7 @@ Expected response:
   "platforms": {
     "darwin-aarch64": {
       "signature": "...",
-      "url": "https://github.com/QueryPilot/QueryPilot/releases/download/v0.4.0/QueryPilot_v0.4.0_aarch64.app.tar.gz"
+      "url": "https://github.com/QueryPilot/studio/releases/download/v0.4.0/QueryPilot_v0.4.0_aarch64.app.tar.gz"
     }
   }
 }
@@ -374,15 +374,15 @@ Once set up, the release process works like this:
 3. **Script** bumps version, commits, tags, and pushes
 4. **GitHub Actions** builds binaries in `QueryPilot/studio`
 5. **GitHub Actions** generates update manifest with signatures
-6. **GitHub Actions** publishes to `QueryPilot/QueryPilot`
-7. **Users** download from `QueryPilot/QueryPilot/releases`
+6. **GitHub Actions** publishes to `QueryPilot/studio`
+7. **Users** download from `QueryPilot/studio/releases`
 8. **App** checks for updates via `latest.json` endpoint
 
 ---
 
 ## Troubleshooting
 
-### Release Not Appearing in QueryPilot/QueryPilot
+### Release Not Appearing in QueryPilot/studio
 
 - Verify `RELEASE_PAT` secret is set correctly
 - Check GitHub Actions logs in `QueryPilot/studio`

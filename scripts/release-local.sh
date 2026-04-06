@@ -173,10 +173,10 @@ analyze_commits() {
                 gh release delete "v$CURRENT_VERSION" --yes
                 success "GitHub release deleted"
             fi
-            # Delete from QueryPilot/QueryPilot repo if exists
-            if gh release view "v$CURRENT_VERSION" --repo QueryPilot/QueryPilot &>/dev/null 2>&1; then
-                gh release delete "v$CURRENT_VERSION" --repo QueryPilot/QueryPilot --yes
-                success "GitHub release deleted from QueryPilot/QueryPilot"
+            # Delete from QueryPilot/studio repo if exists
+            if gh release view "v$CURRENT_VERSION" --repo QueryPilot/studio &>/dev/null 2>&1; then
+                gh release delete "v$CURRENT_VERSION" --repo QueryPilot/studio --yes
+                success "GitHub release deleted from QueryPilot/studio"
             fi
             # Delete local and remote tag
             if git tag -l "v$CURRENT_VERSION" | grep -q .; then
@@ -630,7 +630,7 @@ generate_manifest() {
         RAW_NOTES="See CHANGELOG.md for details"
     fi
 
-    BASE_URL="https://github.com/QueryPilot/QueryPilot/releases/download/v$version"
+    BASE_URL="https://github.com/QueryPilot/studio/releases/download/v$version"
 
     # Arch-specific updater archives
     AARCH64_ARCHIVE="QueryPilot_v${version}_aarch64.app.tar.gz"
@@ -668,23 +668,23 @@ generate_manifest() {
     cat latest.json
 }
 
-# Publish release to QueryPilot/QueryPilot (public app repo)
+# Publish release to QueryPilot/studio (public app repo)
 # Local releases go directly here — no studio repo release (that's what CI does)
 publish_release() {
     local version="$1"
     local changelog="$2"
 
-    log "Publishing to QueryPilot/QueryPilot..."
+    log "Publishing to QueryPilot/studio..."
 
     # Check if we have access
-    if ! gh repo view QueryPilot/QueryPilot &>/dev/null; then
-        error "No access to QueryPilot/QueryPilot"
+    if ! gh repo view QueryPilot/studio &>/dev/null; then
+        error "No access to QueryPilot/studio"
     fi
 
     # Delete existing release if exists
-    if gh release view "v$version" --repo QueryPilot/QueryPilot &>/dev/null; then
+    if gh release view "v$version" --repo QueryPilot/studio &>/dev/null; then
         warn "Release v$version exists, deleting..."
-        gh release delete "v$version" --repo QueryPilot/QueryPilot --yes
+        gh release delete "v$version" --repo QueryPilot/studio --yes
     fi
 
     # Create release notes (changelog only)
@@ -695,14 +695,14 @@ EOF
     # Create release (always as full release so /releases/latest works for updater)
     # shellcheck disable=SC2086
     gh release create "v$version" \
-        --repo QueryPilot/QueryPilot \
+        --repo QueryPilot/studio \
         --title "Query Pilot v$version" \
         --notes-file /tmp/release-notes.md \
         $ARTIFACT_FILES \
         latest.json \
         CHANGELOG.md
 
-    success "Published to QueryPilot/QueryPilot"
+    success "Published to QueryPilot/studio"
 }
 
 # Cleanup build artifacts
@@ -758,7 +758,7 @@ main() {
     echo -e "${GREEN}  Release v$NEXT_VERSION complete!${NC}"
     echo -e "${GREEN}==========================================${NC}"
     echo ""
-    echo "  https://github.com/QueryPilot/QueryPilot/releases/tag/v$NEXT_VERSION"
+    echo "  https://github.com/QueryPilot/studio/releases/tag/v$NEXT_VERSION"
     echo ""
 }
 

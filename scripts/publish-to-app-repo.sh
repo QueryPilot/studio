@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Cross-Repository Release Publisher
-# Downloads artifacts from QueryPilot/studio and publishes to QueryPilot/QueryPilot
+# Downloads artifacts from QueryPilot/studio and publishes to QueryPilot/studio
 # Usage: ./scripts/publish-to-app-repo.sh v1.0.0
 
 set -e
@@ -28,7 +28,7 @@ NC='\033[0m'
 
 # Configuration
 SOURCE_REPO="QueryPilot/studio"
-TARGET_REPO="QueryPilot/QueryPilot"
+TARGET_REPO="QueryPilot/studio"
 
 echo -e "${CYAN}🚀 Cross-Repository Release Publisher${NC}"
 echo "======================================"

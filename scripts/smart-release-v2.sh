@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Smart Release Script V2 - Cross-Repository Publishing
-# Builds in QueryPilot/studio, publishes to QueryPilot/QueryPilot
+# Builds in QueryPilot/studio, publishes to QueryPilot/studio
 #
 # Usage:
 #   ./scripts/smart-release-v2.sh          # stable release (AI-assisted)
@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 SOURCE_REPO="QueryPilot/studio"
-TARGET_REPO="QueryPilot/QueryPilot"
+TARGET_REPO="QueryPilot/studio"
 IS_BETA=false
 
 if [ "$1" = "beta" ]; then

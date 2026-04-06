@@ -30,7 +30,7 @@ This comprehensive guide explains the Query Pilot release system with cross-repo
                │ Cross-repo publish
                ▼
 ┌─────────────────────────────────────┐
-│  QueryPilot/QueryPilot (Public)     │
+│  QueryPilot/studio (Public)     │
 │  • Release binaries (DMG, exe)      │
 │  • User documentation               │
 │  • CHANGELOG.md                     │
@@ -109,7 +109,7 @@ Set up these secrets in GitHub:
 
 1. **TAURI_PRIVATE_KEY** - Tauri updater signing key (private)
 2. **TAURI_KEY_PASSWORD** - Password for the signing key
-3. **RELEASE_PAT** - Personal Access Token with `repo` scope for QueryPilot/QueryPilot
+3. **RELEASE_PAT** - Personal Access Token with `repo` scope for QueryPilot/studio
 4. **APPLE_CERTIFICATE** - Apple Developer ID certificate (base64)
 5. **APPLE_CERTIFICATE_PASSWORD** - Certificate password
 6. **APPLE_DEVELOPER_ID** - Apple ID email
@@ -163,13 +163,13 @@ gh secret set RELEASE_PAT
 # (Create token at: https://github.com/settings/tokens)
 ```
 
-### Step 4: Set Up QueryPilot/QueryPilot Repository
+### Step 4: Set Up QueryPilot/studio Repository
 
 Follow the complete guide in [release-repo-setup.md](./release-repo-setup.md).
 
 Quick checklist:
 
-- [ ] Create `QueryPilot/QueryPilot` repository (public)
+- [ ] Create `QueryPilot/studio` repository (public)
 - [ ] Add README.md and CHANGELOG.md
 - [ ] Configure GitHub Releases
 - [ ] Set up issue templates
@@ -230,7 +230,7 @@ The smart release script handles everything:
 5. ✅ Commits changes and creates git tag
 6. ✅ Pushes to GitHub (triggers Actions)
 7. ✅ Waits for build completion (optional)
-8. ✅ Publishes to QueryPilot/QueryPilot (optional)
+8. ✅ Publishes to QueryPilot/studio (optional)
 
 **Interactive prompts:**
 
@@ -305,7 +305,7 @@ When you push a tag, the workflow:
 3. **Signs binaries** with Apple Developer ID (macOS)
 4. **Uploads to release**
 5. **Generates update manifest** with Tauri signatures
-6. **Publishes to QueryPilot/QueryPilot** (if enabled)
+6. **Publishes to QueryPilot/studio** (if enabled)
 
 Monitor progress:
 
@@ -340,13 +340,13 @@ pnpm tauri build
 ```bash
 # In the app, open DevTools (Cmd+Opt+I)
 # Watch Network tab for:
-GET https://github.com/QueryPilot/QueryPilot/releases/latest/download/latest.json
+GET https://github.com/QueryPilot/studio/releases/latest/download/latest.json
 ```
 
 ### Verify Update Manifest
 
 ```bash
-curl -s https://github.com/QueryPilot/QueryPilot/releases/latest/download/latest.json | jq .
+curl -s https://github.com/QueryPilot/studio/releases/latest/download/latest.json | jq .
 ```
 
 Expected output:
@@ -359,7 +359,7 @@ Expected output:
   "platforms": {
     "darwin-aarch64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkK...",
-      "url": "https://github.com/QueryPilot/QueryPilot/releases/download/v0.5.0/QueryPilot_v0.5.0_aarch64.app.tar.gz"
+      "url": "https://github.com/QueryPilot/studio/releases/download/v0.5.0/QueryPilot_v0.5.0_aarch64.app.tar.gz"
     }
   }
 }
@@ -369,7 +369,7 @@ Expected output:
 
 ```bash
 # Download DMG from release
-curl -LO https://github.com/QueryPilot/QueryPilot/releases/latest/download/QueryPilot_latest_aarch64.dmg
+curl -LO https://github.com/QueryPilot/studio/releases/latest/download/QueryPilot_latest_aarch64.dmg
 
 # Mount and install
 open QueryPilot_latest_aarch64.dmg
@@ -394,7 +394,7 @@ open QueryPilot_latest_aarch64.dmg
 
 ```bash
 # Verify endpoint is accessible
-curl -I https://github.com/QueryPilot/QueryPilot/releases/latest/download/latest.json
+curl -I https://github.com/QueryPilot/studio/releases/latest/download/latest.json
 
 # Check tauri.conf.json
 cat src-tauri/tauri.conf.json | grep -A 5 updater
@@ -422,20 +422,20 @@ cat src-tauri/tauri.conf.json | grep -A 5 updater
 
 ### Cross-Repo Publish Fails
 
-**Symptom:** GitHub Actions fails at "Publish to QueryPilot/QueryPilot" step
+**Symptom:** GitHub Actions fails at "Publish to QueryPilot/studio" step
 
 **Causes:**
 
 1. `RELEASE_PAT` secret is invalid or expired
 2. Token doesn't have `repo` scope
-3. QueryPilot/QueryPilot repository doesn't exist
+3. QueryPilot/studio repository doesn't exist
 
 **Fix:**
 
 ```bash
 # Test PAT manually
 export GITHUB_TOKEN="your_pat_here"
-gh repo view QueryPilot/QueryPilot
+gh repo view QueryPilot/studio
 
 # If fails, regenerate token with correct scopes
 ```
@@ -504,8 +504,8 @@ If a release has critical bugs:
 git tag -d v0.5.0
 git push origin :refs/tags/v0.5.0
 
-# Delete release in QueryPilot/QueryPilot
-gh release delete v0.5.0 --repo QueryPilot/QueryPilot --yes
+# Delete release in QueryPilot/studio
+gh release delete v0.5.0 --repo QueryPilot/studio --yes
 
 # Revert version bump commit
 git revert HEAD
@@ -522,8 +522,8 @@ Support stable, beta, and nightly channels:
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/QueryPilot/QueryPilot/releases/latest/download/stable.json",
-        "https://github.com/QueryPilot/QueryPilot/releases/latest/download/beta.json"
+        "https://github.com/QueryPilot/studio/releases/latest/download/stable.json",
+        "https://github.com/QueryPilot/studio/releases/latest/download/beta.json"
       ]
     }
   }
@@ -566,7 +566,7 @@ jobs:
 - [ ] GitHub Actions are green
 - [ ] Apple certificates are valid
 - [ ] Tauri signing keys are configured
-- [ ] QueryPilot/QueryPilot repository is accessible
+- [ ] QueryPilot/studio repository is accessible
 - [ ] Update manifest will be signed
 
 ---
@@ -591,6 +591,6 @@ For issues with the release system:
 
 For user-facing issues:
 
-1. Check [QueryPilot discussions](https://github.com/QueryPilot/QueryPilot/discussions)
-2. Search [existing issues](https://github.com/QueryPilot/QueryPilot/issues)
+1. Check [QueryPilot discussions](https://github.com/QueryPilot/studio/discussions)
+2. Search [existing issues](https://github.com/QueryPilot/studio/issues)
 3. Open a new issue with bug/feature template
