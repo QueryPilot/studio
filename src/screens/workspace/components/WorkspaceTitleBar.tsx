@@ -60,6 +60,8 @@ import {
 import { GlobalChangesDialog } from "@/components/GlobalChangesDialog";
 import { openAppUpdateDialog } from "@/utils/appUpdate";
 import { saveWindowBounds } from "@/services/windowManager";
+import { platform } from "@tauri-apps/plugin-os";
+import { isTauri } from "@/utils/tauri";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -98,6 +100,8 @@ export function WorkspaceTitleBar({
   connectionId,
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
+  const isMac = isTauri() && platform() === "macos";
+
   // Optimized selectors - only subscribe to what we need
   const storedConnection = useConnectionStore(
     useCallback(
@@ -775,7 +779,7 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className="flex items-center gap-2.5 pl-20" data-tauri-drag-region>
+      <div className={`flex items-center gap-2.5 ${isMac ? "pl-20" : "pl-3"}`} data-tauri-drag-region>
         <Button
           variant="ghost"
           size="icon-sm"

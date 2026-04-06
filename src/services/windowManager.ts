@@ -31,6 +31,15 @@ function getMacOSTrafficLightPosition(): {
   }
 }
 
+function isMacOS(): boolean {
+  if (!isTauri()) return false;
+  try {
+    return platform() === "macos";
+  } catch {
+    return false;
+  }
+}
+
 // Update the native Window menu to reflect current open windows
 async function updateWindowMenu(): Promise<void> {
   if (!isTauri()) return;
@@ -279,9 +288,11 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: true,
-      titleBarStyle: "overlay",
-      hiddenTitle: true,
+      ...(isMacOS() ? {
+        transparent: true,
+        titleBarStyle: "overlay",
+        hiddenTitle: true,
+      } : {}),
       skipTaskbar: false,
     };
 
@@ -673,9 +684,11 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: true,
-      titleBarStyle: "overlay",
-      hiddenTitle: true,
+      ...(isMacOS() ? {
+        transparent: true,
+        titleBarStyle: "overlay",
+        hiddenTitle: true,
+      } : {}),
       skipTaskbar: false,
     };
 
@@ -874,9 +887,11 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: true,
-      titleBarStyle: "overlay",
-      hiddenTitle: true,
+      ...(isMacOS() ? {
+        transparent: true,
+        titleBarStyle: "overlay",
+        hiddenTitle: true,
+      } : {}),
       skipTaskbar: false,
     };
 
@@ -940,9 +955,11 @@ class WindowManager {
       minimizable: true,
       closable: true,
       decorations: true,
-      transparent: true,
-      titleBarStyle: "overlay",
-      hiddenTitle: true,
+      ...(isMacOS() ? {
+        transparent: true,
+        titleBarStyle: "overlay",
+        hiddenTitle: true,
+      } : {}),
       skipTaskbar: false,
     };
 

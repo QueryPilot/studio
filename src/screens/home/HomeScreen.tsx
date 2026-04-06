@@ -6,8 +6,10 @@ import { PreferencesDialog } from "@/components/Preferences/PreferencesDialog";
 import { useMenuEventListener } from "@/hooks/useMenuEventListener";
 import { useHomeScreenStore } from "./store/homeScreenStore";
 import { isTauri } from "@/utils/tauri";
+import { platform } from "@tauri-apps/plugin-os";
 
 export function HomeScreen() {
+  const isMac = isTauri() && platform() === "macos";
   const fetchConnections = useConnectionStore((s) => s.fetchConnections);
   const { openConnectionForm } = useHomeScreenStore();
 
@@ -53,7 +55,7 @@ export function HomeScreen() {
       {/* Main layout */}
       <div className="flex-1 flex overflow-hidden relative z-10">
         {/* Left Sidebar - Navigation Hub */}
-        <div className="w-[280px] pt-6 shrink-0">
+        <div className={`w-[280px] ${isMac ? "pt-6" : "pt-2"} shrink-0`}>
           <ActionBar />
         </div>
 
