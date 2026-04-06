@@ -22,20 +22,25 @@ import {
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { useTrinoMultiCatalogData } from "@/hooks/useTrinoMultiCatalogData";
+import type { TableMeta } from "@/services/databaseService";
 
 interface CatalogSectionProps {
   connectionId: string;
   catalog: string;
+  visibleSchemas?: string[];
+  onTableClick: (table: TableMeta, catalog: string) => void;
 }
 
 function SchemaSubtree({
   connectionId,
   catalog,
   schema,
+  onTableClick,
 }: {
   connectionId: string;
   catalog: string;
   schema: string;
+  onTableClick: (table: TableMeta, catalog: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { tablesQueryOptions } = useTrinoMultiCatalogData(connectionId);
@@ -50,7 +55,7 @@ function SchemaSubtree({
       <button
         type="button"
         className="flex items-center gap-1 w-full text-left px-2 py-0.5 text-xs hover:bg-muted/50 rounded"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => { setExpanded((e) => !e); }}
       >
         <IconChevronRight
           className={cn(
@@ -74,7 +79,8 @@ function SchemaSubtree({
           {tables.map((t) => (
             <div
               key={t.name}
-              className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-muted/50 rounded cursor-default"
+              className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-muted/50 rounded cursor-pointer"
+              onClick={() => { onTableClick(t, catalog); }}
             >
               <IconTable className="h-3 w-3 shrink-0 text-primary" />
               <span className="truncate">{t.name}</span>
@@ -86,7 +92,12 @@ function SchemaSubtree({
   );
 }
 
-export function CatalogSection({ connectionId, catalog }: CatalogSectionProps) {
+export function CatalogSection({
+  connectionId,
+  catalog,
+  visibleSchemas,
+  onTableClick,
+}: CatalogSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const { schemasQueryOptions } = useTrinoMultiCatalogData(connectionId);
 
@@ -95,12 +106,16 @@ export function CatalogSection({ connectionId, catalog }: CatalogSectionProps) {
     enabled: expanded,
   });
 
+  const filteredSchemas = visibleSchemas
+    ? schemas.filter((s) => visibleSchemas.includes(s))
+    : schemas;
+
   return (
     <div className="mb-0.5">
       <button
         type="button"
         className="flex items-center gap-1 w-full text-left px-2 py-0.5 text-xs font-medium hover:bg-muted/50 rounded"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => { setExpanded((e) => !e); }}
       >
         <IconChevronRight
           className={cn(
@@ -116,17 +131,18 @@ export function CatalogSection({ connectionId, catalog }: CatalogSectionProps) {
       </button>
       {expanded && (
         <div className="pl-4">
-          {!isLoading && schemas.length === 0 && (
+          {!isLoading && filteredSchemas.length === 0 && (
             <p className="text-xs text-muted-foreground px-2 py-0.5 italic">
               No schemas
             </p>
           )}
-          {schemas.map((schema) => (
+          {filteredSchemas.map((schema) => (
             <SchemaSubtree
               key={schema}
               connectionId={connectionId}
               catalog={catalog}
               schema={schema}
+              onTableClick={onTableClick}
             />
           ))}
         </div>

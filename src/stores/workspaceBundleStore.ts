@@ -78,7 +78,10 @@ interface WorkspaceBundleStore {
     database: string,
     schema: string,
   ) => void;
-  setTrinoCatalogFilter: (connectionId: string, catalogs: string[] | undefined) => void;
+  setTrinoCatalogFilter: (
+    connectionId: string,
+    filter: { visibleCatalogs: string[]; schemaFilters: Record<string, string[]> } | undefined
+  ) => void;
   reconnectConnection: (connectionId: string) => Promise<void>;
   reconnectDisconnectedConnections: () => Promise<void>;
 
@@ -747,13 +750,13 @@ export const useWorkspaceBundleStore = create<WorkspaceBundleStore>(
       });
     },
 
-    setTrinoCatalogFilter: (connectionId, catalogs) => {
+    setTrinoCatalogFilter: (connectionId, filter) => {
       set((s) => {
         if (!s.activeWorkspace) return s;
         const conn = s.activeWorkspace.connections.get(connectionId);
         if (!conn) return s;
         const next = new Map(s.activeWorkspace.connections);
-        next.set(connectionId, { ...conn, trinoCatalogFilter: catalogs });
+        next.set(connectionId, { ...conn, trinoCatalogFilter: filter });
         return {
           activeWorkspace: { ...s.activeWorkspace, connections: next },
         };

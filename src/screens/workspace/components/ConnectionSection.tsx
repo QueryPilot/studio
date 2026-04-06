@@ -314,7 +314,18 @@ export const ConnectionSection = forwardRef<
   const trinoCatalogFilter = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.connections.get(connectionId)?.trinoCatalogFilter,
   );
-  const visibleTrinoCatalogs = trinoCatalogFilter ?? trinoCatalogs;
+
+  // Fetch ALL Trino catalogs live (for the filter UI and fallback visibility)
+  const { data: allTrinoCatalogs = [] } = useQuery({
+    queryKey: ["catalogs", connectionId],
+    queryFn: () => databaseService.listDatabases(connectionId),
+    enabled: isTrinoDb && !!connectionId,
+    staleTime: 60_000,
+  });
+
+  const visibleTrinoCatalogs =
+    trinoCatalogFilter?.visibleCatalogs ??
+    (trinoCatalogs.length > 0 ? trinoCatalogs : allTrinoCatalogs);
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
@@ -2735,12 +2746,13 @@ export const ConnectionSection = forwardRef<
             {profile.name}
           </span>
 
-          {/* Catalog filter (Trino only, when multiple catalogs configured) */}
-          {isTrinoDb && trinoCatalogs.length > 1 && (
-            <div onClick={(e) => e.stopPropagation()} className="shrink-0 -mt-1">
+          {/* Catalog filter (Trino only, when multiple catalogs available) */}
+          {isTrinoDb && allTrinoCatalogs.length > 1 && (
+            <div onClick={(e) => { e.stopPropagation(); }} className="shrink-0 -mt-1">
               <CatalogSchemaFilter
                 connectionId={connectionId}
-                catalogs={trinoCatalogs}
+                catalogs={allTrinoCatalogs}
+                initialSelected={trinoCatalogs}
               />
             </div>
           )}
@@ -2990,6 +3002,16 @@ export const ConnectionSection = forwardRef<
                   key={catalog}
                   connectionId={connectionId}
                   catalog={catalog}
+                  visibleSchemas={trinoCatalogFilter?.schemaFilters[catalog]}
+                  onTableClick={(table, cat) => {
+                    setFocusedConnection(connectionId);
+                    openTableObject({
+                      table,
+                      connectionId,
+                      database: cat,
+                      viewType: "data",
+                    });
+                  }}
                 />
               ))}
             </div>
