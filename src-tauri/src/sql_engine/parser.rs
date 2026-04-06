@@ -41,6 +41,8 @@ pub struct ParsedStatement {
 pub struct TableReference {
     pub name: String,
     pub schema: Option<String>,
+    /// Catalog component from a 3-part identifier (catalog.schema.table).
+    pub catalog: Option<String>,
     pub alias: Option<String>,
     pub position: usize,
 }
@@ -747,18 +749,28 @@ fn push_table_reference_from_name(
     tables: &mut Vec<TableReference>,
 ) {
     let parts: Vec<_> = name.0.iter().map(|ident| ident.value.clone()).collect();
-    let (schema, table_name) = if parts.len() >= 2 {
+    let (catalog, schema, table_name) = if parts.len() >= 3 {
+        // 3-part: catalog.schema.table
         (
+            Some(parts[parts.len() - 3].clone()),
             Some(parts[parts.len() - 2].clone()),
             parts.last().cloned().unwrap_or_default(),
         )
+    } else if parts.len() == 2 {
+        // 2-part: schema.table
+        (
+            None,
+            Some(parts[0].clone()),
+            parts.last().cloned().unwrap_or_default(),
+        )
     } else {
-        (None, parts.last().cloned().unwrap_or_default())
+        (None, None, parts.last().cloned().unwrap_or_default())
     };
 
     tables.push(TableReference {
         name: table_name,
         schema,
+        catalog,
         alias: alias.map(|table_alias| table_alias.name.value.clone()),
         position: 0,
     });

@@ -582,7 +582,7 @@ export interface DatabaseAdapter {
   getConstraintsQuery(schema: string, table: string): string;
 
   /** Query to list columns of a table */
-  getColumnsQuery(schema: string, table: string): string;
+  getColumnsQuery(schema: string, table: string, catalog?: string): string;
 
   /** Query to list triggers on a table */
   getTriggersQuery(schema: string, table: string): string;
@@ -606,7 +606,8 @@ export interface DatabaseAdapter {
   getObjectDefinitionQuery(
     objectType: ObjectDefinitionType,
     schema: string,
-    name: string
+    name: string,
+    catalog?: string,
   ): string;
 
   // ─────────────────────────────────────────────────────────────────

@@ -78,7 +78,10 @@ WHERE table_schema = '${this.escapeString(schema)}'
 ORDER BY table_name`;
   }
 
-  getColumnsQuery(schema: string, table: string): string {
+  getColumnsQuery(schema: string, table: string, catalog?: string): string {
+    const infoSchema = catalog
+      ? `${this.quoteIdentifier(catalog)}.information_schema`
+      : `information_schema`;
     return `
 SELECT
   column_name AS name,
@@ -95,7 +98,7 @@ SELECT
   NULL AS character_set,
   NULL AS collation,
   NULL AS extra
-FROM information_schema.columns
+FROM ${infoSchema}.columns
 WHERE table_schema = '${this.escapeString(schema)}'
   AND table_name = '${this.escapeString(table)}'
 ORDER BY ordinal_position`;
@@ -175,16 +178,23 @@ WHERE table_schema = '${this.escapeString(schema)}'
     objectType: ObjectDefinitionType,
     schema: string,
     name: string,
+    catalog?: string,
   ): string {
+    const tableRef = catalog
+      ? `${this.quoteIdentifier(catalog)}.${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`
+      : `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+    const infoSchema = catalog
+      ? `${this.quoteIdentifier(catalog)}.information_schema`
+      : `information_schema`;
     if (objectType === "view") {
       return `
 SELECT view_definition AS definition
-FROM information_schema.views
+FROM ${infoSchema}.views
 WHERE table_schema = '${this.escapeString(schema)}'
   AND table_name = '${this.escapeString(name)}'`;
     }
     if (objectType === "table") {
-      return `SHOW CREATE TABLE ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(name)}`;
+      return `SHOW CREATE TABLE ${tableRef}`;
     }
     return `SELECT '-- ${this.escapeString(objectType)} definition not available in Trino' AS definition`;
   }

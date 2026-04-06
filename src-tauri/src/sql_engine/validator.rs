@@ -130,6 +130,12 @@ fn loaded_schema_names(schema: &CachedSchema) -> HashSet<String> {
 }
 
 fn is_reference_outside_loaded_schemas(table_ref: &TableReference, schema: &CachedSchema) -> bool {
+    // 3-part catalog.schema.table references are always out-of-scope: we can't
+    // validate cross-catalog references without loading all catalog schemas.
+    if table_ref.catalog.is_some() {
+        return true;
+    }
+
     let Some(ref_schema) = table_ref.schema.as_ref() else {
         return false;
     };

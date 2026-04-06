@@ -514,10 +514,11 @@ export const IntrospectionService = {
     connectionId: string,
     schema: string,
     table: string,
+    catalog?: string,
   ): Promise<QueryColumnMeta[]> {
     const adapter = await getSqlAdapterForConnection(connectionId);
     if (!adapter) return [];
-    const sql = adapter.getColumnsQuery(schema, table);
+    const sql = adapter.getColumnsQuery(schema, table, catalog);
     const result = await BackendAPI.query(connectionId, sql);
 
     return result.rows.map((row) => {
@@ -716,10 +717,11 @@ export const IntrospectionService = {
     objectType: ObjectDefinitionType,
     schema: string,
     name: string,
+    catalog?: string,
   ): Promise<string> {
     const adapter = await getSqlAdapterForConnection(connectionId);
     if (!adapter) return "";
-    const sql = adapter.getObjectDefinitionQuery(objectType, schema, name);
+    const sql = adapter.getObjectDefinitionQuery(objectType, schema, name, catalog);
     const result = await BackendAPI.query(connectionId, sql);
 
     if (result.rows.length > 0) {

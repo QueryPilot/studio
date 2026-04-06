@@ -446,6 +446,7 @@ mod tests {
         let schema = create_test_schema();
         let existing = vec![TableReference {
             schema: Some("public".to_string()),
+            catalog: None,
             name: "users".to_string(),
             alias: Some("u".to_string()),
             position: 0,

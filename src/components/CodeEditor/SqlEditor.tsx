@@ -219,7 +219,7 @@ const getFallbackSchema = (dbType: string, database: string): string => {
   if (normalized.includes("mssql") || normalized.includes("sqlserver")) {
     return "dbo";
   }
-  if (normalized.includes("oracle")) {
+  if (normalized.includes("oracle") || normalized.includes("trino")) {
     return "";
   }
   return "public";

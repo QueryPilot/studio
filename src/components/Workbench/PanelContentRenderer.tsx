@@ -498,10 +498,12 @@ export const PanelContentRenderer: React.FC<PanelContentRendererProps> = memo(
                         <IconBookmark />
                         <span className="hidden @sm:inline">Indexes</span>
                       </TabsTrigger>
+                      {dbType !== DbType.Trino && (
                       <TabsTrigger value="triggers" tabIndex={3}>
                         <IconBolt />
                         <span className="hidden @sm:inline">Triggers</span>
                       </TabsTrigger>
+                      )}
                       {dbType && isMySQLCompatible(dbType) && (
                         <TabsTrigger value="partitions" tabIndex={4}>
                           <IconLayoutGrid />

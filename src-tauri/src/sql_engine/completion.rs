@@ -109,7 +109,7 @@ pub fn expand_select_star(
 
 /// Get completions at cursor position.
 pub fn complete(request: &CompletionRequest) -> CompletionResult {
-    let context = analyze_context(&request.document, request.position);
+    let context = analyze_context(&request.document, request.position, request.schema.as_ref());
     let word_range = get_word_range(&request.document, request.position);
     let typed_prefix = extract_typed_prefix(
         &request.document,
@@ -228,7 +228,7 @@ fn statement_at_position(doc: &ParsedDocument, position: usize) -> Option<&Parse
         .max_by_key(|s| s.range.1)
 }
 
-fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
+fn analyze_context(doc: &ParsedDocument, position: usize, schema: Option<&CachedSchema>) -> CompletionContext {
     let Some(stmt) = statement_at_position(doc, position) else {
         return CompletionContext::Statement;
     };
@@ -240,7 +240,7 @@ fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
         .collect();
     let text_before_upper = text_before.to_uppercase();
 
-    // Check for qualified identifier (e.g., "u." or "public.")
+    // Check for qualified identifier (e.g., "u." or "public." or "tpch.")
     if let Some(dot_pos) = text_before.rfind('.') {
         let before_dot = text_before[..dot_pos]
             .split_whitespace()
@@ -248,7 +248,7 @@ fn analyze_context(doc: &ParsedDocument, position: usize) -> CompletionContext {
             .unwrap_or("");
         // Check if it's a schema or alias
         if before_dot.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            if is_likely_schema(before_dot) {
+            if is_likely_schema(before_dot, schema) {
                 return CompletionContext::SchemaQualified {
                     schema: before_dot.to_string(),
                 };
@@ -381,9 +381,23 @@ fn filter_and_limit_items(items: Vec<CompletionItem>, typed_prefix: &str) -> Vec
         .collect()
 }
 
-fn is_likely_schema(name: &str) -> bool {
-    let common_schemas = ["public", "pg_catalog", "information_schema", "sys", "dbo"];
-    common_schemas.contains(&name.to_lowercase().as_str())
+fn is_likely_schema(name: &str, schema: Option<&CachedSchema>) -> bool {
+    let lower = name.to_lowercase();
+    // Well-known schema names for common databases
+    let common_schemas = ["public", "pg_catalog", "information_schema", "sys", "dbo", "main"];
+    if common_schemas.contains(&lower.as_str()) {
+        return true;
+    }
+    // Check against schema names present in the cached schema (e.g., Trino schema names)
+    if let Some(cached) = schema {
+        if cached.tables.iter()
+            .filter_map(|t| t.schema.as_ref())
+            .any(|s| s.to_lowercase() == lower)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn resolve_alias(doc: &ParsedDocument, position: usize, alias: &str) -> Option<String> {
@@ -665,7 +679,7 @@ mod tests {
         // Test with valid complete SQL - context analysis requires parsed statements
         let doc = parse_document("SELECT * FROM users WHERE id = 1", SqlDialect::PostgreSQL);
         // Position 26 is after "WHERE " (in the middle of the WHERE clause)
-        let _context = analyze_context(&doc, 26);
+        let _context = analyze_context(&doc, 26, None);
         // Context detection works on parsed statements
         assert!(!doc.statements.is_empty(), "SQL should parse successfully");
     }

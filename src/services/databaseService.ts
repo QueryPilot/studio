@@ -1016,7 +1016,7 @@ class DatabaseService {
    */
   async getTableColumns(
     connectionId: string,
-    _database: string,
+    database: string,
     schema: string,
     table: string,
   ): Promise<ColumnMeta[]> {
@@ -1029,6 +1029,7 @@ class DatabaseService {
         connectionId,
         schema,
         table,
+        database || undefined,
       );
       return columns.map(
         (c, index): ColumnMeta => ({
@@ -1480,7 +1481,7 @@ class DatabaseService {
    */
   async getObjectDefinition(
     connectionId: string,
-    _database: string,
+    database: string,
     schema: string,
     objectName: string,
     objectType: ObjectDefinitionType,
@@ -1495,6 +1496,7 @@ class DatabaseService {
         objectType,
         schema,
         objectName,
+        database || undefined,
       );
 
       return definition;
