@@ -428,7 +428,14 @@ fn map_trino_type(type_name: &str) -> String {
 #[async_trait]
 impl BaseCapability for TrinoAdapter {
     async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
-        Self::validate_options(&profile.options)?;
+        // Strip frontend-only metadata keys (trino_* with underscore) before driver validation
+        let driver_options: HashMap<String, String> = profile
+            .options
+            .iter()
+            .filter(|(k, _)| !k.starts_with("trino_"))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        Self::validate_options(&driver_options)?;
 
         let use_ssl = matches!(
             profile.ssl_mode,
@@ -485,7 +492,7 @@ impl BaseCapability for TrinoAdapter {
         *self.username.write().await = username;
         *self.catalog.write().await = catalog;
         *self.schema.write().await = schema;
-        *self.options.write().await = profile.options.clone();
+        *self.options.write().await = driver_options;
 
         // Verify connectivity — roll back state on failure
         match self.execute_full_query("SELECT 1 AS _ping").await {

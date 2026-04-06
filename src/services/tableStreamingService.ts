@@ -64,6 +64,7 @@ export async function streamEntityPage(
 ): Promise<StreamEntityPageResult> {
   const {
     connectionId,
+    database,
     entityType,
     schema = "public",
     entityName,
@@ -131,13 +132,11 @@ export async function streamEntityPage(
     embeddedFKs,
   };
 
+  const tableRef = { catalog: database, schema, table: entityName };
   const sql = (
     embeddedFKs?.length
-      ? adapter.selectWithEmbeddedFK(
-          { schema, table: entityName },
-          selectOptions,
-        )
-      : adapter.select({ schema, table: entityName }, selectOptions)
+      ? adapter.selectWithEmbeddedFK(tableRef, selectOptions)
+      : adapter.select(tableRef, selectOptions)
   ) as string;
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
@@ -178,7 +177,7 @@ export async function streamEntityPage(
             connectionId,
             schema,
             entityName,
-            { exact: useExactCount },
+            { exact: useExactCount, catalog: database },
           );
           if (countInfo.count >= 0) {
             estimatedTotal = countInfo.count;

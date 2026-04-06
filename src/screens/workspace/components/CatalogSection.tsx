@@ -54,8 +54,10 @@ function SchemaSubtree({
     <div>
       <button
         type="button"
-        className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm hover:bg-muted/50 rounded"
-        onClick={() => { setExpanded((e) => !e); }}
+        className="flex items-center gap-1 w-full text-left px-2 py-1 text-xs hover:bg-muted/50 rounded"
+        onClick={() => {
+          setExpanded((e) => !e);
+        }}
       >
         <IconChevronRight
           className={cn(
@@ -79,8 +81,10 @@ function SchemaSubtree({
           {tables.map((t) => (
             <div
               key={t.name}
-              className="flex items-center gap-1 px-2 py-1 text-sm hover:bg-muted/50 rounded cursor-pointer"
-              onClick={() => { onTableClick(t, catalog); }}
+              className="flex items-center gap-1 px-2 py-1 text-xs hover:bg-muted/50 rounded cursor-pointer"
+              onClick={() => {
+                onTableClick(t, catalog);
+              }}
             >
               <IconTable className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="truncate">{t.name}</span>
@@ -114,8 +118,10 @@ export function CatalogSection({
     <div className="mb-0.5">
       <button
         type="button"
-        className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm font-medium hover:bg-muted/50 rounded"
-        onClick={() => { setExpanded((e) => !e); }}
+        className="flex items-center gap-1 w-full text-left px-2 py-1 text-xs font-medium hover:bg-muted/50 rounded"
+        onClick={() => {
+          setExpanded((e) => !e);
+        }}
       >
         <IconChevronRight
           className={cn(

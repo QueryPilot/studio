@@ -164,6 +164,12 @@ export const DataGridBase = forwardRef(function DataGridBase(
 
   const editorClasses = cn("gdg-style", className);
 
+  // Don't render the canvas when columns is empty — glide-data-grid crashes on
+  // mouse events when columns.length === 0 (header lookup returns undefined)
+  if (columns.length === 0) {
+    return <div className={containerClasses} />;
+  }
+
   return (
     <div className={containerClasses}>
       <DataEditor

@@ -900,6 +900,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     schema: string,
     table: string,
     exact?: boolean,
+    catalog?: string,
   ): string;
   abstract getTableStatsQuery(schema: string, table: string): string;
   abstract getForeignKeyTargetsQuery(schema: string): string;

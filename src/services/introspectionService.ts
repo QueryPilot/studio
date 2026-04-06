@@ -653,12 +653,13 @@ export const IntrospectionService = {
     connectionId: string,
     schema: string,
     table: string,
-    options?: { exact?: boolean },
+    options?: { exact?: boolean; catalog?: string },
   ): Promise<{ count: number; isEstimated: boolean }> {
     const adapter = await getSqlAdapterForConnection(connectionId);
     if (!adapter) return { count: 0, isEstimated: false };
 
-    const exactSql = adapter.getTableCountQuery(schema, table, true);
+    const catalog = options?.catalog;
+    const exactSql = adapter.getTableCountQuery(schema, table, true, catalog);
 
     if (options?.exact) {
       const exactResult = await BackendAPI.query(connectionId, exactSql);
@@ -672,7 +673,7 @@ export const IntrospectionService = {
     }
 
     // Try estimated count first
-    const estimatedSql = adapter.getTableCountQuery(schema, table, false);
+    const estimatedSql = adapter.getTableCountQuery(schema, table, false, catalog);
     const estimatedResult = await BackendAPI.query(connectionId, estimatedSql);
 
     let estimatedCount: number | undefined;

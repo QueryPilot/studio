@@ -136,11 +136,23 @@ ORDER BY ordinal_position`;
     return `SELECT NULL WHERE false`;
   }
 
-  getTableCountQuery(schema: string, table: string, exact?: boolean): string {
-    if (!exact) {
-      return `SHOW STATS FOR ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+  protected formatTableRef(target: import("../types").TableRef): string {
+    const schemaPart = target.schema ? `${this.quoteIdentifier(target.schema)}.` : "";
+    const tablePart = `${schemaPart}${this.quoteIdentifier(target.table)}`;
+    if (target.catalog) {
+      return `${this.quoteIdentifier(target.catalog)}.${tablePart}`;
     }
-    return `SELECT count(*) AS count FROM ${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+    return tablePart;
+  }
+
+  getTableCountQuery(schema: string, table: string, exact?: boolean, catalog?: string): string {
+    const tableRef = catalog
+      ? `${this.quoteIdentifier(catalog)}.${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`
+      : `${this.quoteIdentifier(schema)}.${this.quoteIdentifier(table)}`;
+    if (!exact) {
+      return `SHOW STATS FOR ${tableRef}`;
+    }
+    return `SELECT count(*) AS count FROM ${tableRef}`;
   }
 
   getTableStatsQuery(schema: string, table: string): string {

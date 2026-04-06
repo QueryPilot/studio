@@ -316,16 +316,17 @@ export const ConnectionSection = forwardRef<
   );
 
   // Fetch ALL Trino catalogs live (for the filter UI and fallback visibility)
-  const { data: allTrinoCatalogs = [] } = useQuery({
+  const { data: allTrinoCatalogs = [], isLoading: isLoadingCatalogs } = useQuery({
     queryKey: ["catalogs", connectionId],
     queryFn: () => databaseService.listDatabases(connectionId),
     enabled: isTrinoDb && !!connectionId,
     staleTime: 60_000,
   });
 
+  // While catalogs load, fall back to previously known catalogs from profile
+  const resolvedAllCatalogs = allTrinoCatalogs.length > 0 ? allTrinoCatalogs : trinoCatalogs;
   const visibleTrinoCatalogs =
-    trinoCatalogFilter?.visibleCatalogs ??
-    (trinoCatalogs.length > 0 ? trinoCatalogs : allTrinoCatalogs);
+    trinoCatalogFilter?.visibleCatalogs ?? resolvedAllCatalogs;
 
   // Local state for expanded sections within this connection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
@@ -2721,7 +2722,9 @@ export const ConnectionSection = forwardRef<
       ? tables.length === 0
       : isDocumentDb
         ? mongoCollections.length === 0
-        : true);
+        : isTrinoDb
+          ? isLoadingCatalogs && resolvedAllCatalogs.length === 0
+          : true);
 
   return (
     <div ref={ref}>
@@ -2752,7 +2755,6 @@ export const ConnectionSection = forwardRef<
               <CatalogSchemaFilter
                 connectionId={connectionId}
                 catalogs={allTrinoCatalogs}
-                initialSelected={trinoCatalogs}
               />
             </div>
           )}
@@ -2992,7 +2994,7 @@ export const ConnectionSection = forwardRef<
           {/* Object tree - Trino: catalog → schema → table hierarchy */}
           {isTrinoDb && !showLoadingSkeleton && !schemaError && (
             <div className="px-1 py-1">
-              {visibleTrinoCatalogs.length === 0 && (
+              {visibleTrinoCatalogs.length === 0 && !isLoadingCatalogs && (
                 <p className="text-xs text-muted-foreground px-2 py-1 italic">
                   No catalogs configured. Edit the connection to add catalogs.
                 </p>

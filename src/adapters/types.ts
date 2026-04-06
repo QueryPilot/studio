@@ -114,6 +114,7 @@ export type DatabaseParadigm = 'sql' | 'document' | 'graph' | 'keyvalue';
  * Table reference with optional schema
  */
 export interface TableRef {
+  catalog?: string;
   schema?: string;
   table: string;
 }
@@ -593,7 +594,7 @@ export interface DatabaseAdapter {
   getSupportedColumnTypesQuery(): string;
 
   /** Query to count rows in a table (estimated or exact) */
-  getTableCountQuery(schema: string, table: string, exact?: boolean): string;
+  getTableCountQuery(schema: string, table: string, exact?: boolean, catalog?: string): string;
 
   /** Query to get stats for a single table (owner, size, row_count, comment) */
   getTableStatsQuery(schema: string, table: string): string;
