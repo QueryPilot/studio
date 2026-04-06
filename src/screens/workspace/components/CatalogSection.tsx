@@ -54,16 +54,16 @@ function SchemaSubtree({
     <div>
       <button
         type="button"
-        className="flex items-center gap-1 w-full text-left px-2 py-0.5 text-xs hover:bg-muted/50 rounded"
+        className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm hover:bg-muted/50 rounded"
         onClick={() => { setExpanded((e) => !e); }}
       >
         <IconChevronRight
           className={cn(
-            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
             expanded && "rotate-90",
           )}
         />
-        <IconLayout2 className="h-3 w-3 shrink-0 text-emerald-600" />
+        <IconLayout2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
         <span className="truncate">{schema}</span>
         {isLoading && (
           <IconLoader2 className="h-3 w-3 ml-auto animate-spin text-muted-foreground" />
@@ -79,10 +79,10 @@ function SchemaSubtree({
           {tables.map((t) => (
             <div
               key={t.name}
-              className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-muted/50 rounded cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 text-sm hover:bg-muted/50 rounded cursor-pointer"
               onClick={() => { onTableClick(t, catalog); }}
             >
-              <IconTable className="h-3 w-3 shrink-0 text-primary" />
+              <IconTable className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="truncate">{t.name}</span>
             </div>
           ))}
@@ -114,16 +114,16 @@ export function CatalogSection({
     <div className="mb-0.5">
       <button
         type="button"
-        className="flex items-center gap-1 w-full text-left px-2 py-0.5 text-xs font-medium hover:bg-muted/50 rounded"
+        className="flex items-center gap-1 w-full text-left px-2 py-1 text-sm font-medium hover:bg-muted/50 rounded"
         onClick={() => { setExpanded((e) => !e); }}
       >
         <IconChevronRight
           className={cn(
-            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
             expanded && "rotate-90",
           )}
         />
-        <IconDatabase className="h-3 w-3 shrink-0 text-orange-500" />
+        <IconDatabase className="h-3.5 w-3.5 shrink-0 text-orange-500" />
         <span className="truncate">{catalog}</span>
         {isLoading && (
           <IconLoader2 className="h-3 w-3 ml-auto animate-spin text-muted-foreground" />
