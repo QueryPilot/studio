@@ -21,6 +21,7 @@ export interface ConnectionProfile {
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
   default_schema?: string; // Default schema for schema-aware SQL databases (e.g., PostgreSQL, SQL Server, Trino)
+  trino_catalogs?: string[]; // Trino: ordered list of catalogs to show in the sidebar (first = primary connection catalog)
   safe_mode?: SafeMode; // Per-connection safe mode (defaults to "full_access")
   pooler_mode?: boolean | null; // PostgreSQL connection pooler override: true, false, or auto-detect (null)
 }

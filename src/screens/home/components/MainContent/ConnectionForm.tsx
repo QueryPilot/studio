@@ -209,6 +209,11 @@ export function ConnectionForm() {
   const [username, setUsername] = useState(connection?.profile.username || "");
   const [password, setPassword] = useState(connection?.profile.password || "");
   const [database, setDatabase] = useState(connection?.profile.database || "");
+  const [trinoCatalogs, setTrinoCatalogs] = useState<string[]>(
+    connection?.profile.trino_catalogs ??
+      (connection?.profile.database ? [connection.profile.database] : [])
+  );
+  const [trinoCatalogInput, setTrinoCatalogInput] = useState("");
   const [defaultSchema, setDefaultSchema] = useState(
     connection?.profile.default_schema || "",
   );
@@ -447,11 +452,7 @@ export function ConnectionForm() {
     }
   }, [dbType, sslMode]);
 
-  useEffect(() => {
-    if (!connection && dbType === "trino") {
-      setSafeMode("read_only");
-    }
-  }, [dbType, connection]);
+  // Trino supports writes — no forced safe mode on new connections
 
   useEffect(() => {
     if (useSSHAgent) {
@@ -590,6 +591,9 @@ export function ConnectionForm() {
 
       if (config.dbType === "trino") {
         setDefaultSchema(parsedDefaultSchema ?? "");
+        if (config.database) {
+          setTrinoCatalogs([config.database]);
+        }
       }
 
       // Set connection options from query parameters
@@ -896,6 +900,9 @@ export function ConnectionForm() {
           : {}),
       },
       default_schema: defaultSchema || undefined,
+      ...(dbType === "trino" && trinoCatalogs.length > 0
+        ? { trino_catalogs: trinoCatalogs }
+        : {}),
       safe_mode: safeMode,
       pooler_mode:
         dbType === "postgresql"
@@ -1608,23 +1615,68 @@ export function ConnectionForm() {
                     {dbType === "oracle" && oracleConnectMode === "service_name"
                       ? "Service Name"
                       : dbType === "trino"
-                        ? "Catalog"
+                        ? "Catalogs"
                         : "Database"}
                   </Label>
-                  <Input
-                    id="database"
-                    className="mt-1 h-8 text-xs"
-                    value={database}
-                    onChange={(e) => {
-                      setDatabase(e.target.value);
-                    }}
-                    placeholder={
-                      dbType === "oracle" && oracleConnectMode === "service_name"
-                        ? "ORCL"
-                        : "database name"
-                    }
-                    disabled={isTesting}
-                  />
+                  {dbType === "trino" ? (
+                    <div className="mt-1 min-h-[32px] flex flex-wrap gap-1 items-center px-2 py-1 border rounded-md text-xs bg-background focus-within:ring-1 focus-within:ring-ring">
+                      {trinoCatalogs.map((cat) => (
+                        <span key={cat} className="inline-flex items-center gap-0.5 bg-muted rounded px-1.5 py-0.5 text-xs">
+                          {cat}
+                          <button
+                            type="button"
+                            disabled={isTesting}
+                            onClick={() => {
+                              const next = trinoCatalogs.filter((c) => c !== cat);
+                              setTrinoCatalogs(next);
+                              setDatabase(next[0] ?? "");
+                            }}
+                            className="ml-0.5 hover:text-destructive"
+                          >
+                            <IconX className="h-2.5 w-2.5" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        className="flex-1 min-w-[80px] bg-transparent outline-none text-xs"
+                        placeholder={trinoCatalogs.length === 0 ? "tpch, memory, iceberg…" : "add catalog…"}
+                        value={trinoCatalogInput}
+                        disabled={isTesting}
+                        onChange={(e) => { setTrinoCatalogInput(e.target.value); }}
+                        onKeyDown={(e) => {
+                          if ((e.key === "Enter" || e.key === ",") && trinoCatalogInput.trim()) {
+                            e.preventDefault();
+                            const name = trinoCatalogInput.trim().replace(/,$/, "");
+                            if (name && !trinoCatalogs.includes(name)) {
+                              const next = [...trinoCatalogs, name];
+                              setTrinoCatalogs(next);
+                              setDatabase(next[0] ?? "");
+                            }
+                            setTrinoCatalogInput("");
+                          } else if (e.key === "Backspace" && !trinoCatalogInput && trinoCatalogs.length) {
+                            const next = trinoCatalogs.slice(0, -1);
+                            setTrinoCatalogs(next);
+                            setDatabase(next[0] ?? "");
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <Input
+                      id="database"
+                      className="mt-1 h-8 text-xs"
+                      value={database}
+                      onChange={(e) => {
+                        setDatabase(e.target.value);
+                      }}
+                      placeholder={
+                        dbType === "oracle" && oracleConnectMode === "service_name"
+                          ? "ORCL"
+                          : "database name"
+                      }
+                      disabled={isTesting}
+                    />
+                  )}
                 </div>
                 {(dbType === "postgresql" || dbType === "mssql" || dbType === "trino") && (
                   <div>
