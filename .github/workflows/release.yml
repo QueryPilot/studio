@@ -166,6 +166,14 @@ jobs:
             libgtk-3-dev \
             libfuse2
 
+      - name: Import GPG key for Linux signing
+        if: matrix.platform == 'linux' && secrets.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "✅ GPG key imported for AppImage/RPM signing"
+
       - name: Import Windows certificate
         if: matrix.platform == 'windows'
         env:
@@ -239,27 +247,43 @@ jobs:
       # ============================================
 
       - name: Build querypilot CLI
+        shell: bash
         run: |
           TARGET="${{ matrix.target }}"
           mkdir -p target/release
 
           cargo build --release --package querypilot --target "$TARGET"
-          install -m 755 "target/$TARGET/release/querypilot" "target/release/querypilot-$TARGET"
+
+          # Determine binary name (Windows adds .exe)
+          if [[ "$TARGET" == *windows* ]]; then
+            BIN_NAME="querypilot.exe"
+          else
+            BIN_NAME="querypilot"
+          fi
+
+          cp "target/$TARGET/release/$BIN_NAME" "target/release/querypilot-$TARGET"
+          if [[ "$TARGET" != *windows* ]]; then
+            chmod 755 "target/release/querypilot-$TARGET"
+          fi
 
           EXPECTED_PATH="target/release/querypilot-$TARGET"
           if [ ! -f "$EXPECTED_PATH" ]; then
             echo "❌ ERROR: Missing querypilot CLI artifact: $EXPECTED_PATH"
             exit 1
           fi
-          if [ ! -x "$EXPECTED_PATH" ]; then
-            echo "❌ ERROR: querypilot CLI is not executable: $EXPECTED_PATH"
-            exit 1
-          fi
 
-          SMOKE_REQUEST='{"version":"1","requestId":"ci-smoke","params":{}}'
-          printf '%s' "$SMOKE_REQUEST" \
-            | "$EXPECTED_PATH" agent workspace.listTabs \
-            | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o.get("ok") is True; assert o.get("requestId")=="ci-smoke"; assert o.get("capability")=="workspace.listTabs"'
+          # Smoke test (skip on Windows — cross-shell piping issues)
+          if [[ "$TARGET" != *windows* ]]; then
+            if [ ! -x "$EXPECTED_PATH" ]; then
+              echo "❌ ERROR: querypilot CLI is not executable: $EXPECTED_PATH"
+              exit 1
+            fi
+
+            SMOKE_REQUEST='{"version":"1","requestId":"ci-smoke","params":{}}'
+            printf '%s' "$SMOKE_REQUEST" \
+              | "$EXPECTED_PATH" agent workspace.listTabs \
+              | python3 -c 'import json,sys; o=json.load(sys.stdin); assert o.get("ok") is True; assert o.get("requestId")=="ci-smoke"; assert o.get("capability")=="workspace.listTabs"'
+          fi
 
           ls -la target/release/querypilot*
           echo "✅ querypilot CLI built for $TARGET"
@@ -317,6 +341,15 @@ jobs:
           VITE_DISABLE_SOURCEMAPS: "true"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          # AppImage GPG signing
+          SIGN: ${{ secrets.GPG_PRIVATE_KEY != '' && '1' || '' }}
+          SIGN_KEY: ${{ secrets.GPG_KEY_ID }}
+          APPIMAGETOOL_SIGN_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          APPIMAGETOOL_FORCE_SIGN: ${{ secrets.GPG_PRIVATE_KEY != '' && '1' || '' }}
+          # RPM GPG signing
+          TAURI_SIGNING_RPM_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          TAURI_SIGNING_RPM_KEY_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          # Sentry
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           VITE_SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         shell: bash
@@ -397,6 +430,8 @@ jobs:
           APPIMAGE_PATH=$(find target/${{ matrix.target }}/release/bundle/appimage -name "*.AppImage" | head -n 1)
           # Find .deb
           DEB_PATH=$(find target/${{ matrix.target }}/release/bundle/deb -name "*.deb" | head -n 1)
+          # Find .rpm
+          RPM_PATH=$(find target/${{ matrix.target }}/release/bundle/rpm -name "*.rpm" 2>/dev/null | head -n 1)
           # Find updater archives
           UPDATER_ARCHIVE=$(find target/${{ matrix.target }}/release/bundle -name "*.AppImage.tar.gz" | head -n 1)
           UPDATER_SIG=$(find target/${{ matrix.target }}/release/bundle -name "*.AppImage.tar.gz.sig" | head -n 1)
@@ -409,6 +444,7 @@ jobs:
           # Name artifacts
           APPIMAGE_NAME="QueryPilot_${VERSION}_${ARCH}.AppImage"
           DEB_NAME="QueryPilot_${VERSION}_${ARCH}.deb"
+          RPM_NAME="QueryPilot_${VERSION}_${ARCH}.rpm"
 
           mv "$APPIMAGE_PATH" "$APPIMAGE_NAME"
           UPLOAD_FILES="$APPIMAGE_NAME"
@@ -416,6 +452,11 @@ jobs:
           if [ -n "$DEB_PATH" ]; then
             mv "$DEB_PATH" "$DEB_NAME"
             UPLOAD_FILES="$UPLOAD_FILES $DEB_NAME"
+          fi
+
+          if [ -n "$RPM_PATH" ]; then
+            mv "$RPM_PATH" "$RPM_NAME"
+            UPLOAD_FILES="$UPLOAD_FILES $RPM_NAME"
           fi
 
           if [ -n "$UPDATER_ARCHIVE" ] && [ -n "$UPDATER_SIG" ]; then
