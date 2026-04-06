@@ -503,6 +503,8 @@ jobs:
           gh release download "$VERSION" --pattern "*.app.tar.gz.sig" || true
           gh release download "$VERSION" --pattern "*.AppImage.tar.gz" || true
           gh release download "$VERSION" --pattern "*.AppImage.tar.gz.sig" || true
+          gh release download "$VERSION" --pattern "*.nsis.zip" || true
+          gh release download "$VERSION" --pattern "*.nsis.zip.sig" || true
           ls -lh *.tar.gz *.sig 2>/dev/null || true
 
       - name: Generate update manifest
@@ -547,7 +549,7 @@ jobs:
           AARCH64_SIGNATURE=$(tr -d '\r\n' < "$AARCH64_SIG")
           X86_64_SIGNATURE=$(tr -d '\r\n' < "$X86_64_SIG")
 
-          # Linux artifacts (optional - may not be built yet)
+          # Linux artifacts (optional)
           LINUX_X86_64_ARCHIVE="QueryPilot_${VERSION}_x86_64.AppImage.tar.gz"
           LINUX_X86_64_SIG="QueryPilot_${VERSION}_x86_64.AppImage.tar.gz.sig"
           INCLUDE_LINUX="false"
@@ -557,49 +559,51 @@ jobs:
             LINUX_X86_64_SIGNATURE=$(tr -d '\r\n' < "$LINUX_X86_64_SIG")
           fi
 
-          # Build manifest
-          if [ "$INCLUDE_LINUX" = "true" ]; then
-            jq -n \
-              --arg version "$VERSION_NUMBER" \
-              --arg notes "$RAW_NOTES" \
-              --arg pub_date "$PUB_DATE" \
-              --arg aarch64_sig "$AARCH64_SIGNATURE" \
-              --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
-              --arg x86_64_sig "$X86_64_SIGNATURE" \
-              --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
-              --arg linux_x86_64_sig "$LINUX_X86_64_SIGNATURE" \
-              --arg linux_x86_64_url "$BASE_URL/$LINUX_X86_64_ARCHIVE" \
-              '{
-                version: $version,
-                notes: $notes,
-                pub_date: $pub_date,
-                platforms: {
-                  "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
-                  "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url },
-                  "linux-x86_64": { signature: $linux_x86_64_sig, url: $linux_x86_64_url }
-                }
-              }' > latest.json
-          else
-            jq -n \
-              --arg version "$VERSION_NUMBER" \
-              --arg notes "$RAW_NOTES" \
-              --arg pub_date "$PUB_DATE" \
-              --arg aarch64_sig "$AARCH64_SIGNATURE" \
-              --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
-              --arg x86_64_sig "$X86_64_SIGNATURE" \
-              --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
-              '{
-                version: $version,
-                notes: $notes,
-                pub_date: $pub_date,
-                platforms: {
-                  "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
-                  "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url }
-                }
-              }' > latest.json
+          # Windows artifacts (optional)
+          WINDOWS_X86_64_ARCHIVE="QueryPilot_${VERSION}_x86_64.nsis.zip"
+          WINDOWS_X86_64_SIG="QueryPilot_${VERSION}_x86_64.nsis.zip.sig"
+          INCLUDE_WINDOWS="false"
+
+          if [ -f "$WINDOWS_X86_64_ARCHIVE" ] && [ -f "$WINDOWS_X86_64_SIG" ]; then
+            INCLUDE_WINDOWS="true"
+            WINDOWS_X86_64_SIGNATURE=$(tr -d '\r\n' < "$WINDOWS_X86_64_SIG")
           fi
 
-          echo "✓ Generated updater manifest (linux=$INCLUDE_LINUX)"
+          # Build manifest with jq, adding platforms incrementally
+          MANIFEST=$(jq -n \
+            --arg version "$VERSION_NUMBER" \
+            --arg notes "$RAW_NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg aarch64_sig "$AARCH64_SIGNATURE" \
+            --arg aarch64_url "$BASE_URL/$AARCH64_ARCHIVE" \
+            --arg x86_64_sig "$X86_64_SIGNATURE" \
+            --arg x86_64_url "$BASE_URL/$X86_64_ARCHIVE" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $aarch64_sig, url: $aarch64_url },
+                "darwin-x86_64": { signature: $x86_64_sig, url: $x86_64_url }
+              }
+            }')
+
+          if [ "$INCLUDE_LINUX" = "true" ]; then
+            MANIFEST=$(echo "$MANIFEST" | jq \
+              --arg sig "$LINUX_X86_64_SIGNATURE" \
+              --arg url "$BASE_URL/$LINUX_X86_64_ARCHIVE" \
+              '.platforms["linux-x86_64"] = { signature: $sig, url: $url }')
+          fi
+
+          if [ "$INCLUDE_WINDOWS" = "true" ]; then
+            MANIFEST=$(echo "$MANIFEST" | jq \
+              --arg sig "$WINDOWS_X86_64_SIGNATURE" \
+              --arg url "$BASE_URL/$WINDOWS_X86_64_ARCHIVE" \
+              '.platforms["windows-x86_64"] = { signature: $sig, url: $url }')
+          fi
+
+          echo "$MANIFEST" > latest.json
+          echo "✓ Generated updater manifest (linux=$INCLUDE_LINUX, windows=$INCLUDE_WINDOWS)"
           cat latest.json
 
       - name: Upload manifest to source release
