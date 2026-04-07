@@ -1,7 +1,7 @@
 # Query Pilot
 
 <p align="center">
-  <img src="https://github.com/QueryPilot/studio/raw/main/assets/logo.png" width="120" alt="Query Pilot Logo">
+  <img src="https://github.com/QueryPilot/studio/raw/master/assets/logo.png" width="120" alt="Query Pilot Logo">
 </p>
 
 <p align="center"><em>Minimal. Fast. Cost saving. A database client that fits your workflow.</em></p>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="https://github.com/QueryPilot/studio/raw/main/assets/preview.png" alt="Query Pilot Preview" width="100%">
+  <img src="https://github.com/QueryPilot/studio/raw/master/assets/preview.png" alt="Query Pilot Preview" width="100%">
 </p>
 
 > **Beta** — Under active development. Frequent updates, occasional rough edges. [Report issues here.](https://github.com/QueryPilot/studio/issues/new?template=bug_report.md)
