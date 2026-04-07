@@ -12,6 +12,7 @@ use ssh::rate_limiter::RateLimiter;
 use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
+#[cfg(target_os = "macos")]
 use window_vibrancy::NSVisualEffectMaterial;
 
 fn main() {
@@ -30,13 +31,13 @@ fn main() {
     let _sentry_guard = sentry_integration::initialize_sentry(false, env!("CARGO_PKG_VERSION"));
 
     // Create auth manager for credential caching (Azure AD SAML, etc.)
-    let auth_manager = Arc::new(crate::tunnel::auth::AuthManager::new());
+    let auth_manager = Arc::new(query_pilot::tunnel::auth::AuthManager::new());
 
     // Create tunnel manager (depends on auth_manager)
-    let tunnel_manager = Arc::new(crate::tunnel::TunnelManager::new(auth_manager.clone()));
+    let tunnel_manager = Arc::new(query_pilot::tunnel::TunnelManager::new(auth_manager.clone()));
 
     // Create connection manager (with tunnel manager wired in)
-    let mut manager = core::manager::ConnectionManager::new();
+    let mut manager = query_pilot::core::manager::ConnectionManager::new();
     manager.set_tunnel_manager(tunnel_manager.clone());
     let manager = Arc::new(manager);
 
@@ -88,7 +89,7 @@ fn main() {
         .manage(ai_context::AiContextState(Arc::clone(&ai_context)))
         .setup(|app| {
             // Set app handle on tunnel manager for webview auth
-            if let Some(tm) = app.try_state::<Arc<crate::tunnel::TunnelManager>>() {
+            if let Some(tm) = app.try_state::<Arc<query_pilot::tunnel::TunnelManager>>() {
                 let handle = app.handle().clone();
                 let tm = tm.inner().clone();
                 tauri::async_runtime::spawn(async move {
@@ -96,9 +97,32 @@ fn main() {
                 });
             }
 
-            // Build and set the application menu
+            // Build and set the application menu (registers keyboard accelerators)
             let menu = query_pilot::menu::build_menu(app.handle()).expect("Failed to build menu");
             app.set_menu(menu).expect("Failed to set menu");
+
+            // Windows: remove native decorations, hide the menu bar, and apply Mica.
+            // The menu stays registered so accelerators (Ctrl+N, Ctrl+T, etc.) still fire,
+            // but no visible menu bar is rendered.
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_decorations(false);
+                    let _ = window.hide_menu();
+
+                    // Apply Mica early so the DWM backdrop is ready before the
+                    // first frame renders. Then kick the compositor to flush.
+                    use window_vibrancy::apply_mica;
+                    match apply_mica(&window, None) {
+                        Ok(()) => {
+                            if let Ok(hwnd) = window.hwnd() {
+                                force_mica_redraw(hwnd.0 as isize);
+                            }
+                        }
+                        Err(e) => tracing::warn!("Failed to apply Mica in setup: {:?}", e),
+                    }
+                }
+            }
 
             // Register menu event handler
             let app_handle = app.handle().clone();
@@ -120,6 +144,7 @@ fn main() {
             Ok(())
         })
         .on_page_load(|webview, _payload| {
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             let window = webview.window();
             #[cfg(target_os = "macos")]
             {
@@ -134,13 +159,21 @@ fn main() {
             #[cfg(target_os = "windows")]
             {
                 use window_vibrancy::apply_mica;
-                let _ = apply_mica(&window, Some(true));
+                match apply_mica(&window, None) {
+                    Ok(()) => {
+                        if let Ok(hwnd) = window.hwnd() {
+                            force_mica_redraw(hwnd.0 as isize);
+                        }
+                    }
+                    Err(e) => tracing::warn!("Failed to apply Mica on page load: {:?}", e),
+                }
+                let _ = window.hide_menu();
             }
         })
         .invoke_handler(tauri::generate_handler![
-            crate::vault::vault_write,
-            crate::vault::vault_read,
-            crate::vault::vault_reset,
+            query_pilot::vault::vault_write,
+            query_pilot::vault::vault_read,
+            query_pilot::vault::vault_reset,
             commands::connect,
             commands::disconnect,
             commands::switch_database,
@@ -256,6 +289,8 @@ fn main() {
             commands::open_auth_webview,
             // Telemetry commands
             sentry_integration::configure_telemetry,
+            // Window theme commands
+            set_window_theme,
         ])
         .build(context)
         .expect("error while building tauri application");
@@ -273,10 +308,10 @@ fn main() {
 
             // Run cleanup with overall timeout to prevent hanging
             let conn_manager_opt = app_handle
-                .try_state::<Arc<core::manager::ConnectionManager>>()
+                .try_state::<Arc<query_pilot::core::manager::ConnectionManager>>()
                 .map(|s| s.inner().clone());
             let tunnel_manager_opt = app_handle
-                .try_state::<Arc<crate::tunnel::TunnelManager>>()
+                .try_state::<Arc<query_pilot::tunnel::TunnelManager>>()
                 .map(|s| s.inner().clone());
             let acp_manager = acp_manager_for_cleanup.clone();
 
@@ -318,6 +353,56 @@ fn main() {
             });
         }
     });
+}
+
+/// IPC command: apply Mica with the correct dark/light variant on Windows.
+/// Called from frontend whenever the resolved theme changes.
+#[tauri::command]
+fn set_window_theme(window: tauri::Window, dark: bool) {
+    #[cfg(target_os = "windows")]
+    {
+        use window_vibrancy::apply_mica;
+        match apply_mica(&window, Some(dark)) {
+            Ok(()) => {
+                if let Ok(hwnd) = window.hwnd() {
+                    force_mica_redraw(hwnd.0 as isize);
+                }
+            }
+            Err(e) => tracing::warn!("Failed to apply Mica (dark={}): {:?}", dark, e),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, dark);
+    }
+}
+
+/// Force the DWM compositor to redraw the Mica backdrop.
+///
+/// After applying a Mica/Acrylic backdrop via DwmSetWindowAttribute, newer
+/// WebView2 builds may not pick up the change until the window frame is
+/// invalidated. We call SetWindowPos with SWP_FRAMECHANGED (no actual move
+/// or resize) which sends WM_NCCALCSIZE and forces a full recomposite.
+#[cfg(target_os = "windows")]
+fn force_mica_redraw(hwnd: isize) {
+    #[link(name = "user32")]
+    extern "system" {
+        fn SetWindowPos(
+            hwnd: isize,
+            hwnd_insert_after: isize,
+            x: i32,
+            y: i32,
+            cx: i32,
+            cy: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    // SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE
+    const SWP_FLAGS: u32 = 0x0002 | 0x0001 | 0x0004 | 0x0020 | 0x0010;
+    unsafe {
+        SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_FLAGS);
+    }
 }
 
 #[cfg(target_os = "macos")]

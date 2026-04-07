@@ -375,6 +375,44 @@ async fn create_ssh_session(
     Ok(session)
 }
 
+#[cfg(unix)]
+async fn connect_ssh_agent(
+) -> std::result::Result<
+    russh::keys::agent::client::AgentClient<tokio::net::UnixStream>,
+    AppError,
+> {
+    let sock = std::env::var("SSH_AUTH_SOCK").map_err(|_| {
+        AppError::SshAuthFailed(
+            "SSH_AUTH_SOCK is not set. Make sure ssh-agent is running.".into(),
+        )
+    })?;
+    let stream = tokio::net::UnixStream::connect(&sock)
+        .await
+        .map_err(|e| {
+            AppError::SshAuthFailed(format!("Failed to connect to SSH agent: {}", e))
+        })?;
+    Ok(russh::keys::agent::client::AgentClient::connect(stream))
+}
+
+#[cfg(windows)]
+async fn connect_ssh_agent(
+) -> std::result::Result<
+    russh::keys::agent::client::AgentClient<
+        tokio::net::windows::named_pipe::NamedPipeClient,
+    >,
+    AppError,
+> {
+    let stream = tokio::net::windows::named_pipe::ClientOptions::new()
+        .open(r"\\.\pipe\openssh-ssh-agent")
+        .map_err(|e| {
+            AppError::SshAuthFailed(format!(
+                "Failed to connect to SSH agent pipe: {}. Make sure OpenSSH Agent service is running.",
+                e
+            ))
+        })?;
+    Ok(russh::keys::agent::client::AgentClient::connect(stream))
+}
+
 /// Authenticate SSH session based on auth method
 async fn authenticate_session(
     session: &mut client::Handle<SshClientHandler>,
@@ -445,15 +483,7 @@ async fn authenticate_session(
             }
         }
         SshAuthMethod::Agent => {
-            let mut agent =
-                russh::keys::agent::client::AgentClient::connect_env()
-                    .await
-                    .map_err(|e| {
-                        AppError::SshAuthFailed(format!(
-                            "SSH agent connection failed: {}. Make sure ssh-agent is running and has keys loaded.",
-                            e
-                        ))
-                    })?;
+            let mut agent = connect_ssh_agent().await?;
 
             let identities = agent.request_identities().await.map_err(|e| {
                 AppError::SshAuthFailed(format!("SSH agent failed to list identities: {}", e))

@@ -712,7 +712,7 @@ pub async fn download_tool(
 /// Runs `brew install <package>` and returns the output.
 /// Only available on macOS.
 #[tauri::command]
-pub async fn install_tool_via_brew(package_name: String) -> Result<String, String> {
+pub async fn install_tool_via_brew(_package_name: String) -> Result<String, String> {
     #[cfg(not(target_os = "macos"))]
     {
         return Err("Homebrew installation is only available on macOS".to_string());
@@ -724,7 +724,7 @@ pub async fn install_tool_via_brew(package_name: String) -> Result<String, Strin
 
         let output = Command::new("brew")
             .arg("install")
-            .arg(&package_name)
+            .arg(&_package_name)
             .output()
             .await
             .map_err(|e| format!("Failed to run brew: {}", e))?;

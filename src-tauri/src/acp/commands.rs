@@ -771,38 +771,90 @@ pub async fn acp_get_querypilot_cli_path(_app_handle: tauri::AppHandle) -> Resul
 }
 
 /// Install a package using the specified package manager.
-/// Runs through the user's shell to ensure the correct PATH is available,
-/// which is critical for production macOS builds where GUI apps inherit
-/// a minimal PATH from launchd.
+///
+/// Routes through `run_pm_command` which handles the Windows `.cmd` wrapper
+/// quoting issue (see that function's doc comment for details).
 #[tauri::command]
 pub async fn acp_install_package(
     package_name: String,
     manager_type: String,
     package_manager: String, // npm, pnpm, yarn, bun (for npm type) or brew (for brew type)
 ) -> Result<String, String> {
-    let shell_cmd = match manager_type.as_str() {
+    let output = match manager_type.as_str() {
         "npm" => {
-            let pm = match package_manager.as_str() {
-                "pnpm" => "pnpm",
-                "yarn" => "yarn",
-                "bun" => "bun",
-                _ => "npm",
+            let sub_args: Vec<&str> = match package_manager.as_str() {
+                "yarn" => vec!["global", "add", &package_name],
+                _ => vec!["install", "-g", &package_name],
             };
-            format!("{} install -g '{}'", pm, package_name)
+            tracing::info!("Installing {} via {} {:?}", package_name, package_manager, sub_args);
+            run_pm_command(&package_manager, &sub_args)
+                .map_err(|e| format!("Failed to run {}: {}", package_manager, e))?
         }
-        "brew" => format!("brew install '{}'", package_name),
+        "brew" => {
+            if cfg!(windows) {
+                return Err("Homebrew is not available on Windows".to_string());
+            }
+            let user_path = super::discovery::get_user_path();
+            std::process::Command::new("brew")
+                .args(["install", &package_name])
+                .env("PATH", &user_path)
+                .output()
+                .map_err(|e| format!("Failed to run brew: {}", e))?
+        }
         _ => return Err(format!("Unknown manager type: {}", manager_type)),
     };
-
-    let output = super::discovery::run_in_user_shell(&shell_cmd)
-        .map_err(|e| format!("Failed to run {}: {}", package_manager, e))?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(stdout)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(format!("Installation failed: {}", stderr))
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        Err(format!(
+            "Installation failed: {}{}",
+            stderr,
+            if stdout.is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", stdout)
+            }
+        ))
+    }
+}
+
+/// Run a package manager command and return the output.
+///
+/// On Windows, npm/pnpm/yarn/bun are `.cmd` batch wrappers. Invoking them
+/// via `Command::new("npm.cmd").args(…)` makes Rust auto-quote each arg for
+/// the CreateProcess API, but cmd.exe's parser re-interprets those quotes,
+/// producing doubled-quote errors like `""@scope/pkg""`. We avoid this by
+/// routing through `run_in_user_shell` which passes the full command as a
+/// single string to `cmd.exe /C`.
+///
+/// On Unix we invoke the binary directly for cleaner process management.
+fn run_pm_command(pm: &str, sub_args: &[&str]) -> std::io::Result<std::process::Output> {
+    let pm_name = match pm {
+        "pnpm" => "pnpm",
+        "yarn" => "yarn",
+        "bun" => "bun",
+        _ => "npm",
+    };
+
+    #[cfg(windows)]
+    {
+        let mut parts = vec![pm_name.to_string()];
+        parts.extend(sub_args.iter().map(|s| s.to_string()));
+        let joined = parts.join(" ");
+        super::discovery::run_in_user_shell(&joined)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let user_path = super::discovery::get_user_path();
+        std::process::Command::new(pm_name)
+            .args(sub_args)
+            .env("PATH", &user_path)
+            .output()
     }
 }
 
@@ -821,7 +873,8 @@ pub async fn acp_check_package_updates() -> Result<Vec<super::discovery::AgentIn
 
 /// Upgrade a package to its latest version.
 /// Auto-detects the package manager from the binary path, or uses the provided one.
-/// Runs through the user's shell with the resolved PATH.
+///
+/// Uses direct `Command` invocation to avoid shell quoting issues on Windows.
 #[tauri::command]
 pub async fn acp_upgrade_package(
     package_name: String,
@@ -829,7 +882,6 @@ pub async fn acp_upgrade_package(
     binary_name: String,
     package_manager: Option<String>,
 ) -> Result<String, String> {
-    // Auto-detect package manager from binary path if not explicitly provided
     let detected_pm = package_manager.unwrap_or_else(|| {
         super::discovery::shell_which_public(&binary_name)
             .map(|p| super::discovery::detect_package_manager(&p))
@@ -843,22 +895,30 @@ pub async fn acp_upgrade_package(
         detected_pm
     );
 
-    let shell_cmd = match manager_type.as_str() {
+    let output = match manager_type.as_str() {
         "npm" => {
             let pkg_with_latest = format!("{}@latest", package_name);
-            match detected_pm.as_str() {
-                "bun" => format!("bun install -g '{}'", pkg_with_latest),
-                "pnpm" => format!("pnpm install -g '{}'", pkg_with_latest),
-                "yarn" => format!("yarn global add '{}'", pkg_with_latest),
-                _ => format!("npm install -g '{}'", pkg_with_latest),
-            }
+            let sub_args: Vec<&str> = match detected_pm.as_str() {
+                "yarn" => vec!["global", "add", &pkg_with_latest],
+                _ => vec!["install", "-g", &pkg_with_latest],
+            };
+            tracing::info!("Upgrade cmd: {} {:?}", detected_pm, sub_args);
+            run_pm_command(&detected_pm, &sub_args)
+                .map_err(|e| format!("Failed to run {}: {}", detected_pm, e))?
         }
-        "brew" => format!("brew upgrade '{}'", package_name),
+        "brew" => {
+            if cfg!(windows) {
+                return Err("Homebrew is not available on Windows".to_string());
+            }
+            let user_path = super::discovery::get_user_path();
+            std::process::Command::new("brew")
+                .args(["upgrade", &package_name])
+                .env("PATH", &user_path)
+                .output()
+                .map_err(|e| format!("Failed to run brew: {}", e))?
+        }
         _ => return Err(format!("Unknown manager type: {}", manager_type)),
     };
-
-    let output = super::discovery::run_in_user_shell(&shell_cmd)
-        .map_err(|e| format!("Failed to run {}: {}", detected_pm, e))?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -866,8 +926,17 @@ pub async fn acp_upgrade_package(
         Ok(stdout)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         tracing::error!("Upgrade failed for {}: {}", package_name, stderr);
-        Err(format!("Upgrade failed: {}", stderr))
+        Err(format!(
+            "Upgrade failed: {}{}",
+            stderr,
+            if stdout.is_empty() {
+                String::new()
+            } else {
+                format!("\n{}", stdout)
+            }
+        ))
     }
 }
 

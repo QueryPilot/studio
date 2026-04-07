@@ -396,6 +396,40 @@ importers:
       vitest:
         specifier: ^4.0.18
         version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(@vitest/ui@4.0.18)(happy-dom@20.7.0)(jiti@2.6.1)(jsdom@28.1.0(@noble/hashes@1.8.0))(lightningcss@1.31.1)(msw@2.12.10(@types/node@25.3.2)(typescript@5.9.3))(tsx@4.21.0)(yaml@2.8.1)
+    optionalDependencies:
+      '@tauri-apps/cli-darwin-arm64':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-darwin-x64':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-linux-arm-gnueabihf':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-linux-arm64-gnu':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-linux-arm64-musl':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-linux-riscv64-gnu':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-linux-x64-gnu':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-linux-x64-musl':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-win32-arm64-msvc':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-win32-ia32-msvc':
+        specifier: 2.10.0
+        version: 2.10.0
+      '@tauri-apps/cli-win32-x64-msvc':
+        specifier: 2.10.0
+        version: 2.10.0
 
 packages:
 

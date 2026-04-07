@@ -2,6 +2,25 @@
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
+
+# macOS Homebrew dylibs (e.g. client libs); unused on Linux/Windows
+UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
+ifeq ($(UNAME_S),Darwin)
+  DEV_DYLD_PREFIX := DYLD_LIBRARY_PATH=/opt/homebrew/lib:$$DYLD_LIBRARY_PATH
+else
+  DEV_DYLD_PREFIX :=
+endif
+
+ifeq ($(OS),Windows_NT)
+  WINDOWS_MSVC_ENV := powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-msvc-env.ps1
+  QUERYPILOT_BUILD_CMD := $(WINDOWS_MSVC_ENV) "cargo build -p querypilot --release"
+  DEV_CMD := $(WINDOWS_MSVC_ENV) "pnpm tauri:dev"
+  DEV_PROFILE_CMD := $(WINDOWS_MSVC_ENV) "set QP_STREAM_PROFILE=1 && pnpm tauri:dev"
+else
+  QUERYPILOT_BUILD_CMD := cargo build -p querypilot --release
+  DEV_CMD := $(DEV_DYLD_PREFIX) pnpm tauri:dev
+  DEV_PROFILE_CMD := $(DEV_DYLD_PREFIX) QP_STREAM_PROFILE=1 pnpm tauri:dev
+endif
 SQLSERVER_USER ?= sa
 SQLSERVER_PASSWORD ?= DevPass123
 SQLSERVER_DB ?= todoapp
@@ -61,18 +80,28 @@ help:
 # Build Query Pilot CLI (used by ACP agent shell calls)
 querypilot-cli:
 	@echo "Building querypilot CLI..."
-	@cargo build -p querypilot --release 2>/dev/null && \
-		HOST_TRIPLE=$$(rustc -vV | sed -n 's/^host: //p'); \
-		install -m 755 target/release/querypilot target/release/querypilot-$$HOST_TRIPLE && \
-		echo "querypilot CLI ready (release, $$HOST_TRIPLE)" || \
-		(echo "⚠️  querypilot CLI build failed - ACP workspace reads will be unavailable" && exit 0)
+	@if ! $(QUERYPILOT_BUILD_CMD); then \
+		echo "WARN: querypilot CLI build failed - ACP workspace reads will be unavailable"; \
+		exit 0; \
+	fi
+	@HOST_TRIPLE=$$(rustc -vV | sed -n 's/^host: //p'); \
+	if [ -f target/release/querypilot.exe ]; then \
+		cp target/release/querypilot.exe "target/release/querypilot-$$HOST_TRIPLE.exe" && \
+		echo "querypilot CLI ready (release, $$HOST_TRIPLE)"; \
+	elif [ -f target/release/querypilot ]; then \
+		cp target/release/querypilot "target/release/querypilot-$$HOST_TRIPLE" && \
+		chmod +x "target/release/querypilot-$$HOST_TRIPLE" 2>/dev/null || true && \
+		echo "querypilot CLI ready (release, $$HOST_TRIPLE)"; \
+	else \
+		echo "WARN: querypilot CLI binary missing after build - ACP workspace reads will be unavailable"; \
+	fi
 
 # Development
 dev d: querypilot-cli
-	DYLD_LIBRARY_PATH=/opt/homebrew/lib:$(DYLD_LIBRARY_PATH) pnpm tauri:dev
+	$(DEV_CMD)
 
 dev-profile dp: querypilot-cli
-	DYLD_LIBRARY_PATH=/opt/homebrew/lib:$(DYLD_LIBRARY_PATH) QP_STREAM_PROFILE=1 pnpm tauri:dev
+	$(DEV_PROFILE_CMD)
 
 # Build for production
 build:

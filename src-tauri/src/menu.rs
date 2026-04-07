@@ -411,6 +411,15 @@ pub fn update_window_menu(app: &AppHandle) -> Result<(), tauri::Error> {
     // Rebuild the entire menu with updated window list
     let menu = build_menu(app)?;
     app.set_menu(menu)?;
+
+    // Windows: re-hide the menu bar on every window (set_menu re-shows it)
+    #[cfg(target_os = "windows")]
+    {
+        for window in app.webview_windows().values() {
+            let _ = window.hide_menu();
+        }
+    }
+
     tracing::info!("Window menu updated");
     Ok(())
 }

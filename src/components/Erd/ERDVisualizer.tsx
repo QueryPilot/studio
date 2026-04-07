@@ -374,7 +374,7 @@ const TableNodeComponent: React.FC<NodeProps<any>> = ({
           </button>
         ) : null}
       </div>
-      <div className="overflow-auto px-1.5 py-1">
+      <div className="overflow-hidden px-1.5 py-1">
         <ul className="space-y-0">
           {columns.map((column) => {
             const { type, constraints } = formatColumnType(column);

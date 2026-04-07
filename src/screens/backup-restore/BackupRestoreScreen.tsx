@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { isTauri } from "@/utils/tauri";
+import { WindowControls } from "@/components/WindowControls";
 import { vaultStorage } from "@/services/vaultStorage";
 import { type ConnectionProfile } from "@/types/connection";
 import {
@@ -158,7 +159,21 @@ export function BackupRestoreScreen() {
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex flex-col h-screen bg-background">
+      {/* Titlebar — drag region + window controls */}
+      <div
+        data-tauri-drag-region
+        className="h-8 w-full shrink-0 flex items-center"
+      >
+        <div className="flex items-center gap-2 pl-3 pointer-events-none" data-tauri-drag-region>
+          <img src="/logo.png" alt="" className="size-4 rounded-sm" draggable={false} />
+          <span className="text-xs font-medium text-foreground/70 select-none">Backup & Restore</span>
+        </div>
+        <div className="flex-1" data-tauri-drag-region />
+        <WindowControls />
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
       {/* Left Sidebar - Steps */}
       <div className="w-56 border-r bg-muted/30 flex flex-col">
         {/* Title */}
@@ -276,6 +291,7 @@ export function BackupRestoreScreen() {
               />
             )}
         </div>
+      </div>
       </div>
     </div>
   );

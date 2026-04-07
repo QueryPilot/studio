@@ -503,6 +503,14 @@ impl AcpWorker {
             cmd.arg(arg);
         }
 
+        // Windows: prevent a console window from flashing when launching .cmd wrappers
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
         let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

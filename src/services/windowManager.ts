@@ -40,6 +40,15 @@ function isMacOS(): boolean {
   }
 }
 
+function isWindows(): boolean {
+  if (!isTauri()) return false;
+  try {
+    return platform() === "windows";
+  } catch {
+    return false;
+  }
+}
+
 // Update the native Window menu to reflect current open windows
 async function updateWindowMenu(): Promise<void> {
   if (!isTauri()) return;
@@ -287,9 +296,9 @@ class WindowManager {
       maximizable: true,
       minimizable: true,
       closable: true,
-      decorations: true,
+      decorations: !isWindows(),
+      transparent: isMacOS() || isWindows(),
       ...(isMacOS() ? {
-        transparent: true,
         titleBarStyle: "overlay",
         hiddenTitle: true,
       } : {}),
@@ -678,14 +687,14 @@ class WindowManager {
       height: bounds?.height ?? 900,
       minWidth: 1000,
       minHeight: 600,
-      center: !bounds, // Only auto-center when no saved bounds
+      center: !bounds,
       resizable: true,
       maximizable: true,
       minimizable: true,
       closable: true,
-      decorations: true,
+      decorations: !isWindows(),
+      transparent: isMacOS() || isWindows(),
       ...(isMacOS() ? {
-        transparent: true,
         titleBarStyle: "overlay",
         hiddenTitle: true,
       } : {}),
@@ -871,7 +880,6 @@ class WindowManager {
     const timestamp = Date.now();
     const label = `main-${timestamp}`;
 
-    // Create new main window with same style as original
     const windowOptions: Record<string, unknown> = {
       url: "/",
       title: "Query Pilot",
@@ -886,9 +894,9 @@ class WindowManager {
       maximizable: true,
       minimizable: true,
       closable: true,
-      decorations: true,
+      decorations: !isWindows(),
+      transparent: isMacOS() || isWindows(),
       ...(isMacOS() ? {
-        transparent: true,
         titleBarStyle: "overlay",
         hiddenTitle: true,
       } : {}),
@@ -954,9 +962,9 @@ class WindowManager {
       maximizable: true,
       minimizable: true,
       closable: true,
-      decorations: true,
+      decorations: !isWindows(),
+      transparent: isMacOS() || isWindows(),
       ...(isMacOS() ? {
-        transparent: true,
         titleBarStyle: "overlay",
         hiddenTitle: true,
       } : {}),

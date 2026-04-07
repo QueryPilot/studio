@@ -1,4 +1,4 @@
-//! Unix domain socket server for CLI agent communication.
+//! Local IPC server for CLI agent communication.
 //!
 //! Listens on `~/.querypilot/agent.sock` for one-shot JSON-line requests,
 //! dispatches them to [`super::capabilities::handle_capability`], and returns
@@ -9,8 +9,11 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+#[cfg(unix)]
 use tokio::net::UnixListener;
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::ServerOptions;
 use tokio::sync::Notify;
 use tracing::{error, info, warn};
 
@@ -55,6 +58,7 @@ struct SocketError {
 // Default socket path
 // ---------------------------------------------------------------------------
 
+#[cfg(unix)]
 fn socket_filename() -> &'static str {
     if cfg!(debug_assertions) {
         "agent.dev.sock"
@@ -63,11 +67,28 @@ fn socket_filename() -> &'static str {
     }
 }
 
+#[cfg(windows)]
+fn socket_filename() -> &'static str {
+    if cfg!(debug_assertions) {
+        "querypilot-agent-dev"
+    } else {
+        "querypilot-agent"
+    }
+}
+
 fn default_socket_path() -> PathBuf {
+    #[cfg(windows)]
+    {
+        return PathBuf::from(format!(r"\\.\pipe\{}", socket_filename()));
+    }
+
+    #[cfg(unix)]
+    {
     dirs::home_dir()
         .expect("Could not determine home directory")
         .join(".querypilot")
         .join(socket_filename())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +131,8 @@ impl AgentSocketServer {
         context_store: Arc<AiContextStore>,
         connection_manager: Arc<ConnectionManager>,
     ) -> Result<(), String> {
+        #[cfg(unix)]
+        {
         // Ensure parent directory exists
         if let Some(parent) = socket_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -187,6 +210,58 @@ impl AgentSocketServer {
         });
 
         Ok(())
+        }
+
+        #[cfg(windows)]
+        {
+            let pipe_name = socket_path.to_string_lossy().to_string();
+            let mut listener = ServerOptions::new()
+                .first_pipe_instance(true)
+                .create(&pipe_name)
+                .map_err(|e| format!("Failed to create named pipe {}: {}", pipe_name, e))?;
+
+            info!("Agent named pipe server listening on {}", pipe_name);
+
+            let shutdown = self.shutdown.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        connect_result = listener.connect() => {
+                            match connect_result {
+                                Ok(()) => {
+                                    let next_listener = match ServerOptions::new().create(&pipe_name) {
+                                        Ok(next) => next,
+                                        Err(e) => {
+                                            error!("Failed to create next named pipe instance {}: {}", pipe_name, e);
+                                            break;
+                                        }
+                                    };
+
+                                    let stream = std::mem::replace(&mut listener, next_listener);
+                                    let store = context_store.clone();
+                                    let cm = connection_manager.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = handle_connection(stream, store, cm).await {
+                                            warn!("Named pipe connection error: {}", e);
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    error!("Failed to accept named pipe connection: {}", e);
+                                }
+                            }
+                        }
+                        _ = shutdown.notified() => {
+                            info!("Agent named pipe server shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+
+            Ok(())
+        }
     }
 
     /// Signal the server to stop and clean up the socket file.
@@ -200,11 +275,11 @@ impl AgentSocketServer {
 // ---------------------------------------------------------------------------
 
 async fn handle_connection(
-    stream: tokio::net::UnixStream,
+    stream: impl AsyncRead + AsyncWrite + Unpin,
     context_store: Arc<AiContextStore>,
     connection_manager: Arc<ConnectionManager>,
 ) -> Result<(), String> {
-    let (reader, mut writer) = stream.into_split();
+    let (reader, mut writer) = tokio::io::split(stream);
     let mut buf_reader = BufReader::new(reader);
     let mut line = String::new();
 
@@ -229,10 +304,9 @@ async fn handle_connection(
         .await
         .map_err(|e| format!("Failed to write response: {}", e))?;
 
-    writer
-        .shutdown()
-        .await
-        .map_err(|e| format!("Failed to shutdown writer: {}", e))?;
+    if let Err(e) = writer.shutdown().await {
+        warn!("Failed to shutdown IPC writer cleanly: {}", e);
+    }
 
     Ok(())
 }
@@ -309,7 +383,7 @@ async fn process_request(
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use serde_json::json;

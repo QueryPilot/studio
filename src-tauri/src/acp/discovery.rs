@@ -12,65 +12,75 @@ use std::sync::OnceLock;
 /// bun, homebrew, etc. add PATH entries in `.zshrc`/`.bashrc` which are only
 /// sourced for interactive shells. We resolve the full PATH once at startup
 /// using `-li` (login + interactive) and cache it for the process lifetime.
+///
+/// On Windows/Linux the process PATH is already fully populated, so we skip
+/// the login-shell dance.
 static USER_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 
-/// Resolve the user's full shell PATH by running their login + interactive shell.
-/// Uses unique delimiters to isolate the PATH value from any shell startup output
-/// (e.g. motd, greeting messages from .zshrc).
+/// Resolve the user's full shell PATH.
+///
+/// macOS: spawns a login+interactive shell (`-li`) to pick up PATH entries
+/// from .zshrc/.bashrc that GUI apps don't inherit from launchd.
+///
+/// Windows/Linux: the process PATH is already correct, so we return it directly.
 fn resolve_user_shell_path() -> Option<String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-
-    // Use -li to source both login configs (.zprofile) and interactive configs (.zshrc).
-    // Wrap PATH output in delimiters so we can extract it even if .zshrc prints other text.
-    let delim = "__QP_PATH__";
-    let cmd = format!("printf '{}%s{}' \"$PATH\"", delim, delim);
-
-    // Spawn with a timeout to protect against interactive shell configs (e.g. p10k
-    // instant prompt, stty) that may hang without a TTY.
-    let mut child = Command::new(&shell)
-        .args(["-li", "-c", &cmd])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-
-    // Give the shell 5 seconds to resolve PATH — more than enough for any profile.
-    let timeout = std::time::Duration::from_secs(5);
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    tracing::warn!(
-                        "Shell PATH resolution timed out after {:?}; killing shell process",
-                        timeout
-                    );
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(_) => return None,
-        }
+    // Windows & Linux: process PATH is already fully populated.
+    #[cfg(not(target_os = "macos"))]
+    {
+        return None; // causes get_user_path() to fall back to std::env::var("PATH")
     }
 
-    let output = child.wait_with_output().ok()?;
+    #[cfg(target_os = "macos")]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    let start = stdout.find(delim)? + delim.len();
-    let end = stdout[start..].find(delim)? + start;
-    let path = stdout[start..end].to_string();
-    if path.is_empty() {
-        tracing::warn!("Resolved user shell PATH is empty; falling back to process PATH");
-        None
-    } else {
-        tracing::info!(
-            "Resolved user shell PATH ({} entries)",
-            path.split(':').count()
-        );
-        Some(path)
+        let delim = "__QP_PATH__";
+        let cmd = format!("printf '{}%s{}' \"$PATH\"", delim, delim);
+
+        let mut child = Command::new(&shell)
+            .args(["-li", "-c", &cmd])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+
+        let timeout = std::time::Duration::from_secs(5);
+        let start = std::time::Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if start.elapsed() > timeout {
+                        tracing::warn!(
+                            "Shell PATH resolution timed out after {:?}; killing shell process",
+                            timeout
+                        );
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(_) => return None,
+            }
+        }
+
+        let output = child.wait_with_output().ok()?;
+
+        let stdout = String::from_utf8(output.stdout).ok()?;
+        let start = stdout.find(delim)? + delim.len();
+        let end = stdout[start..].find(delim)? + start;
+        let path = stdout[start..end].to_string();
+        if path.is_empty() {
+            tracing::warn!("Resolved user shell PATH is empty; falling back to process PATH");
+            None
+        } else {
+            tracing::info!(
+                "Resolved user shell PATH ({} entries)",
+                path.split(':').count()
+            );
+            Some(path)
+        }
     }
 }
 
@@ -84,17 +94,28 @@ pub fn get_user_path() -> String {
 
 /// Run a command through the user's shell with the resolved PATH.
 ///
-/// Uses the cached user PATH so that binaries installed via nvm, bun,
-/// homebrew, etc. are found even in production macOS builds. Runs with
-/// `-c` only (no `-li`) so stdout is clean of shell startup output.
+/// Unix: uses `$SHELL -c` with the cached user PATH so that binaries
+/// installed via nvm, bun, homebrew, etc. are found.
+/// Windows: uses `cmd.exe /C` which inherits the full process PATH.
 pub fn run_in_user_shell(command: &str) -> std::io::Result<std::process::Output> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
     let user_path = get_user_path();
 
-    Command::new(&shell)
-        .args(["-c", command])
-        .env("PATH", &user_path)
-        .output()
+    #[cfg(windows)]
+    {
+        Command::new("cmd.exe")
+            .args(["/C", command])
+            .env("PATH", &user_path)
+            .output()
+    }
+
+    #[cfg(not(windows))]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        Command::new(&shell)
+            .args(["-c", command])
+            .env("PATH", &user_path)
+            .output()
+    }
 }
 
 /// Information about a discovered AI agent
@@ -213,9 +234,9 @@ const KNOWN_AGENTS: &[AgentDefinition] = &[
         acp_args: &["acp", "--log-level", "ERROR"],
         install_url: "https://opencode.ai",
         packages: &[PackageDef {
-            name: "opencode-ai/tap/opencode",
+            name: "opencode-ai",
             description: "OpenCode CLI",
-            manager_type: "brew",
+            manager_type: "npm",
             binary: "opencode",
         }],
         models: &[
@@ -329,9 +350,14 @@ pub fn discover_agents() -> Vec<AgentInfo> {
 
 /// Try to get the version of an agent by running --version
 fn get_agent_version(path: &std::path::Path) -> Option<String> {
-    Command::new(path)
-        .arg("--version")
-        .output()
+    let mut cmd = Command::new(path);
+    cmd.arg("--version");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd.output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
@@ -345,15 +371,34 @@ pub fn shell_which_public(binary: &str) -> Option<std::path::PathBuf> {
 /// Find a binary by searching the user's full shell PATH.
 ///
 /// Instead of spawning a subshell for every lookup (expensive with `-li`),
-/// we search the cached PATH directories directly. Checks both file existence
-/// and executable permission to match `which` behavior.
+/// we search the cached PATH directories directly. Uses `std::env::split_paths`
+/// for cross-platform PATH splitting (`:` on Unix, `;` on Windows).
+///
+/// On Windows, also probes common executable extensions (.exe, .cmd, .bat, .ps1)
+/// when the bare name isn't found, matching `where.exe` behavior.
 fn shell_which(binary: &str) -> Option<std::path::PathBuf> {
     let user_path = get_user_path();
-    for dir in user_path.split(':') {
-        if dir.is_empty() {
-            continue;
+    let path_os = std::ffi::OsString::from(&user_path);
+    let dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path_os).collect();
+    let has_ext = std::path::Path::new(binary).extension().is_some();
+
+    for dir in &dirs {
+        // Windows: always try .cmd/.exe/.bat first when the binary has no extension.
+        // npm installs both an extensionless Unix shell script AND a .cmd wrapper;
+        // executing the extensionless script directly fails with error 193.
+        #[cfg(windows)]
+        {
+            if !has_ext {
+                for ext in &["cmd", "exe", "bat", "ps1"] {
+                    let with_ext = dir.join(format!("{}.{}", binary, ext));
+                    if with_ext.is_file() {
+                        return Some(with_ext);
+                    }
+                }
+            }
         }
-        let candidate = std::path::PathBuf::from(dir).join(binary);
+
+        let candidate = dir.join(binary);
         if candidate.is_file() && is_executable(&candidate) {
             return Some(candidate);
         }
@@ -370,6 +415,7 @@ fn is_executable(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// On Windows any existing file is considered executable.
 #[cfg(not(unix))]
 fn is_executable(path: &std::path::Path) -> bool {
     path.is_file()
@@ -377,8 +423,12 @@ fn is_executable(path: &std::path::Path) -> bool {
 
 /// Get the installed version of an npm package by resolving the binary's symlink
 /// to find its package.json.
+///
+/// On Windows, npm globals use `.cmd` wrapper scripts instead of symlinks.
+/// The `.cmd` files contain a reference to the `node_modules` directory,
+/// so we also check the sibling `node_modules/<pkg>/package.json` path.
 fn get_installed_package_version(bin_path: &std::path::Path) -> Option<String> {
-    // Resolve the symlink to get the actual file location
+    // Try symlink resolution first (works on Unix and some Windows setups)
     let resolved = std::fs::read_link(bin_path)
         .ok()
         .map(|target| {
@@ -402,13 +452,76 @@ fn get_installed_package_version(bin_path: &std::path::Path) -> Option<String> {
         }
         dir = d.parent();
     }
+
+    // Windows fallback: npm globals live in <prefix>/node_modules/<pkg>/package.json
+    // where the .cmd wrapper sits in <prefix>/.
+    #[cfg(windows)]
+    {
+        if let Some(bin_dir) = bin_path.parent() {
+            let stem = bin_path.file_stem()?.to_string_lossy();
+            let node_modules = bin_dir.join("node_modules");
+
+            // Try exact name, then @-scoped patterns (e.g. @anthropic-ai/claude-code)
+            let pkg_json = node_modules.join(stem.as_ref()).join("package.json");
+            if pkg_json.exists() {
+                let content = std::fs::read_to_string(&pkg_json).ok()?;
+                let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+                return parsed.get("version")?.as_str().map(|s| s.to_string());
+            }
+
+            // Scan scoped packages (@scope/pkg) in node_modules
+            if let Ok(entries) = std::fs::read_dir(&node_modules) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if name_str.starts_with('@') {
+                        if let Ok(scoped) = std::fs::read_dir(entry.path()) {
+                            for sub in scoped.flatten() {
+                                let sub_pkg = sub.path().join("package.json");
+                                if sub_pkg.exists() {
+                                    let content =
+                                        std::fs::read_to_string(&sub_pkg).ok()?;
+                                    let parsed: serde_json::Value =
+                                        serde_json::from_str(&content).ok()?;
+                                    if let Some(bin_field) = parsed.get("bin") {
+                                        let has_binary = match bin_field {
+                                            serde_json::Value::String(_) => {
+                                                sub.file_name().to_string_lossy()
+                                                    == stem.as_ref()
+                                            }
+                                            serde_json::Value::Object(map) => {
+                                                map.contains_key(stem.as_ref())
+                                            }
+                                            _ => false,
+                                        };
+                                        if has_binary {
+                                            return parsed.get("version")?.as_str().map(
+                                                |s| s.to_string(),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 
 /// Get the latest version of a package from the npm registry.
 fn get_latest_npm_version(package_name: &str) -> Option<String> {
-    let cmd = format!("npm view '{}' version 2>/dev/null", package_name);
-    let output = run_in_user_shell(&cmd).ok()?;
+    let npm_bin = if cfg!(windows) { "npm.cmd" } else { "npm" };
+    let output = Command::new(npm_bin)
+        .args(["view", package_name, "version"])
+        .env("PATH", get_user_path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
 
     if !output.status.success() {
         return None;
@@ -424,34 +537,56 @@ fn get_latest_npm_version(package_name: &str) -> Option<String> {
 }
 
 /// Get the latest version of a brew package.
+/// Returns None on Windows where brew is not available.
 fn get_latest_brew_version(package_name: &str) -> Option<String> {
-    let cmd = format!("brew info --json=v1 '{}' 2>/dev/null", package_name);
-    let output = run_in_user_shell(&cmd).ok()?;
-
-    if !output.status.success() {
+    #[cfg(windows)]
+    {
+        let _ = package_name;
         return None;
     }
 
-    let stdout = String::from_utf8(output.stdout).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&stdout).ok()?;
-    parsed
-        .as_array()?
-        .first()?
-        .get("versions")?
-        .get("stable")?
-        .as_str()
-        .map(|s| s.to_string())
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("brew")
+            .args(["info", "--json=v1", package_name])
+            .env("PATH", get_user_path())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8(output.stdout).ok()?;
+        let parsed: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+        parsed
+            .as_array()?
+            .first()?
+            .get("versions")?
+            .get("stable")?
+            .as_str()
+            .map(|s| s.to_string())
+    }
 }
 
 /// Detect which npm-compatible package manager installed a binary.
 /// Returns "bun", "pnpm", "yarn", or "npm" (default).
+/// Handles both forward-slash (Unix) and backslash (Windows) path separators.
 pub fn detect_package_manager(bin_path: &std::path::Path) -> String {
     let path_str = bin_path.to_string_lossy();
-    if path_str.contains(".bun/") || path_str.contains("/bun/") {
+    let has = |pattern: &str| {
+        path_str.contains(&format!(".{}/", pattern))
+            || path_str.contains(&format!("/{}/", pattern))
+            || path_str.contains(&format!(".{}\\", pattern))
+            || path_str.contains(&format!("\\{}\\", pattern))
+    };
+    if has("bun") {
         "bun".to_string()
-    } else if path_str.contains(".pnpm/") || path_str.contains("/pnpm/") {
+    } else if has("pnpm") {
         "pnpm".to_string()
-    } else if path_str.contains(".yarn/") || path_str.contains("/yarn/") {
+    } else if has("yarn") {
         "yarn".to_string()
     } else {
         "npm".to_string()
@@ -503,7 +638,14 @@ pub fn fetch_agent_models(agent_id: &str) -> Option<Vec<ModelInfo>> {
 
 /// Fetch models from OpenCode CLI using `opencode models` command
 fn fetch_opencode_models() -> Option<Vec<ModelInfo>> {
-    let output = run_in_user_shell("opencode models 2>/dev/null").ok()?;
+    let opencode_path = shell_which("opencode")?;
+    let output = Command::new(opencode_path)
+        .arg("models")
+        .env("PATH", get_user_path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
 
     if !output.status.success() {
         return None;
@@ -642,42 +784,27 @@ fn fetch_codex_models() -> Option<Vec<ModelInfo>> {
 // The compiled binary embeds a JS object like:
 //   {opus:"claude-opus-4-6",sonnet:"claude-sonnet-4-5-20250929",haiku:"claude-haiku-4-5-20251001"}
 //
-// We pipe `strings <binary> | grep …` to extract just that one line, then
-// return three clean aliases (opus / sonnet / haiku) with the resolved
-// version shown only in the description text.
+// We read the binary and extract printable ASCII strings in pure Rust
+// (cross-platform replacement for `strings | grep`), then regex-match
+// the model aliases.
 // ---------------------------------------------------------------------------
 
 fn fetch_claude_code_models() -> Option<Vec<ModelInfo>> {
-    // Locate the `claude` binary and resolve symlinks
     let claude_path = shell_which("claude")?;
     let resolved = std::fs::canonicalize(&claude_path).unwrap_or(claude_path);
 
-    // Run: strings <binary> | grep -oE '{opus:"claude-...",...}' | head -1
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-    let cmd = format!(
-        r#"strings "{}" | grep -oE '\{{opus:"claude-[^"]+",sonnet:"claude-[^"]+",haiku:"claude-[^"]+"\}}' | head -1"#,
-        resolved.display()
-    );
+    // Read the binary and scan for the model alias pattern in printable strings.
+    // This replaces the Unix-only `strings | grep` pipeline with pure Rust so it
+    // works on Windows and Linux too.
+    let data = std::fs::read(&resolved).ok()?;
+    let text = extract_printable_strings(&data);
 
-    let output = Command::new(&shell).args(["-c", &cmd]).output().ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let line = String::from_utf8(output.stdout).ok()?;
-    let line = line.trim();
-    if line.is_empty() {
-        return None;
-    }
-
-    // Parse: {opus:"claude-opus-4-6",sonnet:"claude-sonnet-4-5-20250929",haiku:"..."}
     let re = regex::Regex::new(
         r#"\{opus:"(claude-[^"]+)",sonnet:"(claude-[^"]+)",haiku:"(claude-[^"]+)"\}"#,
     )
     .ok()?;
 
-    let caps = re.captures(line)?;
+    let caps = re.captures(&text)?;
     let opus_id = caps.get(1)?.as_str();
     let sonnet_id = caps.get(2)?.as_str();
     let haiku_id = caps.get(3)?.as_str();
@@ -711,6 +838,36 @@ fn fetch_claude_code_models() -> Option<Vec<ModelInfo>> {
 
     tracing::info!("Extracted Claude Code model aliases from binary");
     Some(models)
+}
+
+/// Pure-Rust replacement for the Unix `strings` command.
+/// Extracts runs of printable ASCII characters (4+ bytes) from a binary buffer,
+/// joined by spaces. This is enough to find embedded JSON/JS model aliases.
+fn extract_printable_strings(data: &[u8]) -> String {
+    const MIN_LEN: usize = 4;
+    let mut result = String::new();
+    let mut current = String::new();
+
+    for &byte in data {
+        if byte >= 0x20 && byte <= 0x7e {
+            current.push(byte as char);
+        } else {
+            if current.len() >= MIN_LEN {
+                if !result.is_empty() {
+                    result.push(' ');
+                }
+                result.push_str(&current);
+            }
+            current.clear();
+        }
+    }
+    if current.len() >= MIN_LEN {
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        result.push_str(&current);
+    }
+    result
 }
 
 /// "claude-opus-4-6" → "Claude Opus 4.6"

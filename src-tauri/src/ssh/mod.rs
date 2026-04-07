@@ -7,6 +7,7 @@ pub use port_allocator::{allocate_local_port, is_port_listening};
 pub use tunnel::{verify_connection, SshTunnel};
 
 use crate::types::{SshAuthMethod, SshTunnelConfig};
+#[cfg(not(target_os = "windows"))]
 use std::collections::HashMap;
 use std::process::Command;
 

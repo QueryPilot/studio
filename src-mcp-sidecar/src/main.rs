@@ -7,9 +7,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{Read, Write};
+#[cfg(windows)]
+use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
+#[cfg(windows)]
+use std::thread;
 
 const SOCKET_TIMEOUT_SECS: u64 = 30;
 
@@ -51,6 +56,19 @@ struct ErrorDetail {
 /// This allows the CLI (always built in release mode) to auto-detect whether
 /// a dev or prod instance of Query Pilot is running.
 fn socket_path() -> PathBuf {
+    #[cfg(windows)]
+    {
+        // Use a named pipe on Windows.
+        let pipe_name = if cfg!(debug_assertions) {
+            r"\\.\pipe\querypilot-agent-dev"
+        } else {
+            r"\\.\pipe\querypilot-agent"
+        };
+        return PathBuf::from(pipe_name);
+    }
+
+    #[cfg(unix)]
+    {
     let base = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join(".querypilot");
@@ -61,6 +79,43 @@ fn socket_path() -> PathBuf {
     }
 
     base.join("agent.sock")
+    }
+}
+
+#[cfg(unix)]
+fn connect_stream(path: &PathBuf) -> Result<UnixStream, String> {
+    UnixStream::connect(path).map_err(|e| {
+        format!(
+            "Cannot connect to Query Pilot (tried {}): {}. Is the app running?",
+            path.display(),
+            e
+        )
+    })
+}
+
+#[cfg(windows)]
+fn connect_stream(path: &PathBuf) -> Result<std::fs::File, String> {
+    // Named pipes may briefly report busy while a server instance is rotating.
+    // Retry for up to SOCKET_TIMEOUT_SECS.
+    let deadline = std::time::Instant::now() + Duration::from_secs(SOCKET_TIMEOUT_SECS);
+    loop {
+        match OpenOptions::new().read(true).write(true).open(path) {
+            Ok(file) => return Ok(file),
+            Err(err) => {
+                let os_code = err.raw_os_error();
+                let is_retryable = matches!(os_code, Some(231) | Some(2)); // ERROR_PIPE_BUSY | ERROR_FILE_NOT_FOUND
+                if is_retryable && std::time::Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                return Err(format!(
+                    "Cannot connect to Query Pilot pipe (tried {}): {}. Is the app running?",
+                    path.display(),
+                    err
+                ));
+            }
+        }
+    }
 }
 
 fn write_error(request_id: &str, capability: &str, code: &str, message: &str) {
@@ -139,27 +194,26 @@ fn main() {
 
     // Connect to socket (try dev first, then prod)
     let path = socket_path();
-    let mut stream = match UnixStream::connect(&path) {
-        Ok(s) => s,
+    let mut stream = match connect_stream(&path) {
+        Ok(stream) => stream,
         Err(e) => {
             write_error(
                 &stdin_request.request_id,
                 &capability,
                 "connection_failed",
-                &format!(
-                    "Cannot connect to Query Pilot (tried {}): {}. Is the app running?",
-                    path.display(),
-                    e
-                ),
+                &e,
             );
             std::process::exit(1);
         }
     };
 
     // Set timeouts
+    #[cfg(unix)]
+    {
     let timeout = Duration::from_secs(SOCKET_TIMEOUT_SECS);
     let _ = stream.set_write_timeout(Some(timeout));
     let _ = stream.set_read_timeout(Some(timeout));
+    }
 
     // Send request
     if stream.write_all(request_json.as_bytes()).is_err()
@@ -176,6 +230,7 @@ fn main() {
     }
 
     // Shut down write half so server knows we're done
+    #[cfg(unix)]
     let _ = stream.shutdown(std::net::Shutdown::Write);
 
     // Read response

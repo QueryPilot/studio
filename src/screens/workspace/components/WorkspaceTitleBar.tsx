@@ -62,6 +62,7 @@ import { openAppUpdateDialog } from "@/utils/appUpdate";
 import { saveWindowBounds } from "@/services/windowManager";
 import { platform } from "@tauri-apps/plugin-os";
 import { isTauri } from "@/utils/tauri";
+import { WindowControls } from "@/components/WindowControls";
 
 interface WorkspaceTitleBarProps {
   connectionId: string;
@@ -101,6 +102,7 @@ export function WorkspaceTitleBar({
   isConnecting: isInitiallyConnecting = false,
 }: WorkspaceTitleBarProps) {
   const isMac = isTauri() && platform() === "macos";
+  const isWin = isTauri() && platform() === "windows";
 
   // Optimized selectors - only subscribe to what we need
   const storedConnection = useConnectionStore(
@@ -751,9 +753,16 @@ export function WorkspaceTitleBar({
 
   return (
     <div
-      className="relative grid grid-cols-[1fr_auto_1fr] items-center h-8"
+      className={`relative grid items-center h-8 ${isWin ? "pr-[138px]" : ""}`}
+      style={{ gridTemplateColumns: "auto minmax(0, 1fr) auto" }}
       data-tauri-drag-region
     >
+      {/* Windows window controls — absolute, outside the grid */}
+      {isWin && (
+        <div className="absolute top-0 right-0 z-50">
+          <WindowControls />
+        </div>
+      )}
       {/* Commit Progress Bar - Windows 11 style with 3 layers */}
       {(isCommittingAll || commitProgress > 0) && (
         <div className="absolute bottom-0 left-0 right-0 h-0.5 z-50">
@@ -779,7 +788,17 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className={`flex items-center gap-2.5 ${isMac ? "pl-20" : "pl-3"}`} data-tauri-drag-region>
+      <div className={`flex items-center gap-2.5 shrink-0 ${isMac ? "pl-20" : "pl-2"}`} data-tauri-drag-region>
+        {/* App logo — Windows custom titlebar (replaces native icon) */}
+        {isWin && (
+          <img
+            src="/logo.png"
+            alt="Query Pilot"
+            className="size-6 rounded-sm shrink-0 pointer-events-none"
+            draggable={false}
+          />
+        )}
+
         <Button
           variant="ghost"
           size="icon-sm"
@@ -877,8 +896,8 @@ export function WorkspaceTitleBar({
         )}
       </div>
 
-      {/* Center Section - Absolute positioning for true center, shrinks when space is limited */}
-      <div className="flex items-center gap-1.5 text-xs max-w-[50%] min-w-0 select-none">
+      {/* Center Section — fills remaining space, truncates instead of overlapping */}
+      <div className="flex items-center justify-center gap-1.5 text-xs min-w-0 overflow-hidden select-none">
         {/* Workspace Name (multi-connection workspace) */}
         {workspaceConnectionCount > 1 ? (
           <>
@@ -999,7 +1018,7 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Right Section */}
-      <div className="flex items-center gap-2.5 pr-3 justify-self-end">
+      <div className="flex items-center gap-2.5 pr-3 shrink-0 justify-self-end">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -1114,6 +1133,7 @@ export function WorkspaceTitleBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
       </div>
 
       {/* Global Changes Dialog */}

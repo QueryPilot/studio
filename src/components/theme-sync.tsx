@@ -2,13 +2,24 @@ import { useEffect, useRef } from "react";
 
 import { useTheme } from "@/components/theme-provider";
 import { useAppStore } from "@/stores/appStore";
+import { isTauri } from "@/utils/tauri";
 
 const THEME_CHANNEL = "query-pilot-theme-sync";
+
+async function syncWindowTheme(isDark: boolean) {
+  if (!isTauri()) return;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("set_window_theme", { dark: isDark });
+  } catch {
+    // Ignore — command may not exist on macOS/Linux
+  }
+}
 
 export function ThemeSync(): null {
   const appTheme = useAppStore((state) => state.theme);
   const setAppTheme = useAppStore((state) => state.setTheme);
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const channelRef = useRef<BroadcastChannel | null>(null);
   const isExternalUpdate = useRef(false);
 
@@ -18,6 +29,13 @@ export function ThemeSync(): null {
       setTheme(appTheme);
     }
   }, [appTheme, theme, setTheme]);
+
+  // Sync resolved theme to native window (Mica dark/light on Windows)
+  useEffect(() => {
+    if (resolvedTheme) {
+      void syncWindowTheme(resolvedTheme === "dark");
+    }
+  }, [resolvedTheme]);
 
   // Cross-window synchronization via BroadcastChannel
   useEffect(() => {

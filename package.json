@@ -154,11 +154,31 @@
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
   },
+  "optionalDependencies": {
+    "@tauri-apps/cli-darwin-arm64": "2.10.0",
+    "@tauri-apps/cli-darwin-x64": "2.10.0",
+    "@tauri-apps/cli-linux-arm-gnueabihf": "2.10.0",
+    "@tauri-apps/cli-linux-arm64-gnu": "2.10.0",
+    "@tauri-apps/cli-linux-arm64-musl": "2.10.0",
+    "@tauri-apps/cli-linux-riscv64-gnu": "2.10.0",
+    "@tauri-apps/cli-linux-x64-gnu": "2.10.0",
+    "@tauri-apps/cli-linux-x64-musl": "2.10.0",
+    "@tauri-apps/cli-win32-arm64-msvc": "2.10.0",
+    "@tauri-apps/cli-win32-ia32-msvc": "2.10.0",
+    "@tauri-apps/cli-win32-x64-msvc": "2.10.0"
+  },
   "pnpm": {
     "peerDependencyRules": {
       "allowedVersions": {
         "eslint": "10"
       }
+    },
+    "publicHoistPattern": [
+      "*@tauri-apps/cli-*"
+    ],
+    "supportedArchitectures": {
+      "os": ["win32", "darwin", "linux"],
+      "cpu": ["arm64", "x64", "arm"]
     }
   },
   "packageManager": "pnpm@10.22.0+sha512.bf049efe995b28f527fd2b41ae0474ce29186f7edcb3bf545087bd61fbbebb2bf75362d1307fda09c2d288e1e499787ac12d4fcb617a974718a6051f2eee741c"
