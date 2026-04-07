@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "NODE_OPTIONS=${NODE_OPTIONS:-'--max-old-space-size=8192'} vite build",
-    "build:strict": "tsc --project tsconfig.build.json && NODE_OPTIONS=${NODE_OPTIONS:-'--max-old-space-size=8192'} vite build",
+    "build": "vite build",
+    "build:strict": "tsc --project tsconfig.build.json && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
