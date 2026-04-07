@@ -14,7 +14,7 @@ on:
         description: "Build ARM64 targets (Linux aarch64, Windows aarch64)?"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write # Required for creating releases
@@ -185,25 +185,33 @@ jobs:
             libfuse2
 
       - name: Import GPG key for Linux signing
-        if: matrix.platform == 'linux' && secrets.GPG_PRIVATE_KEY != ''
+        if: matrix.platform == 'linux'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
+          if [ -z "$GPG_PRIVATE_KEY" ]; then
+            echo "No GPG key configured, skipping signing"
+            exit 0
+          fi
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          echo "✅ GPG key imported for AppImage/RPM signing"
+          echo "GPG key imported for AppImage/RPM signing"
 
       - name: Import Windows certificate
-        if: matrix.platform == 'windows' && secrets.WINDOWS_CERTIFICATE != ''
+        if: matrix.platform == 'windows'
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Host "No Windows certificate configured, skipping"
+            exit 0
+          }
           New-Item -ItemType directory -Path certificate
           Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
           certutil -decode certificate/tempCert.txt certificate/certificate.pfx
           Remove-Item -path certificate -include tempCert.txt
           Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
-          echo "✅ Windows certificate imported"
+          Write-Host "Windows certificate imported"
         shell: powershell
 
       - name: Cleanup Windows certificate
@@ -241,12 +249,17 @@ jobs:
       # ============================================
 
       - name: Import Apple certificate
-        if: matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE != ''
+        if: matrix.platform == 'macos'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: temporary_build_keychain_password
         run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Apple certificate configured, skipping signing setup"
+            exit 0
+          fi
+
           # Create temporary keychain with password
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
@@ -734,12 +747,7 @@ jobs:
 
   finalize-release:
     name: Finalize Release
-    needs:
-      [
-        create-release,
-        build-release,
-        generate-updater-manifest,
-      ]
+    needs: [create-release, build-release, generate-updater-manifest]
     runs-on: ubuntu-latest
     if: |
       always() &&
