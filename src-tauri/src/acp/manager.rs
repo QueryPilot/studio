@@ -506,6 +506,7 @@ impl AcpWorker {
         // Windows: prevent a console window from flashing when launching .cmd wrappers
         #[cfg(windows)]
         {
+            #[allow(unused_imports)]
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);

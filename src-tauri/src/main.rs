@@ -143,9 +143,9 @@ fn main() {
 
             Ok(())
         })
-        .on_page_load(|webview, _payload| {
+        .on_page_load(|_webview, _payload| {
             #[cfg(any(target_os = "macos", target_os = "windows"))]
-            let window = webview.window();
+            let window = _webview.window();
             #[cfg(target_os = "macos")]
             {
                 use window_vibrancy::apply_vibrancy;

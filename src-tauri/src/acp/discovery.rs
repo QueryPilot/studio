@@ -384,6 +384,7 @@ fn shell_which(binary: &str) -> Option<std::path::PathBuf> {
     let user_path = get_user_path();
     let path_os = std::ffi::OsString::from(&user_path);
     let dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path_os).collect();
+    #[cfg(windows)]
     let has_ext = std::path::Path::new(binary).extension().is_some();
 
     for dir in &dirs {

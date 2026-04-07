@@ -5,6 +5,30 @@
 <!-- The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), -->
 <!-- and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). -->
 
+## [2026.1.0-beta.18] - 2026-04-08
+
+### Improvements
+- Enabled ARM builds by default for broader platform coverage.
+- Simplified build scripts and improved release pipeline smoke tests.
+
+## [2026.1.0-beta.16] - 2026-04-07
+
+### New Features
+- Added Windows support with NSIS installer and code signing.
+- Added Linux support with deb, AppImage, and rpm packages.
+- Added Trino multi-catalog support. You can now browse, filter, and query across multiple Trino catalogs with a 3-level catalog-schema-table sidebar tree, per-catalog visibility controls, and cross-catalog SQL linting and autocomplete.
+- Enabled write support (insert, update, delete) for Trino in the data grid.
+
+### Improvements
+- Improved platform compatibility by conditionally applying macOS-specific overlay titlebar and padding on non-macOS platforms.
+- Migrated release publishing to QueryPilot/studio repository.
+
+### Bug Fixes
+- Fixed Trino sidebar filter to show all catalogs with schema sub-filters and corrected table click behavior.
+
+### Security
+- Added GPG signing for Linux AppImage and RPM packages.
+
 ## [2026.1.0-beta.15] - 2026-04-05
 
 ### New Features
