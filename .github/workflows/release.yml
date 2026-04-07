@@ -134,7 +134,7 @@ jobs:
             {"os":"windows-latest","platform":"windows","target":"x86_64-pc-windows-msvc","arch":"x86_64"}
           ]'
 
-          BUILD_ARM="${{ github.event.inputs.build_arm || 'false' }}"
+          BUILD_ARM="${{ github.event.inputs.build_arm || 'true' }}"
 
           if [ "$BUILD_ARM" = "true" ]; then
             MATRIX=$(echo "$BASE" | jq '. + [
@@ -233,7 +233,7 @@ jobs:
           shared-key: "release-${{ matrix.target }}"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -570,7 +570,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
