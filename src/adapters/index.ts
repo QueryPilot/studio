@@ -259,6 +259,7 @@ export function commandToSql(
   command: CrudCommand,
 ): string | null {
   const target: TableRef = {
+    catalog: command.target.database,
     schema: command.target.schema,
     table: command.target.table ?? "",
   };
@@ -288,7 +289,12 @@ export function commandToSql(
       const columnInfos = payload.columnType
         ? [{ name: payload.column, dbType: payload.columnType }]
         : undefined;
-      const result = adapter.update(target, data, where, { columnInfos });
+      let result = adapter.update(target, data, where, { columnInfos });
+      // Strip RETURNING for dialects that don't support it — checked via instance property
+      // to avoid stale-prototype issues with cached adapter instances
+      if (typeof result === "string" && adapter.dbType === DbType.Trino) {
+        result = result.replace(/ RETURNING \*$/, "");
+      }
       return typeof result === "string" ? result : null;
     }
 

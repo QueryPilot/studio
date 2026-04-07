@@ -1,12 +1,14 @@
-.PHONY: help d dev dev-profile dp querypilot-cli build package-dist clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-publish release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
+.PHONY: help d dev dev-profile dp querypilot-cli build clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
 
-# macOS Homebrew dylibs (e.g. client libs); unused on Linux/Windows
+# Platform library path prefix for dev mode
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 ifeq ($(UNAME_S),Darwin)
   DEV_DYLD_PREFIX := DYLD_LIBRARY_PATH=/opt/homebrew/lib:$$DYLD_LIBRARY_PATH
+else ifeq ($(UNAME_S),Linux)
+  DEV_DYLD_PREFIX := LD_LIBRARY_PATH=/usr/local/lib:/usr/lib64:/usr/lib/x86_64-linux-gnu:$$LD_LIBRARY_PATH
 else
   DEV_DYLD_PREFIX :=
 endif
@@ -35,7 +37,6 @@ help:
 	@echo "  make dev-profile, dp   - Run in development mode with QP_STREAM_PROFILE=1"
 	@echo "  make querypilot-cli    - Build querypilot CLI only"
 	@echo "  make build             - Build for production"
-	@echo "  make package-dist      - Package build with installation instructions"
 	@echo "  make install           - Install dependencies"
 	@echo "  make clean             - Clean build artifacts"
 	@echo ""
@@ -70,7 +71,6 @@ help:
 	@echo "  make release                       - Stable release (AI-assisted version + changelog)"
 	@echo "  make release beta                  - Beta release (auto-bump beta number)"
 	@echo "  make relc [V=2026.1.0]             - Local build, sign, notarize & upload"
-	@echo "  make release-publish V=2026.1.0    - Publish built release to QueryPilot/studio"
 	@echo "  make version VERSION=2026.1.0      - Bump version only (no commit)"
 	@echo "  make generate-keys          - Generate Tauri updater signing keys"
 	@echo ""
@@ -107,10 +107,6 @@ dev-profile dp: querypilot-cli
 build:
 	@echo "Building Tauri app..."
 	@pnpm tauri:build
-
-# Package for distribution (includes installation instructions)
-package-dist:
-	@bash scripts/package-for-distribution.sh
 
 # Install dependencies
 install i:
@@ -394,14 +390,6 @@ beta:
 	@true
 
 # Publish built release to QueryPilot/studio (after GitHub Actions completes)
-release-publish:
-	@if [ -z "$(V)" ]; then \
-		echo "❌ Error: Version not specified"; \
-		echo "Usage: make release-publish V=0.5.0"; \
-		exit 1; \
-	fi
-	@bash scripts/publish-to-app-repo.sh v$(V)
-
 # Manual release with specific version
 release-manual:
 	@if [ -z "$(VERSION)" ]; then \

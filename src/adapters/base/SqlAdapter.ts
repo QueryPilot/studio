@@ -6,7 +6,7 @@
  */
 
 import { queryStreamClient } from "@/services/queryStreamClient";
-import type { DbType } from "@/types/connection";
+import { DbType } from "@/types/connection";
 import type {
   ColumnDefinitionInput,
   IndexDefinitionInput,
@@ -399,7 +399,8 @@ export abstract class SqlAdapter implements DatabaseAdapter {
    * Whether this dialect supports RETURNING clause
    */
   protected supportsReturning(): boolean {
-    return true; // Override in dialects that don't support it
+    // Check instance property directly — avoids stale prototype issues with cached adapter instances
+    return this.dbType !== DbType.Trino;
   }
 
   /**

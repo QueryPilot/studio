@@ -46,6 +46,8 @@ import type {
   GridCellContentContext,
   CrudCommandFactory,
 } from "../types";
+import { useQuery } from "@tanstack/react-query";
+import { BackendAPI } from "@/services/backend";
 import { useTableDataQuery } from "@/hooks/useTableDataQuery";
 import { useTableFullStructure } from "@/hooks/useTableFullStructure";
 import { useReferencedTableColumns } from "@/hooks/useReferencedTableColumns";
@@ -79,6 +81,27 @@ import { Button } from "@/components/ui/button";
 // Stable empty array to prevent infinite re-renders when sortColumns is undefined
 const EMPTY_SORT_COLUMNS: SortColumn[] = [];
 const EMPTY_ROW_IDENTIFIER_COLUMNS: string[] = [];
+
+// Trino catalog names that conventionally match their connector name and are always read-only.
+// Used as a fast static fallback before the async connector check resolves.
+const TRINO_READONLY_CATALOG_NAMES = new Set(["tpch", "tpcds", "system", "jmx"]);
+
+// Trino connector names (connector.name in catalog properties) that do not support
+// UPDATE or DELETE. Sourced from Trino docs for all built-in connectors.
+// "memory" supports INSERT but not UPDATE/DELETE, so it is included here.
+const TRINO_READONLY_CONNECTOR_NAMES = new Set([
+  "tpch", "tpcds", "system", "jmx",
+  "memory",           // INSERT only — no UPDATE/DELETE
+  "blackhole",        // silently discards all writes — not useful to edit
+  "elasticsearch", "opensearch",
+  "pinot", "druid",
+  "redis",
+  "prometheus", "loki",
+  "trino_thrift",
+  "hudi",
+  "kafka",            // INSERT only
+  "gsheets",          // INSERT only
+]);
 
 const areStringArraysEqual = (a: string[], b: string[]): boolean => {
   if (a.length !== b.length) return false;
@@ -156,13 +179,41 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
         : "table";
 
   const isViewOrMatView = kind === "View" || kind === "MaterializedView";
-  const isReadOnly = readOnly || isViewOrMatView;
+
+  // Fast static check: catalog name matches a well-known read-only connector
+  const isTrinoStaticReadOnly =
+    dbType === DbType.Trino && TRINO_READONLY_CATALOG_NAMES.has(database ?? "");
+
+  // Dynamic check: query system.metadata.catalogs for the connector name.
+  // Only runs for Trino connections where the static check didn't already match.
+  const { data: trinoConnectorName } = useQuery({
+    queryKey: ["trino-connector", connectionId, database],
+    enabled: dbType === DbType.Trino && !isTrinoStaticReadOnly && !!database,
+    staleTime: Infinity, // connector type never changes for a given catalog
+    retry: false,
+    queryFn: async () => {
+      const result = await BackendAPI.query(
+        connectionId,
+        `SELECT connector_name FROM system.metadata.catalogs WHERE catalog_name = '${database}'`,
+      );
+      return (result.rows[0]?.[0] as string | undefined) ?? null;
+    },
+  });
+
+  const isTrinoReadOnly =
+    isTrinoStaticReadOnly ||
+    (dbType === DbType.Trino && trinoConnectorName != null &&
+      TRINO_READONLY_CONNECTOR_NAMES.has(trinoConnectorName));
+
+  const isReadOnly = readOnly || isViewOrMatView || isTrinoReadOnly;
   const viewReadOnlyReason =
-    kind === "View"
-      ? "Read-only: View"
-      : kind === "MaterializedView"
-        ? "Read-only: Materialized View"
-        : undefined;
+    isTrinoReadOnly
+      ? "Read-only: Trino"
+      : kind === "View"
+        ? "Read-only: View"
+        : kind === "MaterializedView"
+          ? "Read-only: Materialized View"
+          : undefined;
 
   // --- Table Structure (needed for FK metadata before data query) ---
   const { structure: tableStructure } = useTableFullStructure({
@@ -988,7 +1039,7 @@ RULES:
               (adapter as unknown) as Parameters<
                 typeof canProceedBestEffort
               >[0]["adapter"],
-            target: { schema, table },
+            target: { catalog: database ?? undefined, schema, table },
             where: where ?? {},
           });
 

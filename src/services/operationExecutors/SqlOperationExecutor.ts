@@ -7,6 +7,7 @@
 
 import type { CrudCommand } from '@/types/crud';
 import type { DatabaseAdapter } from '@/adapters/types';
+import { DbType } from '@/types/connection';
 import {
   commandToSql,
   applyColumnRenames,
@@ -65,19 +66,26 @@ export class SqlOperationExecutor implements SqlOperationExecutorInterface {
 
       logger.info('executor.sql', `Generated ${executable.length} SQL statements`, executable);
 
-      // Wrap in transaction and execute
-      const transactionQuery = this.adapter.transaction(executable);
-      const transactionSql = typeof transactionQuery === 'string'
-        ? transactionQuery
-        : (transactionQuery as { sql: string }).sql;
+      // Databases like Trino don't support BEGIN/COMMIT — execute each statement individually
+      if (this.adapter.dbType === DbType.Trino) {
+        for (const sql of executable) {
+          await this.adapter.execute(sql);
+        }
+      } else {
+        // Wrap in transaction and execute
+        const transactionQuery = this.adapter.transaction(executable);
+        const transactionSql = typeof transactionQuery === 'string'
+          ? transactionQuery
+          : (transactionQuery as { sql: string }).sql;
 
-      logger.info('executor.sql', 'Executing transaction', transactionSql);
+        logger.info('executor.sql', 'Executing transaction', transactionSql);
 
-      await this.adapter.execute(transactionQuery);
+        await this.adapter.execute(transactionQuery);
+      }
 
-      // Transaction succeeded
+      // Execution succeeded
       affectedCount = processedCommands.length;
-      logger.info('executor.sql', `Transaction committed, affected ${affectedCount} operations`);
+      logger.info('executor.sql', `Execution completed, affected ${affectedCount} operations`);
 
       return {
         success: true,

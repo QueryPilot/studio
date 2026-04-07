@@ -93,13 +93,14 @@ export function initializeSentry(
 
         // Sanitize breadcrumbs
         if (event.breadcrumbs) {
+          const SENSITIVE_PATTERNS = [
+            "sql", "select", "insert", "update", "delete",
+            "password", "token", "secret", "access_key", "api_key", "credential",
+          ];
           event.breadcrumbs = event.breadcrumbs.map((breadcrumb) => {
-            // Remove SQL queries from breadcrumbs
-            if (breadcrumb.message?.includes("SQL")) {
-              return {
-                ...breadcrumb,
-                message: "[SQL query - redacted for privacy]",
-              };
+            const msg = breadcrumb.message?.toLowerCase() ?? "";
+            if (SENSITIVE_PATTERNS.some((p) => msg.includes(p))) {
+              return { ...breadcrumb, message: "[redacted - sensitive data]" };
             }
             return breadcrumb;
           });

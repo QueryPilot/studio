@@ -759,7 +759,7 @@ export function WorkspaceTitleBar({
     >
       {/* Windows window controls — absolute, outside the grid */}
       {isWin && (
-        <div className="absolute top-0 right-0 z-50">
+        <div className="absolute top-0 right-0 z-50" data-tauri-drag-region>
           <WindowControls />
         </div>
       )}
@@ -788,7 +788,10 @@ export function WorkspaceTitleBar({
       )}
 
       {/* Left Section - Add padding for macOS traffic lights */}
-      <div className={`flex items-center gap-2.5 shrink-0 ${isMac ? "pl-20" : "pl-2"}`} data-tauri-drag-region>
+      <div
+        className={`flex items-center gap-2.5 shrink-0 ${isMac ? "pl-20" : "pl-2"}`}
+        data-tauri-drag-region
+      >
         {/* App logo — Windows custom titlebar (replaces native icon) */}
         {isWin && (
           <img
@@ -897,7 +900,10 @@ export function WorkspaceTitleBar({
       </div>
 
       {/* Center Section — fills remaining space, truncates instead of overlapping */}
-      <div className="flex items-center justify-center gap-1.5 text-xs min-w-0 overflow-hidden select-none">
+      <div
+        className="flex items-center justify-center gap-1.5 text-xs min-w-0 overflow-hidden select-none"
+        data-tauri-drag-region
+      >
         {/* Workspace Name (multi-connection workspace) */}
         {workspaceConnectionCount > 1 ? (
           <>
@@ -1133,7 +1139,6 @@ export function WorkspaceTitleBar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
       </div>
 
       {/* Global Changes Dialog */}

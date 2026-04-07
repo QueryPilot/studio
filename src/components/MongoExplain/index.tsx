@@ -23,6 +23,7 @@ import { useTheme } from "@/components/theme-provider";
 import { getThemeExtensions } from "@/components/CodeEditor/themes";
 import { JSON_EXTENSIONS } from "@/components/shared/codemirrorJsonExtensions";
 import { useGridPreferencesStore } from "@/components/DataGrid/stores/gridPreferencesStore";
+import { useShallow } from "zustand/react/shallow";
 import { MongoDBAdapter } from "@/adapters/mongodb/MongoDBAdapter";
 import type {
   MongoExplainRequest,
@@ -102,7 +103,7 @@ export const MongoExplainView = memo(function MongoExplainView({
   const { resolvedTheme } = useTheme();
 
   const sortColumns = useGridPreferencesStore(
-    (state) => state.preferences[sortGridId]?.sortColumns ?? [],
+    useShallow((state) => state.preferences[sortGridId]?.sortColumns ?? []),
   );
 
   // ---- Run explain -------------------------------------------------------

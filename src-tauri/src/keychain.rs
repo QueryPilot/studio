@@ -14,14 +14,40 @@ pub fn get_existing_vault_password() -> Result<String, String> {
         .map_err(|e| format!("Failed to access keychain: {}", e))?;
 
     entry.get_password().map_err(|e| match &e {
-        keyring::Error::NoEntry => "Vault encryption key not found in keychain. \
-             If you use iCloud Keychain, ensure it is accessible in System Settings."
-            .to_string(),
-        _ => format!(
-            "Keychain access denied: {}. \
-             Grant Full Disk Access or Keychain permission in System Settings.",
-            e
-        ),
+        keyring::Error::NoEntry => {
+            #[cfg(target_os = "macos")]
+            return "Vault encryption key not found in keychain. \
+                If you use iCloud Keychain, ensure it is accessible in System Settings."
+                .to_string();
+            #[cfg(target_os = "windows")]
+            return "Vault encryption key not found in Windows Credential Manager. \
+                Ensure you are logged in with the same Windows user account."
+                .to_string();
+            #[cfg(target_os = "linux")]
+            return "Vault encryption key not found in the system keyring. \
+                Ensure a keyring service (e.g. GNOME Keyring or KWallet) is running."
+                .to_string();
+        }
+        _ => {
+            #[cfg(target_os = "macos")]
+            return format!(
+                "Keychain access denied: {}. \
+                 Grant Full Disk Access or Keychain permission in System Settings.",
+                e
+            );
+            #[cfg(target_os = "windows")]
+            return format!(
+                "Windows Credential Manager access denied: {}. \
+                 Ensure the app has permission to access stored credentials.",
+                e
+            );
+            #[cfg(target_os = "linux")]
+            return format!(
+                "System keyring access denied: {}. \
+                 Ensure a keyring service is running and unlocked.",
+                e
+            );
+        }
     })
 }
 
@@ -44,11 +70,26 @@ pub fn get_or_create_vault_password() -> Result<String, String> {
                 .map_err(|e| format!("Failed to store password in keychain: {}", e))?;
             Ok(password)
         }
-        Err(e) => Err(format!(
-            "Keychain access denied: {}. \
-             Grant Full Disk Access or Keychain permission in System Settings.",
-            e
-        )),
+        Err(e) => {
+            #[cfg(target_os = "macos")]
+            return Err(format!(
+                "Keychain access denied: {}. \
+                 Grant Full Disk Access or Keychain permission in System Settings.",
+                e
+            ));
+            #[cfg(target_os = "windows")]
+            return Err(format!(
+                "Windows Credential Manager access denied: {}. \
+                 Ensure the app has permission to access stored credentials.",
+                e
+            ));
+            #[cfg(target_os = "linux")]
+            return Err(format!(
+                "System keyring access denied: {}. \
+                 Ensure a keyring service is running and unlocked.",
+                e
+            ));
+        }
     }
 }
 

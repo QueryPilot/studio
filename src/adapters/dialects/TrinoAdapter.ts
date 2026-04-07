@@ -139,6 +139,14 @@ ORDER BY ordinal_position`;
     return `SELECT NULL WHERE false`;
   }
 
+  transaction(operations: import("../types").QueryPayload[]): string {
+    const statements = operations.filter(
+      (op): op is string => typeof op === "string",
+    );
+    // Trino does not support BEGIN/COMMIT syntax; run statements sequentially
+    return statements.join(";\n");
+  }
+
   protected formatTableRef(target: import("../types").TableRef): string {
     const schemaPart = target.schema ? `${this.quoteIdentifier(target.schema)}.` : "";
     const tablePart = `${schemaPart}${this.quoteIdentifier(target.table)}`;

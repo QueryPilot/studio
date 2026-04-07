@@ -59,12 +59,16 @@ jobs:
           fi
 
           VERSION_NUMBER="${VERSION#v}"
+          RELEASE_DATE=$(date -u +"%Y-%m-%d")
 
-          # Extract changelog for this version only (stop at next version header)
-          CHANGELOG_CONTENT=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
+          # Extract the full changelog section for this version from CHANGELOG.md.
+          # Include the ## [version] - date header so the format matches the local
+          # release script (release-local.sh generate_changelog output).
+          CHANGELOG_SECTION=$(awk "/^## \[$VERSION_NUMBER\]/{found=1} found && /^## \[/ && NR>1{exit} found" CHANGELOG.md 2>/dev/null || true)
 
-          # Fallback: generate changelog from git commits between tags
-          if [ -z "$CHANGELOG_CONTENT" ]; then
+          if [ -n "$CHANGELOG_SECTION" ]; then
+            echo "$CHANGELOG_SECTION" > /tmp/release-notes.md
+          else
             echo "⚠️ No changelog entry found for $VERSION_NUMBER in CHANGELOG.md"
             echo "📝 Generating release notes from git commits..."
 
@@ -82,38 +86,30 @@ jobs:
             FIXES=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^fix" 2>/dev/null || true)
             OTHER=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges --grep="^chore\|^refactor\|^perf\|^docs\|^style\|^ci" 2>/dev/null || true)
 
-            # If conventional commits didn't match, list all commits
+            # Build notes matching local release format: version header + sections
+            echo "## [$VERSION_NUMBER] - $RELEASE_DATE" > /tmp/release-notes.md
+            echo "" >> /tmp/release-notes.md
+
+            if [ -n "$FEATURES" ]; then
+              printf "### New Features\n%s\n\n" "$FEATURES" >> /tmp/release-notes.md
+            fi
+            if [ -n "$FIXES" ]; then
+              printf "### Bug Fixes\n%s\n\n" "$FIXES" >> /tmp/release-notes.md
+            fi
+            if [ -n "$OTHER" ]; then
+              printf "### Other Changes\n%s\n" "$OTHER" >> /tmp/release-notes.md
+            fi
+
+            # If conventional commits didn't match, list all commits under a generic section
             if [ -z "$FEATURES" ] && [ -z "$FIXES" ] && [ -z "$OTHER" ]; then
-              CHANGELOG_CONTENT=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges 2>/dev/null | head -30 || true)
-            else
-              CHANGELOG_CONTENT=""
-              if [ -n "$FEATURES" ]; then
-                CHANGELOG_CONTENT="### New Features
-          ${FEATURES}
-          "
-              fi
-              if [ -n "$FIXES" ]; then
-                CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
-          ### Bug Fixes
-          ${FIXES}
-          "
-              fi
-              if [ -n "$OTHER" ]; then
-                CHANGELOG_CONTENT="${CHANGELOG_CONTENT}
-          ### Other Changes
-          ${OTHER}"
+              ALL=$(git log "$COMMIT_RANGE" --pretty=format:"- %s" --no-merges 2>/dev/null | head -30 || true)
+              if [ -n "$ALL" ]; then
+                printf "### Changes\n%s\n" "$ALL" >> /tmp/release-notes.md
+              else
+                echo "No notable changes in this release." >> /tmp/release-notes.md
               fi
             fi
           fi
-
-          if [ -z "$CHANGELOG_CONTENT" ]; then
-            CHANGELOG_CONTENT="No notable changes in this release."
-          fi
-
-          # Create release notes (changelog only)
-          echo "## What's Changed" > /tmp/release-notes.md
-          echo "" >> /tmp/release-notes.md
-          echo "$CHANGELOG_CONTENT" >> /tmp/release-notes.md
 
           gh release create "$VERSION" \
             --draft \
@@ -197,7 +193,7 @@ jobs:
           echo "✅ GPG key imported for AppImage/RPM signing"
 
       - name: Import Windows certificate
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && secrets.WINDOWS_CERTIFICATE != ''
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
@@ -207,7 +203,13 @@ jobs:
           certutil -decode certificate/tempCert.txt certificate/certificate.pfx
           Remove-Item -path certificate -include tempCert.txt
           Import-PfxCertificate -FilePath certificate/certificate.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText)
+          echo "✅ Windows certificate imported"
         shell: powershell
+
+      - name: Cleanup Windows certificate
+        if: always() && matrix.platform == 'windows'
+        shell: powershell
+        run: Remove-Item -Recurse -Force -ErrorAction SilentlyContinue certificate
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -239,7 +241,7 @@ jobs:
       # ============================================
 
       - name: Import Apple certificate
-        if: matrix.platform == 'macos'
+        if: matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE != ''
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -283,12 +285,15 @@ jobs:
             BIN_NAME="querypilot"
           fi
 
-          cp "target/$TARGET/release/$BIN_NAME" "target/release/querypilot-$TARGET"
-          if [[ "$TARGET" != *windows* ]]; then
+          # Tauri sidecar on Windows requires the .exe suffix on the renamed binary
+          if [[ "$TARGET" == *windows* ]]; then
+            cp "target/$TARGET/release/$BIN_NAME" "target/release/querypilot-$TARGET.exe"
+            EXPECTED_PATH="target/release/querypilot-$TARGET.exe"
+          else
+            cp "target/$TARGET/release/$BIN_NAME" "target/release/querypilot-$TARGET"
             chmod 755 "target/release/querypilot-$TARGET"
+            EXPECTED_PATH="target/release/querypilot-$TARGET"
           fi
-
-          EXPECTED_PATH="target/release/querypilot-$TARGET"
           if [ ! -f "$EXPECTED_PATH" ]; then
             echo "❌ ERROR: Missing querypilot CLI artifact: $EXPECTED_PATH"
             exit 1
@@ -529,7 +534,7 @@ jobs:
           gh release upload "$VERSION" $UPLOAD_FILES --clobber
 
       - name: Upload build artifacts (backup)
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: app-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
@@ -562,13 +567,16 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           echo "📥 Downloading release assets..."
-          gh release download "$VERSION" --pattern "*.app.tar.gz" || true
-          gh release download "$VERSION" --pattern "*.app.tar.gz.sig" || true
+          # macOS updater archives (required — fail fast if missing)
+          gh release download "$VERSION" --pattern "*.app.tar.gz"
+          gh release download "$VERSION" --pattern "*.app.tar.gz.sig"
+          # Linux and Windows updater archives (optional — present only if those builds ran)
           gh release download "$VERSION" --pattern "*.AppImage.tar.gz" || true
           gh release download "$VERSION" --pattern "*.AppImage.tar.gz.sig" || true
           gh release download "$VERSION" --pattern "*.nsis.zip" || true
           gh release download "$VERSION" --pattern "*.nsis.zip.sig" || true
-          ls -lh *.tar.gz *.sig 2>/dev/null || true
+          echo "📦 Downloaded assets:"
+          ls -lh *.tar.gz *.tar.gz.sig *.nsis.zip *.nsis.zip.sig 2>/dev/null || true
 
       - name: Generate update manifest
         env:
@@ -579,14 +587,19 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Extract release notes from CHANGELOG.md (safely via jq for JSON escaping)
-          RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md || true)
+          # Extract release notes body from CHANGELOG.md (body only, no version header —
+          # matches release-local.sh generate_manifest which uses the same awk pattern)
+          RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
 
-          # Fallback: generate from git commits
+          # Fallback: generate from git commits (matches release-local.sh fallback)
           if [ -z "$RAW_NOTES" ]; then
             PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
             if [ -n "$PREV_TAG" ]; then
-              RAW_NOTES=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s" --no-merges 2>/dev/null | head -20 || true)
+              FEAT=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s" --no-merges --grep="^feat" 2>/dev/null || true)
+              BUGF=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s" --no-merges --grep="^fix" 2>/dev/null || true)
+              [ -n "$FEAT" ] && RAW_NOTES="$(printf '### New Features\n%s' "$FEAT")"
+              [ -n "$BUGF" ] && RAW_NOTES="$(printf '%s\n### Bug Fixes\n%s' "$RAW_NOTES" "$BUGF")"
+              [ -z "$RAW_NOTES" ] && RAW_NOTES=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s" --no-merges 2>/dev/null | head -20 || true)
             fi
           fi
 
@@ -594,7 +607,7 @@ jobs:
             RAW_NOTES="See CHANGELOG.md for details"
           fi
 
-          BASE_URL="https://github.com/QueryPilot/studio/releases/download/$VERSION"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION"
 
           # macOS artifacts (required)
           AARCH64_ARCHIVE="QueryPilot_${VERSION}_aarch64.app.tar.gz"
@@ -708,12 +721,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
-          echo "📤 Uploading update manifest to source release..."
+          echo 'Uploading update manifest to source release...'
           gh release upload "$VERSION" latest.json --clobber
-          echo "✓ Uploaded to QueryPilot/studio release"
+          echo 'Uploaded to release'
 
       - name: Upload manifest as artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: update-manifest
           path: latest.json

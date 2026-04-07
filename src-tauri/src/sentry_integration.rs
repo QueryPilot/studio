@@ -141,13 +141,17 @@ fn sanitize_event(event: &mut sentry::protocol::Event<'static>) {
     event.breadcrumbs.values.retain_mut(|breadcrumb| {
         // Remove breadcrumbs that might contain sensitive info
         if let Some(message) = &breadcrumb.message {
-            if message.contains("password")
-                || message.contains("token")
-                || message.contains("secret")
-                || message.to_lowercase().contains("select")
-                || message.to_lowercase().contains("insert")
-                || message.to_lowercase().contains("update")
-                || message.to_lowercase().contains("delete")
+            let msg_lower = message.to_lowercase();
+            if msg_lower.contains("password")
+                || msg_lower.contains("token")
+                || msg_lower.contains("secret")
+                || msg_lower.contains("access_key")
+                || msg_lower.contains("api_key")
+                || msg_lower.contains("credential")
+                || msg_lower.contains("select")
+                || msg_lower.contains("insert")
+                || msg_lower.contains("update")
+                || msg_lower.contains("delete")
             {
                 breadcrumb.message = Some("[REDACTED - sensitive data]".to_string());
             }

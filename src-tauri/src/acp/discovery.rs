@@ -22,15 +22,19 @@ static USER_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 /// macOS: spawns a login+interactive shell (`-li`) to pick up PATH entries
 /// from .zshrc/.bashrc that GUI apps don't inherit from launchd.
 ///
-/// Windows/Linux: the process PATH is already correct, so we return it directly.
+/// Linux: same login-shell approach for desktop launchers (GNOME/KDE) which
+/// inherit a limited PATH from the session and miss nvm/fnm/volta PATH entries
+/// added in .bashrc/.zshrc.
+///
+/// Windows: the process PATH is already correct, so we return it directly.
 fn resolve_user_shell_path() -> Option<String> {
-    // Windows & Linux: process PATH is already fully populated.
-    #[cfg(not(target_os = "macos"))]
+    // Windows: process PATH is already fully populated.
+    #[cfg(target_os = "windows")]
     {
         return None; // causes get_user_path() to fall back to std::env::var("PATH")
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 

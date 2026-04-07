@@ -580,11 +580,15 @@ fn get_common_paths_for_tool(tool_name: &str) -> Vec<String> {
         match tool_name {
             "pg_dump" | "pg_restore" => {
                 paths.push("/usr/bin".to_string());
+                paths.push("/usr/local/bin".to_string());
+                paths.push("/usr/lib/postgresql/17/bin".to_string());
                 paths.push("/usr/lib/postgresql/16/bin".to_string());
                 paths.push("/usr/lib/postgresql/15/bin".to_string());
+                paths.push("/usr/lib/postgresql/14/bin".to_string());
             }
             "mariadb-dump" | "mariadb" => {
                 paths.push("/usr/bin".to_string());
+                paths.push("/usr/local/bin".to_string());
             }
             "mongodump" | "mongorestore" => {
                 paths.push("/usr/bin".to_string());

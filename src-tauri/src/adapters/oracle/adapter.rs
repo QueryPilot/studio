@@ -331,7 +331,11 @@ fn find_oracle_lib_dir() -> Option<String> {
         "/usr/lib/oracle/19.8/client64/lib",
         "/opt/oracle/instantclient_21_0",
         "/opt/oracle/instantclient_19_8",
+        "/opt/oracle/instantclient",
+        "/usr/lib/x86_64-linux-gnu",  // Debian/Ubuntu multiarch
+        "/usr/lib64",                  // RHEL/Fedora/CentOS
         "/usr/local/lib",
+        "/snap/oracle-instantclient/current", // Snap package
     ];
     #[cfg(target_os = "windows")]
     let search_dirs: &[&str] = &[

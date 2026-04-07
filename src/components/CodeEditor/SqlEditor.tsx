@@ -113,6 +113,7 @@ import { clearInstanceCaches } from "./languages/sql/shared";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { useShallow } from "zustand/react/shallow";
 
 // Extracted hooks
 import { useSqlEditorSetup } from "./hooks/useSqlEditorSetup";
@@ -416,11 +417,16 @@ export const SqlEditor = memo(
     // Stable reference for schema
     const defaultSchema = schema || getFallbackSchema(dbType, database);
 
-    // Get Trino catalogs from connection profile for cross-catalog table lookup
-    const trinoCatalogs = useConnectionStore((state) => {
-      const conn = state.getConnection(connectionId);
-      return conn?.profile.trino_catalogs ?? [];
-    });
+    // Only load Trino catalogs when the dialect is actually Trino — no point
+    // subscribing to connection profile data for other dialects.
+    const trinoCatalogsRaw = useConnectionStore(
+      useShallow((state) => {
+        if (effectiveDialect !== "trino") return null;
+        const conn = state.getConnection(connectionId);
+        return conn?.profile.trino_catalogs ?? null;
+      }),
+    );
+    const trinoCatalogs = trinoCatalogsRaw ?? [];
 
     const handlePickedCompletion = useCallback(
       (picked: { label: string; type?: string | null }) => {

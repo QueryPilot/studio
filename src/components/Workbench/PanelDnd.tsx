@@ -38,6 +38,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { DraggableTab } from "./DraggableTab";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
+import { useShallow } from "zustand/react/shallow";
 import type { DbType } from "@/types/connection";
 import { usePanelContent } from "@/hooks/usePanelContent";
 import { getMountedTabs, recordVisit } from "./heavyTabMountPolicy";
@@ -269,7 +270,7 @@ export const Panel: React.FC<PanelProps> = React.memo(
 
     // Get workspace connection IDs for tab color grouping
     const workspaceConnectionIds = useWorkspaceBundleStore(
-      (state) => state.activeWorkspace?.config.connectionIds ?? [],
+      useShallow((state) => state.activeWorkspace?.config.connectionIds ?? []),
     );
 
     const { mountedTabs, isPending } = useMountedTabs(

@@ -182,7 +182,7 @@ pub struct SshTunnelConfig {
     pub auth: SshAuthMethod,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(try_from = "SshAuthMethodRaw")]
 pub enum SshAuthMethod {
     Password(String),
@@ -191,6 +191,20 @@ pub enum SshAuthMethod {
         passphrase: Option<String>,
     },
     Agent,
+}
+
+impl std::fmt::Debug for SshAuthMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SshAuthMethod::Password(_) => write!(f, "Password(***)"),
+            SshAuthMethod::KeyFile { path, .. } => f
+                .debug_struct("KeyFile")
+                .field("path", path)
+                .field("passphrase", &"***")
+                .finish(),
+            SshAuthMethod::Agent => write!(f, "Agent"),
+        }
+    }
 }
 
 /// Raw deserialization helper that accepts both `"Agent"` and `{"Agent": true}`
@@ -247,7 +261,7 @@ pub struct AuthProfile {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum AuthProvider {
     AzureAdSaml {
         tenant_id: String,
@@ -264,6 +278,35 @@ pub enum AuthProvider {
     EnvironmentAwsCredentials {
         region: Option<String>,
     },
+}
+
+impl std::fmt::Debug for AuthProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthProvider::AzureAdSaml {
+                tenant_id,
+                session_duration_hours,
+                ..
+            } => f
+                .debug_struct("AzureAdSaml")
+                .field("tenant_id", tenant_id)
+                .field("app_id_uri", &"***")
+                .field("default_username", &"***")
+                .field("session_duration_hours", session_duration_hours)
+                .field("default_role_arn", &"***")
+                .finish(),
+            AuthProvider::StaticAwsCredentials { region, .. } => f
+                .debug_struct("StaticAwsCredentials")
+                .field("access_key_id", &"***")
+                .field("secret_access_key", &"***")
+                .field("region", region)
+                .finish(),
+            AuthProvider::EnvironmentAwsCredentials { region } => f
+                .debug_struct("EnvironmentAwsCredentials")
+                .field("region", region)
+                .finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

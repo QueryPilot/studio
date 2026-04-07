@@ -7,7 +7,18 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconCopy, IconCopyPlus, IconDownload, IconEye, IconPin, IconPinnedOff, IconPlus, IconTrash, IconClipboardText, IconKey } from '@tabler/icons-react';
+import {
+  IconCopy,
+  IconCopyPlus,
+  IconDownload,
+  IconEye,
+  IconPin,
+  IconPinnedOff,
+  IconPlus,
+  IconTrash,
+  IconClipboardText,
+  IconKey,
+} from "@tabler/icons-react";
 import type { GridColumnV2, GridRowModel } from "../types";
 import type { DatabaseType } from "@/types";
 import {
@@ -69,7 +80,10 @@ export interface GridContextMenuItemsProps {
   /** The column of the right-clicked cell — used to show FK embed submenu */
   cellColumn?: GridColumnV2;
   connectionId?: string;
-  referencedTableColumns?: Record<string, Array<{ name: string; db_type: string }>>;
+  referencedTableColumns?: Record<
+    string,
+    Array<{ name: string; db_type: string }>
+  >;
 }
 
 export function GridContextMenuItems({
@@ -187,7 +201,13 @@ export function GridContextMenuItems({
 
   const handleCopyCellsInsert = useCallback(async () => {
     try {
-      const content = copyAsInsert(selectedRows, cellColumns, tableName, databaseType, schema);
+      const content = copyAsInsert(
+        selectedRows,
+        cellColumns,
+        tableName,
+        databaseType,
+        schema,
+      );
       await writeTextToClipboard(content);
       toast("Copied cells as INSERT");
     } catch (error) {
@@ -236,7 +256,13 @@ export function GridContextMenuItems({
 
   const handleCopyRowsInsert = useCallback(async () => {
     try {
-      const content = copyAsInsert(selectedRows, columns, tableName, databaseType, schema);
+      const content = copyAsInsert(
+        selectedRows,
+        columns,
+        tableName,
+        databaseType,
+        schema,
+      );
       await writeTextToClipboard(content);
       toast("Copied rows as INSERT");
     } catch (error) {
@@ -256,7 +282,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied Redis GET commands");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows]);
 
@@ -266,7 +294,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied Redis SET commands");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows, columns]);
 
@@ -276,7 +306,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied Redis DEL command");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows]);
 
@@ -286,7 +318,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied Redis keys");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows]);
 
@@ -300,7 +334,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied MongoDB find query");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows, columns, tableName]);
 
@@ -310,7 +346,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied MongoDB insert command");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows, columns, tableName]);
 
@@ -320,7 +358,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied MongoDB update command");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows, columns, tableName]);
 
@@ -330,7 +370,9 @@ export function GridContextMenuItems({
       await writeTextToClipboard(content);
       toast("Copied MongoDB delete command");
     } catch (error) {
-      toast.error(`Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`);
+      toast.error(
+        `Failed to copy: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
   }, [selectedRows, columns, tableName]);
 
@@ -438,9 +480,9 @@ export function GridContextMenuItems({
         {onSelectIdentifierColumns && (
           <ContextMenuItem
             onClick={onSelectIdentifierColumns}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconKey className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconKey className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Select Identifier Columns</span>
           </ContextMenuItem>
         )}
@@ -450,16 +492,16 @@ export function GridContextMenuItems({
         {onAddRow && (
           <ContextMenuItem
             onClick={onAddRow}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconPlus className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Add Row</span>
           </ContextMenuItem>
         )}
         {onPaste && (
           <ContextMenuItem
             onClick={onPaste}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <IconClipboardText className="mr-3.5 h-3 w-3" />
             <span className="flex-1">Paste</span>
@@ -475,9 +517,9 @@ export function GridContextMenuItems({
         <>
           <ContextMenuItem
             onClick={onViewDetails}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconEye className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconEye className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">View Details</span>
           </ContextMenuItem>
           <ContextMenuSeparator className="my-1" />
@@ -486,29 +528,29 @@ export function GridContextMenuItems({
 
       {/* Copy submenu - paradigm-aware */}
       <ContextMenuSub>
-        <ContextMenuSubTrigger className="text-xs py-1.5 px-3 outline-none">
-          <IconCopy className="mr-3.5 h-3 w-3 text-foreground" />
+        <ContextMenuSubTrigger className="text-xs py-1.5 px-2 outline-none">
+          <IconCopy className="mr-2 h-4 w-4 text-foreground" />
           <span className="flex-1">Copy</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
           {/* Common copy options */}
           <ContextMenuItem
             onClick={handleCopyCellsTSV}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <span className="flex-1">Copy cells</span>
             {shortcuts.copy}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyCellsJSON}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <span className="flex-1">Copy cells as JSON</span>
             {shortcuts.copyJson}
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyCellsCSV}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <span className="flex-1">Copy cells as CSV</span>
           </ContextMenuItem>
@@ -517,7 +559,7 @@ export function GridContextMenuItems({
           {paradigm === "sql" && (
             <ContextMenuItem
               onClick={handleCopyCellsInsert}
-              className="text-xs py-1.5 px-3 outline-none"
+              className="text-xs py-1.5 px-2 outline-none"
             >
               <span className="flex-1">Copy cells as INSERT</span>
             </ContextMenuItem>
@@ -528,25 +570,25 @@ export function GridContextMenuItems({
             <>
               <ContextMenuItem
                 onClick={handleCopyRedisGet}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as GET command</span>
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={handleCopyRedisSet}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as SET command</span>
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={handleCopyRedisDel}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as DEL command</span>
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={handleCopyRedisKeys}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy key names</span>
               </ContextMenuItem>
@@ -558,25 +600,25 @@ export function GridContextMenuItems({
             <>
               <ContextMenuItem
                 onClick={handleCopyMongoFind}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as find()</span>
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={handleCopyMongoInsert}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as insertOne()</span>
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={handleCopyMongoUpdate}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as updateOne()</span>
               </ContextMenuItem>
               <ContextMenuItem
                 onClick={handleCopyMongoDelete}
-                className="text-xs py-1.5 px-3 outline-none"
+                className="text-xs py-1.5 px-2 outline-none"
               >
                 <span className="flex-1">Copy as deleteOne()</span>
               </ContextMenuItem>
@@ -588,19 +630,19 @@ export function GridContextMenuItems({
           {/* Copy rows (all visible columns) */}
           <ContextMenuItem
             onClick={handleCopyRowsTSV}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <span className="flex-1">Copy rows as TSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyRowsJSON}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <span className="flex-1">Copy rows as JSON</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleCopyRowsCSV}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
             <span className="flex-1">Copy rows as CSV</span>
           </ContextMenuItem>
@@ -609,7 +651,7 @@ export function GridContextMenuItems({
           {paradigm === "sql" && (
             <ContextMenuItem
               onClick={handleCopyRowsInsert}
-              className="text-xs py-1.5 px-3 outline-none"
+              className="text-xs py-1.5 px-2 outline-none"
             >
               <span className="flex-1">Copy rows as INSERT</span>
             </ContextMenuItem>
@@ -633,9 +675,9 @@ export function GridContextMenuItems({
         <ContextMenuItem
           onClick={handlePinRows}
           disabled={!canPinMore}
-          className="text-xs py-1.5 px-3 outline-none"
+          className="text-xs py-1.5 px-2 outline-none"
         >
-          <IconPin className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPin className="mr-2 h-4 w-4 text-foreground" />
           <span className="flex-1">Pin Rows</span>
           {!canPinMore && (
             <span className="text-xs text-muted-foreground ml-1">Max</span>
@@ -645,9 +687,9 @@ export function GridContextMenuItems({
       {selectedPinnedKeys.length > 0 && (
         <ContextMenuItem
           onClick={handleUnpinRows}
-          className="text-xs py-1.5 px-3 outline-none"
+          className="text-xs py-1.5 px-2 outline-none"
         >
-          <IconPinnedOff className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPinnedOff className="mr-2 h-4 w-4 text-foreground" />
           <span className="flex-1">Unpin Rows</span>
         </ContextMenuItem>
       )}
@@ -657,9 +699,9 @@ export function GridContextMenuItems({
           <ContextMenuSeparator className="my-1" />
           <ContextMenuItem
             onClick={onPaste}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconClipboardText className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconClipboardText className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Paste</span>
             {shortcuts.paste}
           </ContextMenuItem>
@@ -669,9 +711,9 @@ export function GridContextMenuItems({
       {onInsertRowAbove && (
         <ContextMenuItem
           onClick={onInsertRowAbove}
-          className="text-xs py-1.5 px-3 outline-none"
+          className="text-xs py-1.5 px-2 outline-none"
         >
-          <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPlus className="mr-2 h-4 w-4 text-foreground" />
           <span className="flex-1">Insert Row Above</span>
           {shortcuts.insertAbove}
         </ContextMenuItem>
@@ -680,9 +722,9 @@ export function GridContextMenuItems({
       {onInsertRowBelow && (
         <ContextMenuItem
           onClick={onInsertRowBelow}
-          className="text-xs py-1.5 px-3 outline-none"
+          className="text-xs py-1.5 px-2 outline-none"
         >
-          <IconPlus className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconPlus className="mr-2 h-4 w-4 text-foreground" />
           <span className="flex-1">Insert Row Below</span>
           {shortcuts.insertBelow}
         </ContextMenuItem>
@@ -691,9 +733,9 @@ export function GridContextMenuItems({
       {onDuplicateRows && (
         <ContextMenuItem
           onClick={onDuplicateRows}
-          className="text-xs py-1.5 px-3 outline-none"
+          className="text-xs py-1.5 px-2 outline-none"
         >
-          <IconCopyPlus className="mr-1.5 h-3 w-3 text-foreground" />
+          <IconCopyPlus className="mr-2 h-4 w-4 text-foreground" />
           <span className="flex-1">
             Duplicate Row{selectedRows.length > 1 ? "s" : ""}
           </span>
@@ -703,44 +745,44 @@ export function GridContextMenuItems({
 
       {/* Export submenu */}
       <ContextMenuSub>
-        <ContextMenuSubTrigger className="text-xs py-1.5 px-3 outline-none">
-          <IconDownload className="mr-3.5 h-3 w-3" />
+        <ContextMenuSubTrigger className="text-xs py-1.5 px-2 outline-none">
+          <IconDownload className="mr-2 h-4 w-4" />
           <span className="flex-1">Export</span>
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="text-xs p-1">
           <ContextMenuItem
             onClick={handleExportCSV}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Export as CSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportJSON}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Export as JSON</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportTSV}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Export as TSV</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportMarkdown}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Export as Markdown</span>
           </ContextMenuItem>
           <ContextMenuItem
             onClick={handleExportExcel}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconDownload className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconDownload className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Export as Excel</span>
           </ContextMenuItem>
         </ContextMenuSubContent>
@@ -752,9 +794,9 @@ export function GridContextMenuItems({
       <ContextMenuItem
         variant="destructive"
         onClick={onDeleteRows}
-        className="text-xs py-1.5 px-3 outline-none"
+        className="text-xs py-1.5 px-2 outline-none"
       >
-        <IconTrash className="mr-1.5 h-3 w-3 text-destructive" />
+        <IconTrash className="mr-2 h-4 w-4 text-destructive" />
         <span className="flex-1">Delete</span>
         {shortcuts.deleteRows}
       </ContextMenuItem>
@@ -765,9 +807,9 @@ export function GridContextMenuItems({
           {onBestEffortEditRows && (
             <ContextMenuItem
               onClick={onBestEffortEditRows}
-              className="text-xs py-1.5 px-3 outline-none"
+              className="text-xs py-1.5 px-2 outline-none"
             >
-              <IconCopyPlus className="mr-1.5 h-3 w-3 text-foreground" />
+              <IconCopyPlus className="mr-2 h-4 w-4 text-foreground" />
               <span className="flex-1">Best-effort Edit Row</span>
             </ContextMenuItem>
           )}
@@ -775,9 +817,9 @@ export function GridContextMenuItems({
             <ContextMenuItem
               variant="destructive"
               onClick={onBestEffortDeleteRows}
-              className="text-xs py-1.5 px-3 outline-none"
+              className="text-xs py-1.5 px-2 outline-none"
             >
-              <IconTrash className="mr-1.5 h-3 w-3 text-destructive" />
+              <IconTrash className="mr-2 h-4 w-4 text-destructive" />
               <span className="flex-1">Best-effort Delete</span>
             </ContextMenuItem>
           )}
@@ -789,9 +831,9 @@ export function GridContextMenuItems({
           <ContextMenuSeparator className="my-1" />
           <ContextMenuItem
             onClick={onSelectIdentifierColumns}
-            className="text-xs py-1.5 px-3 outline-none"
+            className="text-xs py-1.5 px-2 outline-none"
           >
-            <IconKey className="mr-1.5 h-3 w-3 text-foreground" />
+            <IconKey className="mr-2 h-4 w-4 text-foreground" />
             <span className="flex-1">Select Identifier Columns</span>
           </ContextMenuItem>
         </>
