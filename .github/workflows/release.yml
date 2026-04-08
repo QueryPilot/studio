@@ -138,8 +138,7 @@ jobs:
 
           if [ "$BUILD_ARM" = "true" ]; then
             MATRIX=$(echo "$BASE" | jq '. + [
-              {"os":"ubuntu-24.04-arm","platform":"linux","target":"aarch64-unknown-linux-gnu","arch":"aarch64"},
-              {"os":"windows-latest","platform":"windows","target":"aarch64-pc-windows-msvc","arch":"aarch64"}
+              {"os":"ubuntu-24.04-arm","platform":"linux","target":"aarch64-unknown-linux-gnu","arch":"aarch64"}
             ]')
           else
             MATRIX="$BASE"
@@ -712,25 +711,8 @@ jobs:
               '.platforms["linux-aarch64"] = { signature: $sig, url: $url }')
           fi
 
-          # Windows aarch64 artifacts (optional)
-          WINDOWS_AARCH64_ARCHIVE="QueryPilot_${VERSION}_aarch64.nsis.zip"
-          WINDOWS_AARCH64_SIG="QueryPilot_${VERSION}_aarch64.nsis.zip.sig"
-          INCLUDE_WINDOWS_AARCH64="false"
-
-          if [ -f "$WINDOWS_AARCH64_ARCHIVE" ] && [ -f "$WINDOWS_AARCH64_SIG" ]; then
-            INCLUDE_WINDOWS_AARCH64="true"
-            WINDOWS_AARCH64_SIGNATURE=$(tr -d '\r\n' < "$WINDOWS_AARCH64_SIG")
-          fi
-
-          if [ "$INCLUDE_WINDOWS_AARCH64" = "true" ]; then
-            MANIFEST=$(echo "$MANIFEST" | jq \
-              --arg sig "$WINDOWS_AARCH64_SIGNATURE" \
-              --arg url "$BASE_URL/$WINDOWS_AARCH64_ARCHIVE" \
-              '.platforms["windows-aarch64"] = { signature: $sig, url: $url }')
-          fi
-
           echo "$MANIFEST" > latest.json
-          echo "✓ Generated updater manifest (linux_x86_64=$INCLUDE_LINUX, linux_aarch64=$INCLUDE_LINUX_AARCH64, windows_x86_64=$INCLUDE_WINDOWS, windows_aarch64=$INCLUDE_WINDOWS_AARCH64)"
+          echo "✓ Generated updater manifest (linux_x86_64=$INCLUDE_LINUX, linux_aarch64=$INCLUDE_LINUX_AARCH64, windows_x86_64=$INCLUDE_WINDOWS)"
           cat latest.json
 
       - name: Upload manifest to source release
