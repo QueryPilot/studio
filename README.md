@@ -45,18 +45,18 @@ No existing database client deeply integrates Claude Code or Codex CLI either �
 
 ## Supported Databases
 
-|                                                                                                                         | Query Editor | Data Grid | Table Designer | ERD | Visual EXPLAIN | Backup | SSH Tunnel | AI Assistant |
-| ----------------------------------------------------------------------------------------------------------------------- | :----------: | :-------: | :------------: | :-: | :------------: | :----: | :--------: | :----------: |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/postgresql-icon.svg" height="16"> **PostgreSQL**   |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/mysql-icon.svg" height="16"> **MySQL**             |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/mariadb-icon.svg" height="16"> **MariaDB**         |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/sqlite-icon.svg" height="16"> **SQLite**           |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ❌     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/mssql-server-logo.svg" height="16"> **SQL Server** |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/oracle-icon.svg" height="16"> **Oracle**           |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/trino-icon.svg" height="16"> **Trino**             |      ✅      |    ✅     |       ❌       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/duckdb-logo.svg" height="16"> **DuckDB**           |      ✅      |    👁️     |       ⚠️       | ✅  |       ✅       |   🕐   |     ❌     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/mongodb-icon.svg" height="16"> **MongoDB**         |      ✅      |    ✅     |       ✅       | ❌  |       ✅       |   🕐   |     ✅     |      ✅      |
-| <img src="https://github.com/QueryPilot/studio/raw/main/public/logos/redis-icon.svg" height="16"> **Redis**             |      ✅      |    ✅     |       ❌       | ❌  |       ❌       |   🕐   |     ✅     |      ⚠️      |
+|                                                                                                                           | Query Editor | Data Grid | Table Designer | ERD | Visual EXPLAIN | Backup | SSH Tunnel | AI Assistant |
+| ------------------------------------------------------------------------------------------------------------------------- | :----------: | :-------: | :------------: | :-: | :------------: | :----: | :--------: | :----------: |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/postgresql-icon.svg" height="16"> **PostgreSQL**   |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/mysql-icon.svg" height="16"> **MySQL**             |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/mariadb-icon.svg" height="16"> **MariaDB**         |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/sqlite-icon.svg" height="16"> **SQLite**           |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ❌     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/mssql-server-logo.svg" height="16"> **SQL Server** |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/oracle-icon.svg" height="16"> **Oracle**           |      ✅      |    ✅     |       ✅       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/trino-icon.svg" height="16"> **Trino**             |      ✅      |    ✅     |       ❌       | ✅  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/duckdb-logo.svg" height="16"> **DuckDB**           |      ✅      |    👁️     |       ⚠️       | ✅  |       ✅       |   🕐   |     ❌     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/mongodb-icon.svg" height="16"> **MongoDB**         |      ✅      |    ✅     |       ✅       | ❌  |       ✅       |   🕐   |     ✅     |      ✅      |
+| <img src="https://github.com/QueryPilot/studio/raw/master/public/logos/redis-icon.svg" height="16"> **Redis**             |      ✅      |    ✅     |       ❌       | ❌  |       ❌       |   🕐   |     ✅     |      ⚠️      |
 
 ✅ Full support &nbsp; 👁️ Read-only &nbsp; ⚠️ Partial &nbsp; 🕐 Coming soon &nbsp; ❌ Not supported
 
