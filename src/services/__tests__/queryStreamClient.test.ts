@@ -89,6 +89,13 @@ describe("QueryStreamClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     coreMockState.reset();
+    vi.stubGlobal("window", {
+      __TAURI_INTERNALS__: {
+        unregisterCallback: (id: number) => {
+          coreMockState.callbackRegistry.delete(id);
+        },
+      },
+    });
 
     mockDecode.mockImplementation((buffer: ArrayBuffer) => {
       const rowCount = new Uint8Array(buffer)[0] ?? 0;
@@ -518,5 +525,44 @@ describe("QueryStreamClient", () => {
       expect.stringContaining("Failed to decode batch"),
       expect.anything(),
     );
+  });
+
+  it("rejects promptly and unregisters IPC callbacks when aborted", async () => {
+    mockInvoke.mockImplementation(() => new Promise(() => {}));
+
+    const client = new QueryStreamClient();
+    const controller = new AbortController();
+
+    const streamPromise = client.streamWithCallbacks(
+      {
+        connId: "conn-1",
+        tabId: "query-tab-1",
+        sql: "SELECT pg_sleep(30)",
+        signal: controller.signal,
+      },
+      {},
+    );
+
+    expect(coreMockState.callbackRegistry.size).toBe(2);
+
+    controller.abort();
+
+    const timedResult = Promise.race([
+      streamPromise.then(
+        () => ({ status: "resolved" as const }),
+        (error: unknown) => ({ status: "rejected" as const, error }),
+      ),
+      new Promise<{ status: "timeout" }>((resolve) => {
+        setTimeout(() => {
+          resolve({ status: "timeout" });
+        }, 50);
+      }),
+    ]);
+
+    await expect(timedResult).resolves.toMatchObject({
+      status: "rejected",
+      error: expect.objectContaining({ name: "AbortError" }),
+    });
+    expect(coreMockState.callbackRegistry.size).toBe(0);
   });
 });

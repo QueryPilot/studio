@@ -22,6 +22,8 @@ export interface QueryStreamParams {
   timeoutSecs?: number;
   /** Force a tab-scoped backend session, even when the connection is in pooler mode. */
   pinSession?: boolean;
+  /** Abort the stream and tear down the IPC callbacks. */
+  signal?: AbortSignal;
 }
 
 export interface StreamBatch {
@@ -50,6 +52,11 @@ type ChannelLike = {
   toJSON: () => string;
 };
 
+type IpcChannelHandle = ChannelLike & {
+  id: number;
+  close: () => void;
+};
+
 type OrderedIpcPayload = {
   index?: number;
   id?: number;
@@ -71,12 +78,34 @@ function getOrderedPayloadIndex(payload: OrderedIpcPayload): number | undefined 
   return undefined;
 }
 
-function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
+function unregisterIpcCallback(id: number): void {
+  (
+    window as Window & {
+      __TAURI_INTERNALS__?: { unregisterCallback?: (callbackId: number) => void };
+    }
+  ).__TAURI_INTERNALS__?.unregisterCallback?.(id);
+}
+
+function makeAbortError(): Error {
+  try {
+    return new DOMException("Query cancelled", "AbortError");
+  } catch {
+    const error = new Error("Query cancelled");
+    error.name = "AbortError";
+    return error;
+  }
+}
+
+function createIpcChannel(handler: (message: unknown) => void): IpcChannelHandle {
   let nextMessageId = 0;
   const pending = new Map<number, unknown>();
   let messageEndIndex: number | undefined;
+  let closed = false;
   const callbackId = transformCallback(
     (payload: unknown) => {
+      if (closed) {
+        return;
+      }
       if (!isOrderedIpcPayload(payload)) {
         handler(payload);
         return;
@@ -129,6 +158,15 @@ function createIpcChannel(handler: (message: unknown) => void): ChannelLike {
 
   const serializedId = `__CHANNEL__:${String(callbackId)}`;
   return {
+    id: callbackId,
+    close: () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      pending.clear();
+      unregisterIpcCallback(callbackId);
+    },
     [SERIALIZE_TO_IPC_FN]: () => serializedId,
     toJSON: () => serializedId,
   };
@@ -247,6 +285,7 @@ export class QueryStreamClient {
       batchSize = 1000,
       timeoutSecs,
       pinSession,
+      signal,
     } = params;
 
     const decodeWorker = getStreamDecodeWorker();
@@ -366,12 +405,16 @@ export class QueryStreamClient {
       const settleResolve = (result: StreamResult) => {
         if (settled) return;
         settled = true;
+        signal?.removeEventListener("abort", handleAbort);
+        closeChannels();
         resolve(result);
       };
 
       const settleReject = (error: Error) => {
         if (settled) return;
         settled = true;
+        signal?.removeEventListener("abort", handleAbort);
+        closeChannels();
         reject(error);
       };
 
@@ -508,6 +551,32 @@ export class QueryStreamClient {
             break;
         }
       });
+
+      let channelsClosed = false;
+      const closeChannels = () => {
+        if (channelsClosed) {
+          return;
+        }
+        channelsClosed = true;
+        dataChannel.close();
+        metadataChannel.close();
+      };
+
+      const handleAbort = () => {
+        if (settled) {
+          return;
+        }
+        const abortError = makeAbortError();
+        callbacks.onError?.(abortError);
+        settleReject(abortError);
+      };
+
+      if (signal?.aborted) {
+        handleAbort();
+        return;
+      }
+
+      signal?.addEventListener("abort", handleAbort, { once: true });
 
       try {
         invoke("execute_query", {

@@ -216,7 +216,11 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
           : undefined;
 
   // --- Table Structure (needed for FK metadata before data query) ---
-  const { structure: tableStructure } = useTableFullStructure({
+  const {
+    structure: tableStructure,
+    isLoading: tableStructureLoading,
+    error: tableStructureError,
+  } = useTableFullStructure({
     connectionId,
     database: database ?? "",
     schema: schema ?? "",
@@ -268,6 +272,14 @@ export const SqlDataGrid = memo(function SqlDataGrid(props: SqlDataGridProps) {
 
   // Defer embedded FK changes to prevent lag during menu interaction
   const deferredEmbeddedFKs = useDeferredValue(embeddedFKs);
+  const embeddedFKsKey = useMemo(
+    () => JSON.stringify(embeddedFKs),
+    [embeddedFKs],
+  );
+  const deferredEmbeddedFKsKey = useMemo(
+    () => JSON.stringify(deferredEmbeddedFKs),
+    [deferredEmbeddedFKs],
+  );
 
   // --- Filter Configuration ---
   // Build filter columns from tableStructure (available before query)
@@ -615,6 +627,17 @@ RULES:
     }));
   }, [sortColumns, defaultSortColumns]);
 
+  const shouldDelayInitialQueryForSort =
+    entityType === "table" &&
+    sortColumns.length === 0 &&
+    persistedRowIdentifierColumns.length === 0 &&
+    tableStructureLoading &&
+    !tableStructureError;
+
+  const isEmbeddedFKQueryStable = embeddedFKsKey === deferredEmbeddedFKsKey;
+  const isTableDataQueryReady =
+    !shouldDelayInitialQueryForSort && isEmbeddedFKQueryStable;
+
   // --- Data Fetching ---
   const tableDataQuery = useTableDataQuery({
     connectionId,
@@ -622,7 +645,8 @@ RULES:
     schema,
     entityName: table,
     entityType,
-    enabled: true,
+    tabId: props.tabId,
+    enabled: isTableDataQueryReady,
     select: shouldUseOracleRowIdFallback ? [ORACLE_ROWID_ALIAS] : undefined,
     embeddedFKs:
       deferredEmbeddedFKs.length > 0 ? deferredEmbeddedFKs : undefined,

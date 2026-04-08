@@ -229,7 +229,7 @@ studio/
 │   │   ├── commands/       # Tauri IPC command handlers
 │   │   └── core/           # Connection pool, vault, SSH
 │   └── tauri.conf.json
-├── src-mcp-sidecar/        # MCP sidecar for AI agent access
+├── src-cli/                # QueryPilot CLI for AI agent access
 ├── docs/                   # Architecture and contributor docs
 └── scripts/                # Release and utility scripts
 ```

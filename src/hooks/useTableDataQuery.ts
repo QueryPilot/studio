@@ -33,6 +33,7 @@ export interface UseTableDataQueryParams {
   schema?: string;
   entityName: string;
   entityType: "table" | "view" | "materialized_view";
+  tabId?: string;
   select?: string[];
   filters?: FilterConfig;
   sorts?: SortConfig[];
@@ -72,6 +73,7 @@ export function useTableDataQuery(
     schema,
     entityName,
     entityType,
+    tabId,
     select,
     filters,
     sorts,
@@ -233,6 +235,19 @@ export function useTableDataQuery(
         const MAX_PROGRESSIVE_ROWS = 5000;
         let lastProgressiveUpdate = 0;
 
+        if (currentOffset === 0 && reuseStructure && !columnsHint) {
+          const structure = await structurePromise;
+          if (structure) {
+            columnsHint = structure.columns;
+            const rowCount = structure.rowCount;
+            if (rowCount != null && rowCount > 0) {
+              structureRowCount = rowCount;
+              estimatedTotalHint ??= rowCount;
+              isEstimatedCountHint ??= true;
+            }
+          }
+        }
+
         const scheduleUpdate = (currentEstimatedTotal?: number) => {
           // Skip progressive updates when we've already pushed a lot of rows
           // to avoid thrashing the grid during large streams.
@@ -332,6 +347,7 @@ export function useTableDataQuery(
           schema,
           entityType,
           entityName,
+          tabId,
           select,
           filters,
           sorts,
@@ -455,6 +471,7 @@ export function useTableDataQuery(
       schema,
       entityType,
       entityName,
+      tabId,
       select,
       filters,
       sorts,
@@ -575,7 +592,7 @@ export function useTableDataQuery(
     } catch (error) {
       logger.error("table-data-query", "fetchNextPage error", error);
     }
-  }, [infiniteQuery.fetchNextPage, infiniteQuery.isFetchingNextPage, infiniteQuery.hasNextPage]);
+  }, [infiniteQuery]);
 
   return {
     data: infiniteQuery.data,

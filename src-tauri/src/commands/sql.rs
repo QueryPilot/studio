@@ -2263,6 +2263,7 @@ async fn execute_postgres_stream(
     });
 
     let mut row_stream = Box::pin(row_stream);
+    let mut channel_close = Box::pin(wait_for_channel_close(data_channel));
 
     tracing::info!("TRUE STREAMING: Query executing, rows will arrive progressively...");
 
@@ -2288,8 +2289,43 @@ async fn execute_postgres_stream(
     // Stream rows as they arrive from PostgreSQL
     // Track iterations for periodic cancellation checks (every 100 rows)
     let mut check_interval = 0u32;
+    let cancel_backend = |backend_pid: i32| {
+        if backend_pid <= 0 {
+            return;
+        }
 
-    while let Some(row_result) = row_stream.next().await {
+        tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
+        let cancel_pool = pool.clone();
+        tokio::spawn(async move {
+            if let Ok(cancel_conn) = cancel_pool.get().await {
+                let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
+                match cancel_conn.execute(&cancel_sql, &[]).await {
+                    Ok(_) => tracing::info!("  ✅ Successfully cancelled backend query"),
+                    Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
+                }
+            }
+        });
+    };
+
+    loop {
+        let row_result = tokio::select! {
+            biased;
+            _ = &mut channel_close => {
+                tracing::info!("  ⚠️  Channel closed while waiting for PostgreSQL rows");
+                drop(row_stream);
+                cancel_backend(backend_pid);
+                let _ = metadata_channel.send(StreamMessage::Interrupted {
+                    resumable: false,
+                    message: "Query cancelled by user".to_string(),
+                });
+                return Err("Query cancelled by user".to_string());
+            }
+            next_row = row_stream.next() => match next_row {
+                Some(result) => result,
+                None => break,
+            }
+        };
+
         // CRITICAL: Check for cancellation periodically (every 100 rows)
         // This ensures we detect cancellation even if no batches have been sent yet
         check_interval += 1;
@@ -2300,23 +2336,8 @@ async fn execute_postgres_stream(
                 .is_err()
             {
                 tracing::info!("  ⚠️  Channel closed during row fetch (user cancelled early)");
-
-                // Cancel the running query in PostgreSQL (only if we have a valid PID)
-                if backend_pid > 0 {
-                    tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-                    let cancel_pool = pool.clone();
-                    tokio::spawn(async move {
-                        if let Ok(cancel_conn) = cancel_pool.get().await {
-                            let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                            match cancel_conn.execute(&cancel_sql, &[]).await {
-                                Ok(_) => {
-                                    tracing::info!("  ✅ Successfully cancelled backend query")
-                                }
-                                Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
-                            }
-                        }
-                    });
-                }
+                drop(row_stream);
+                cancel_backend(backend_pid);
 
                 let _ = metadata_channel.send(StreamMessage::Interrupted {
                     resumable: false,
@@ -2368,31 +2389,8 @@ async fn execute_postgres_stream(
                         tracing::info!(
                             "  ⚠️  Channel closed (user cancelled), stopping stream early"
                         );
-
-                        // Cancel the running query in PostgreSQL (only if we have a valid PID)
-                        if backend_pid > 0 {
-                            tracing::info!(
-                                "  🛑 Cancelling PostgreSQL backend PID: {}",
-                                backend_pid
-                            );
-                            let cancel_pool = pool.clone();
-                            tokio::spawn(async move {
-                                if let Ok(cancel_conn) = cancel_pool.get().await {
-                                    let cancel_sql =
-                                        format!("SELECT pg_cancel_backend({})", backend_pid);
-                                    match cancel_conn.execute(&cancel_sql, &[]).await {
-                                        Ok(_) => {
-                                            tracing::info!(
-                                                "  ✅ Successfully cancelled backend query"
-                                            )
-                                        }
-                                        Err(e) => {
-                                            tracing::warn!("  ⚠️  Failed to cancel backend: {}", e)
-                                        }
-                                    }
-                                }
-                            });
-                        }
+                        drop(row_stream);
+                        cancel_backend(backend_pid);
 
                         let _ = metadata_channel.send(StreamMessage::Interrupted {
                             resumable: false,
@@ -2429,23 +2427,8 @@ async fn execute_postgres_stream(
             // Check if channel closed (user cancelled)
             if send_result.is_err() {
                 tracing::info!("  ⚠️  Channel closed (user cancelled), stopping stream early");
-
-                // Cancel the running query in PostgreSQL (only if we have a valid PID)
-                if backend_pid > 0 {
-                    tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-                    let cancel_pool = pool.clone();
-                    tokio::spawn(async move {
-                        if let Ok(cancel_conn) = cancel_pool.get().await {
-                            let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                            match cancel_conn.execute(&cancel_sql, &[]).await {
-                                Ok(_) => {
-                                    tracing::info!("  ✅ Successfully cancelled backend query")
-                                }
-                                Err(e) => tracing::warn!("  ⚠️  Failed to cancel backend: {}", e),
-                            }
-                        }
-                    });
-                }
+                drop(row_stream);
+                cancel_backend(backend_pid);
 
                 let _ = metadata_channel.send(StreamMessage::Interrupted {
                     resumable: false,
@@ -2506,18 +2489,7 @@ async fn execute_postgres_stream(
     // If channel closed, it means user cancelled - don't return success
     if test_send.is_err() {
         tracing::info!("  ⚠️  Channel closed before sending success (user cancelled)");
-
-        // Cancel the running query in PostgreSQL (only if we have a valid PID)
-        if backend_pid > 0 {
-            tracing::info!("  🛑 Cancelling PostgreSQL backend PID: {}", backend_pid);
-            let cancel_pool = pool.clone();
-            tokio::spawn(async move {
-                if let Ok(cancel_conn) = cancel_pool.get().await {
-                    let cancel_sql = format!("SELECT pg_cancel_backend({})", backend_pid);
-                    let _ = cancel_conn.execute(&cancel_sql, &[]).await;
-                }
-            });
-        }
+        cancel_backend(backend_pid);
 
         return Err("Query cancelled by user".to_string());
     }

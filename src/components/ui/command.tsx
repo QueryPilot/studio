@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { IconSearch, IconCheck, IconArrowLeft, IconX } from "@tabler/icons-react";
+import { IconCheck, IconArrowLeft, IconX } from "@tabler/icons-react";
 
 function Command({
   className,
@@ -105,11 +105,7 @@ function CommandInput({
           >
             <IconArrowLeft className="size-4! shrink-0" />
           </button>
-        ) : (
-          <div className="text-muted-foreground pl-2 flex cursor-text items-center justify-center select-none order-first">
-            <IconSearch className="size-4! shrink-0" />
-          </div>
-        )}
+        ) : null}
         {modeLabel && (
           <span className="ml-2 flex items-center gap-1 shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">
             {modeLabel}

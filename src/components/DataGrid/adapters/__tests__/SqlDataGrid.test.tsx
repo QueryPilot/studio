@@ -1242,6 +1242,69 @@ describe('SqlDataGrid', () => {
       );
     });
 
+    it('delays the initial table stream while structure is still loading and default sort is unresolved', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: null,
+        isLoading: true,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="users"
+          dbType={DbType.PostgreSQL}
+        />,
+        { wrapper: Wrapper },
+      );
+
+      expect(mockUseTableDataQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: false,
+        }),
+      );
+    });
+
+    it('forwards the workspace tabId to useTableDataQuery', () => {
+      mockUseTableFullStructure.mockReturnValue({
+        structure: {
+          name: 'users',
+          schema: 'public',
+          database: 'test-db',
+          columns: [],
+          primaryKeys: ['id'],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [],
+          triggers: [],
+        },
+        isLoading: false,
+        error: null,
+        refresh: vi.fn(),
+      });
+
+      render(
+        <SqlDataGrid
+          connectionId="test-conn"
+          database="test-db"
+          schema="public"
+          table="users"
+          dbType={DbType.PostgreSQL}
+          tabId="workspace-tab-1"
+        />,
+        { wrapper: Wrapper },
+      );
+
+      expect(mockUseTableDataQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tabId: 'workspace-tab-1',
+        }),
+      );
+    });
+
     it('falls back to rowIdentifierColumns as defaultSortColumns when no PKs', () => {
       mockUseTableFullStructure.mockReturnValue({
         structure: {

@@ -36,7 +36,7 @@ Frontend (src/)           Backend (src-tauri/src/)
 
 **Multi-paradigm databases**: SQL (Postgres, MySQL, SQLite, MSSQL) | Document (MongoDB) | Key-Value (Redis)
 
-**Cargo workspace**: Two crates — `src-tauri/` (main Tauri app) and `src-mcp-sidecar/` (MCP sidecar for AI agent access)
+**Cargo workspace**: Two crates — `src-tauri/` (main Tauri app) and `src-cli/` (QueryPilot CLI for AI agent access)
 
 ## Verification Protocol
 
@@ -54,7 +54,7 @@ Read these as needed for your task:
 | React/Zustand patterns | [docs/llm-context/frontend-patterns.md](docs/llm-context/frontend-patterns.md) |
 | Rust commands & adapters | [docs/llm-context/backend-patterns.md](docs/llm-context/backend-patterns.md) |
 | Running tests | [docs/llm-context/testing.md](docs/llm-context/testing.md) |
-| AI features & MCP sidecar | [docs/guides/ai-features.md](docs/guides/ai-features.md) |
+| AI features & CLI | [docs/guides/ai-features.md](docs/guides/ai-features.md) |
 | SQL editor & linting | [docs/llm-context/code-editor.md](docs/llm-context/code-editor.md) |
 | Vault & keychain | [docs/llm-context/security.md](docs/llm-context/security.md) |
 | Building & releases | [docs/llm-context/build-and-release.md](docs/llm-context/build-and-release.md) |

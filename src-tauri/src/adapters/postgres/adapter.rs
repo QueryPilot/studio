@@ -181,9 +181,19 @@ impl PostgresAdapter {
             .get_pool()
             .await
             .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
-        let client = pool
-            .get()
+        // Use a timeout to prevent indefinite blocking when the pool is exhausted.
+        // Tab-scoped connections use max_size=1, so concurrent queries queue up here.
+        // 150s is generous — slow ORDER BY on large tables can legitimately hold a
+        // connection for 60s+, and the next query must wait for it to finish.
+        let client = tokio::time::timeout(std::time::Duration::from_secs(300), pool.get())
             .await
+            .map_err(|_| {
+                AppError::Internal(
+                    "Timed out waiting for a database connection (pool exhausted after 300s). \
+                     Another query may be holding the connection."
+                        .to_string(),
+                )
+            })?
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
 
         // Set search_path on every connection checkout.

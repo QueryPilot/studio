@@ -128,7 +128,7 @@ export function ActionsPopover({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger render={<span />}>
+      <PopoverTrigger render={<span />} nativeButton={false}>
         {children}
       </PopoverTrigger>
       <PopoverContent

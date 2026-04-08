@@ -3,6 +3,7 @@ import { queryStreamClient } from "./queryStreamClient";
 import { isTauri } from "@/utils/tauri";
 import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
+import { DbType } from "@/types";
 import type { FilterConfig, SortConfig } from "@/types/filter";
 import type { DatabaseAdapter, EmbeddedFKConfig } from "@/adapters/types";
 import { mapBackendColumnsToColumnMeta } from "./tableDataTransform";
@@ -58,6 +59,77 @@ export interface StreamEntityPageResult {
 }
 
 const DEFAULT_PAGE_SIZE = 100;
+const POSTGRES_BROWSE_PREVIEW_BYTES = 8192;
+
+function normalizePostgresDbType(dbType: string | undefined): string {
+  return (dbType ?? "").trim().toLowerCase();
+}
+
+function isPostgresPreviewTextType(dbType: string | undefined): boolean {
+  const normalized = normalizePostgresDbType(dbType);
+  return (
+    normalized === "text" ||
+    normalized === "json" ||
+    normalized === "jsonb" ||
+    normalized === "xml" ||
+    normalized === "citext"
+  );
+}
+
+function isPostgresPreviewBinaryType(dbType: string | undefined): boolean {
+  return normalizePostgresDbType(dbType) === "bytea";
+}
+
+function buildPostgresBrowseSql(
+  adapter: DatabaseAdapter,
+  tableName: string,
+  columns: ColumnMeta[],
+  rawWhere: string | undefined,
+  orderBy: Array<{ column: string; direction: "ASC" | "DESC" }>,
+  limit: number,
+  offset: number,
+): string {
+  const selectList = columns
+    .map((column) => {
+      const alias = adapter.quoteIdentifier(column.name);
+      const qualified = `${tableName}.${adapter.quoteIdentifier(column.name)}`;
+
+      if (isPostgresPreviewTextType(column.db_type)) {
+        const textValue = `${qualified}::text`;
+        return `CASE WHEN ${qualified} IS NULL THEN NULL WHEN octet_length(${textValue}) > ${POSTGRES_BROWSE_PREVIEW_BYTES} THEN left(${textValue}, ${POSTGRES_BROWSE_PREVIEW_BYTES}) || '...' ELSE ${textValue} END AS ${alias}`;
+      }
+
+      if (isPostgresPreviewBinaryType(column.db_type)) {
+        return `CASE WHEN ${qualified} IS NULL THEN NULL WHEN octet_length(${qualified}) > ${POSTGRES_BROWSE_PREVIEW_BYTES} THEN substring(${qualified} FROM 1 FOR ${POSTGRES_BROWSE_PREVIEW_BYTES}) ELSE ${qualified} END AS ${alias}`;
+      }
+
+      return `${qualified} AS ${alias}`;
+    })
+    .join(", ");
+
+  let sql = `SELECT ${selectList} FROM ${tableName}`;
+
+  if (rawWhere) {
+    sql += ` WHERE ${rawWhere}`;
+  }
+
+  if (orderBy.length > 0) {
+    const orderClause = orderBy
+      .map(
+        (sort) =>
+          `${adapter.quoteIdentifier(sort.column)} ${sort.direction}`,
+      )
+      .join(", ");
+    sql += ` ORDER BY ${orderClause}`;
+  }
+
+  sql += ` LIMIT ${limit}`;
+  if (offset > 0) {
+    sql += ` OFFSET ${offset}`;
+  }
+
+  return sql;
+}
 
 export async function streamEntityPage(
   params: StreamEntityPageParams,
@@ -121,7 +193,7 @@ export async function streamEntityPage(
     columnPrefix,
     columnNames,
   );
-  const orderBy = sortConfigToOrderBy(params.sorts);
+  const orderBy = sortConfigToOrderBy(params.sorts) ?? [];
 
   const selectOptions = {
     columns: params.select,
@@ -133,11 +205,23 @@ export async function streamEntityPage(
   };
 
   const tableRef = { catalog: database, schema, table: entityName };
-  const sql = (
-    embeddedFKs?.length
-      ? adapter.selectWithEmbeddedFK(tableRef, selectOptions)
-      : adapter.select(tableRef, selectOptions)
-  ) as string;
+  const sql =
+    adapter.dbType === DbType.PostgreSQL &&
+    !embeddedFKs?.length &&
+    !params.select?.length &&
+    columnsHint?.length
+      ? buildPostgresBrowseSql(
+          adapter,
+          formatTableName(schema, entityName, adapter.dbType),
+          columnsHint,
+          rawWhere,
+          orderBy,
+          fetchLimit,
+          offset,
+        )
+      : ((embeddedFKs?.length
+          ? adapter.selectWithEmbeddedFK(tableRef, selectOptions)
+          : adapter.select(tableRef, selectOptions)) as string);
 
   // CRITICAL FIX: Wrap in promise to ensure we only resolve after ALL callbacks complete
   return new Promise<StreamEntityPageResult>((resolve, reject) => {
@@ -211,6 +295,7 @@ export async function streamEntityPage(
         tabId: effectiveTabId,
         sql,
         batchSize: fetchLimit,
+        signal,
       },
       {
         onStarted: (columns, estimatedRows) => {
@@ -492,6 +577,7 @@ class TableStreamingService {
             batchSize: pageSize,
             timeoutSecs,
             pinSession: options?.pinSession,
+            signal: controller.signal,
           },
           {
             onStarted: (columns, estimatedRows) => {

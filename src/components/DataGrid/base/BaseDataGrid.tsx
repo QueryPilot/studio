@@ -2853,6 +2853,13 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         !isEditingCellRef.current &&
         !isCellEditorActive()
       ) {
+        // If the user has a native text selection (e.g. in tree/json view),
+        // let the browser handle copy natively instead of intercepting it.
+        const nativeSelection = window.getSelection();
+        if (nativeSelection && nativeSelection.toString().length > 0) {
+          return;
+        }
+
         const selection = gridSelectionRef.current;
         if (!selection) {
           return;

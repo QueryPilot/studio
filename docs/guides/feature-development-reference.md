@@ -72,28 +72,28 @@ QueryPilot supports three distinct AI runtimes, each with different trust bounda
 
 | Runtime | Transport | Trust Level | Implementation |
 |---------|-----------|-------------|----------------|
-| ACP Agents | Subprocess + stdio | Sandboxed via MCP sidecar | External CLI agents (Claude Code, Codex, OpenCode) |
+| ACP Agents | Subprocess + stdio | Sandboxed via CLI | External CLI agents (Claude Code, Codex, OpenCode) |
 | BYOK (SDK) | Frontend TS -> HTTP | User's own API keys | Vercel AI SDK v6 with provider registry |
-| MCP Sidecar | Unix socket IPC | Read Only (hardcoded) | `src-mcp-sidecar/` binary, JSON-RPC |
+| QueryPilot CLI | Unix socket IPC | Read Only (hardcoded) | `src-cli/` binary, socket forwarder |
 
 ### Why Three Runtimes
 
 - **ACP** enables power users to use their preferred CLI agent with full MCP tool access, without QueryPilot managing API keys.
 - **BYOK** gives users direct AI access within the app UI using their own keys (OpenAI, Anthropic, etc.), with no external subprocess.
-- **MCP Sidecar** is always read-only and provides a standardized tool interface for any MCP-compatible agent.
+- **QueryPilot CLI** is always read-only and provides a socket forwarder for any compatible agent.
 
-### MCP Sidecar Architecture
+### QueryPilot CLI Architecture
 
 ```
 External Agent (ACP)
-  └── stdio JSON-RPC
-        └── MCP Sidecar Binary (src-mcp-sidecar/)
+  └── stdio JSON
+        └── QueryPilot CLI Binary (src-cli/)
               └── Unix Socket IPC
                     └── Tauri Backend (main app)
                           └── Database Adapters
 ```
 
-The sidecar is a separate Rust binary in the Cargo workspace. It communicates with the main Tauri backend via IPC socket (Unix socket on macOS/Linux, named pipe on Windows). MCP is always enforced as Read Only -- the sidecar cannot modify data.
+The CLI is a separate Rust binary in the Cargo workspace. It communicates with the main Tauri backend via IPC socket (Unix socket on macOS/Linux, named pipe on Windows). The CLI is always enforced as Read Only -- it cannot modify data.
 
 ### BYOK Provider Registry
 
@@ -550,7 +550,7 @@ ConnectionProfile (includes credentials)
 
 All security-critical checks happen in the Rust backend:
 - Safe Mode enforcement
-- MCP sidecar read-only restriction
+- CLI read-only restriction
 - Connection credential encryption/decryption
 
 The frontend is treated as untrusted for security decisions.
@@ -562,7 +562,7 @@ AI tools (both MCP and BYOK) call the same Tauri IPC commands as the UI. This me
 ### Fail-Safe Defaults
 
 - Unknown SQL statements are treated as DDL (most restrictive category)
-- MCP sidecar is hardcoded to Read Only
+- QueryPilot CLI is hardcoded to Read Only
 - Multi-statement batches are rejected entirely if any statement is disallowed
 - Best-effort row matching requires pre-check confirmation (match count === 1)
 

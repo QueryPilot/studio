@@ -1,5 +1,5 @@
 [workspace]
-members = ["src-tauri", "src-mcp-sidecar"]
+members = ["src-tauri", "src-cli"]
 resolver = "2"
 
 # Shared settings for all workspace members
