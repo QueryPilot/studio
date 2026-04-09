@@ -6,6 +6,7 @@ import { DbType } from '@/types';
 import { ConstraintType } from '@/services/backend';
 import { useTableFullStructure } from '@/hooks/useTableFullStructure';
 import { useTableDataQuery } from '@/hooks/useTableDataQuery';
+import { useQuickFilter } from '../../hooks/useQuickFilter';
 import { useGridPreferencesStore } from '../../stores/gridPreferencesStore';
 import { useTabLoadingStore } from '@/stores/tabLoadingStore';
 import { GridCellKind, type GridCell } from '@glideapps/glide-data-grid';
@@ -17,6 +18,10 @@ const {
   createCrudTargetMock,
   getAdapterForConnectionMock,
   canProceedBestEffortMock,
+  quickFilterSubmitMock,
+  quickFilterClearMock,
+  quickFilterSetValueMock,
+  quickFilterSetModeMock,
 } = vi.hoisted(() => ({
   createUpdateCommandMock: vi.fn(() => ({
     id: 'mock-update',
@@ -43,8 +48,12 @@ const {
     state: 'staged',
   })),
   createCrudTargetMock: vi.fn(() => 'test-target'),
-  getAdapterForConnectionMock: vi.fn(async () => ({})),
-  canProceedBestEffortMock: vi.fn(async () => ({ ok: true, matchCount: 1 })),
+  getAdapterForConnectionMock: vi.fn(() => Promise.resolve({})),
+  canProceedBestEffortMock: vi.fn(() => Promise.resolve({ ok: true, matchCount: 1 })),
+  quickFilterSubmitMock: vi.fn(() => Promise.resolve()),
+  quickFilterClearMock: vi.fn(),
+  quickFilterSetValueMock: vi.fn(),
+  quickFilterSetModeMock: vi.fn(),
 }));
 
 const capturedBaseGridProps: Array<Record<string, unknown>> = [];
@@ -57,7 +66,7 @@ vi.mock('../../base/BaseDataGrid', () => ({
   },
 }));
 
-vi.mock('../components/QuickFilter', () => ({
+vi.mock('../../components/QuickFilter', () => ({
   QuickFilter: (props: Record<string, unknown>) => {
     capturedQuickFilterProps.push(props);
     return <div data-testid="quick-filter" />;
@@ -75,8 +84,8 @@ vi.mock('@/hooks/useTableDataQuery', () => ({
     isFetching: false,
     isFetchingNextPage: false,
     hasNextPage: false,
-    fetchNextPage: vi.fn(async () => {}),
-    refetch: vi.fn(async () => ({ data: undefined })) as unknown as ReturnType<
+    fetchNextPage: vi.fn(() => Promise.resolve()),
+    refetch: vi.fn(() => Promise.resolve({ data: undefined })) as unknown as ReturnType<
       typeof useTableDataQuery
     >["refetch"],
     cancelStream: vi.fn(),
@@ -96,6 +105,21 @@ vi.mock('@/hooks/useTableFullStructure', () => ({
 
 vi.mock('@/hooks/useReferencedTableColumns', () => ({
   useReferencedTableColumns: vi.fn(() => ({})),
+}));
+
+vi.mock('../../hooks/useQuickFilter', () => ({
+  useQuickFilter: vi.fn(() => ({
+    value: '',
+    mode: 'search',
+    error: null,
+    aiExplanation: null,
+    activeFilter: undefined,
+    isLoading: false,
+    setValue: quickFilterSetValueMock,
+    setMode: quickFilterSetModeMock,
+    submit: quickFilterSubmitMock,
+    clear: quickFilterClearMock,
+  })),
 }));
 
 vi.mock('../../stores/embeddedFKPreferencesStore', () => ({
@@ -190,8 +214,8 @@ function makeTableDataQueryResult(
     isFetching: false,
     isFetchingNextPage: false,
     hasNextPage: false,
-    fetchNextPage: vi.fn(async () => {}),
-    refetch: vi.fn(async () => ({ data: undefined })) as unknown as ReturnType<
+    fetchNextPage: vi.fn(() => Promise.resolve()),
+    refetch: vi.fn(() => Promise.resolve({ data: undefined })) as unknown as ReturnType<
       typeof useTableDataQuery
     >["refetch"],
     cancelStream: vi.fn(),
@@ -205,6 +229,7 @@ function makeTableDataQueryResult(
 describe('SqlDataGrid', () => {
   const mockUseTableFullStructure = vi.mocked(useTableFullStructure);
   const mockUseTableDataQuery = vi.mocked(useTableDataQuery);
+  const mockUseQuickFilter = vi.mocked(useQuickFilter);
 
   beforeEach(() => {
     vi.useRealTimers();
@@ -216,6 +241,11 @@ describe('SqlDataGrid', () => {
     createCrudTargetMock.mockClear();
     getAdapterForConnectionMock.mockClear();
     canProceedBestEffortMock.mockClear();
+    quickFilterSubmitMock.mockReset();
+    quickFilterSubmitMock.mockResolvedValue(undefined);
+    quickFilterClearMock.mockReset();
+    quickFilterSetValueMock.mockReset();
+    quickFilterSetModeMock.mockReset();
     getAdapterForConnectionMock.mockResolvedValue({});
     canProceedBestEffortMock.mockResolvedValue({ ok: true, matchCount: 1 });
     useGridPreferencesStore.setState({ preferences: {} });
@@ -227,6 +257,19 @@ describe('SqlDataGrid', () => {
       refresh: vi.fn(),
     });
     mockUseTableDataQuery.mockReturnValue(makeTableDataQueryResult());
+    mockUseQuickFilter.mockReturnValue({
+      value: '',
+      mode: 'search',
+      error: null,
+      aiExplanation: null,
+      activeFilter: undefined,
+      isLoading: false,
+      setValue: quickFilterSetValueMock,
+      setMode: quickFilterSetModeMock,
+      submit: quickFilterSubmitMock,
+      clear: quickFilterClearMock,
+      focus: vi.fn(),
+    });
   });
 
   afterEach(() => {
@@ -247,6 +290,35 @@ describe('SqlDataGrid', () => {
 
     // Should render BaseDataGrid
     expect(container.querySelector('[data-testid="base-datagrid"]')).toBeInTheDocument();
+  });
+
+  it('keeps the toolbar visible during the initial loading state', () => {
+    mockUseTableFullStructure.mockReturnValue({
+      structure: null,
+      isLoading: true,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        status: 'loading',
+      }),
+    );
+
+    const { container } = render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    expect(container.querySelector('[data-testid="quick-filter"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="base-datagrid"]')).not.toBeInTheDocument();
   });
 
   it("defaults focused to true so auto-focus can run when not provided", () => {
@@ -280,6 +352,84 @@ describe('SqlDataGrid', () => {
 
     const latestProps = capturedBaseGridProps.at(-1);
     expect(latestProps?.focused).toBe(false);
+  });
+
+  it('marks the tab as loading immediately when quick filter is submitted', () => {
+    mockUseTableFullStructure.mockReturnValue({
+      structure: {
+        name: 'users',
+        schema: 'public',
+        database: 'test-db',
+        columns: [
+          {
+            name: 'client_id',
+            db_type: 'int4',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+        ],
+        primaryKeys: [],
+        foreignKeys: [],
+        indexes: [],
+        constraints: [],
+        triggers: [],
+      },
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    mockUseTableDataQuery.mockReturnValue(
+      makeTableDataQueryResult({
+        columns: [
+          {
+            name: 'client_id',
+            db_type: 'int4',
+            nullable: true,
+            default: null,
+            is_pk: false,
+            is_fk: false,
+            ordinal: 0,
+          },
+        ],
+      }),
+    );
+
+    const setLoadingSpy = vi.spyOn(useTabLoadingStore.getState(), 'setLoading');
+
+    render(
+      <SqlDataGrid
+        connectionId="test-conn"
+        database="test-db"
+        schema="public"
+        table="users"
+        dbType={DbType.PostgreSQL}
+        tabId="workspace-tab-1"
+      />,
+      { wrapper: Wrapper }
+    );
+
+    setLoadingSpy.mockClear();
+
+    const latestQuickFilterProps = capturedQuickFilterProps.at(-1);
+    const onSubmit = latestQuickFilterProps?.onSubmit as (() => void) | undefined;
+
+    expect(onSubmit).toBeDefined();
+    if (!onSubmit) {
+      throw new Error('Missing quick filter onSubmit handler');
+    }
+
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      onSubmit();
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+
+    expect(setLoadingSpy).toHaveBeenCalledWith('workspace-tab-1', true);
   });
 
   it('should render as editable for tables (kind=Table)', () => {

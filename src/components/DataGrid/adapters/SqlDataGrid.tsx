@@ -548,6 +548,7 @@ RULES:
     null,
   );
   const isFetchingRef = useRef(false);
+  const tabId = props.tabId;
 
   const clearQuickFilterLoadingBridge = useCallback(() => {
     if (quickFilterReleaseTimerRef.current) {
@@ -558,6 +559,9 @@ RULES:
 
   const handleQuickFilterSubmit = useCallback(() => {
     clearQuickFilterLoadingBridge();
+    if (tabId) {
+      useTabLoadingStore.getState().setLoading(tabId, true);
+    }
     setIsApplyingQuickFilter(true);
 
     void handleFilterSubmit().finally(() => {
@@ -568,7 +572,7 @@ RULES:
         quickFilterReleaseTimerRef.current = null;
       }, 250);
     });
-  }, [clearQuickFilterLoadingBridge, handleFilterSubmit]);
+  }, [clearQuickFilterLoadingBridge, handleFilterSubmit, tabId]);
 
   // Warmup silent agent for faster AI filter responses
   // This proactively starts the agent so it's ready when user types #
@@ -694,7 +698,6 @@ RULES:
 
   // Sync loading state to tab loading store for the progress indicator.
   // isFetching covers initial load, refetch, filter/sort changes, pagination.
-  const tabId = props.tabId;
   useEffect(() => {
     if (!tabId) return;
     useTabLoadingStore.getState().setLoading(tabId, tabLoading);
@@ -1552,13 +1555,13 @@ RULES:
     hasConfiguredIdentity &&
     !configuredIdentityColumns.includes(ORACLE_ROWID_ALIAS);
 
-  // --- Loading States ---
-  if (isLoading) {
-    return <DataGridSkeleton />;
-  }
+  const isToolbarLoading =
+    quickFilterLoading ||
+    isApplyingQuickFilter ||
+    (tableStructureLoading && filterColumns.length === 0);
 
-  // Don't hide the grid when empty - keep headers/filters visible
-  // Show overlay message inside the grid instead
+  // Don't hide the grid when empty - keep headers/filters visible.
+  // Show overlay message inside the grid instead.
 
   // --- Render ---
   return (
@@ -1566,24 +1569,22 @@ RULES:
       {/* Quick Filter + View Mode Toggle + Inspector */}
       <div className="@container py-1.5 px-1">
         <div className="flex flex-col @md:flex-row @md:items-center gap-2">
-          {filterColumns.length > 0 && (
-            <div className="flex-1 min-w-0">
-              <QuickFilter
-                ref={quickFilterRef}
-                columns={filterColumns}
-                value={quickFilterValue}
-                mode={quickFilterMode}
-                onValueChange={setQuickFilterValue}
-                onModeChange={setQuickFilterMode}
-                onSubmit={handleQuickFilterSubmit}
-                onClear={clearQuickFilter}
-                isLoading={quickFilterLoading || isApplyingQuickFilter}
-                error={quickFilterError}
-                explanation={aiExplanation}
-                clientSideFiltering={false}
-              />
-            </div>
-          )}
+          <div className="flex-1 min-w-0">
+            <QuickFilter
+              ref={quickFilterRef}
+              columns={filterColumns}
+              value={quickFilterValue}
+              mode={quickFilterMode}
+              onValueChange={setQuickFilterValue}
+              onModeChange={setQuickFilterMode}
+              onSubmit={handleQuickFilterSubmit}
+              onClear={clearQuickFilter}
+              isLoading={isToolbarLoading}
+              error={quickFilterError}
+              explanation={aiExplanation}
+              clientSideFiltering={false}
+            />
+          </div>
           <div className="flex items-center gap-2 shrink-0">
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "table" | "tree" | "json")}>
               <TabsList>
@@ -1610,131 +1611,142 @@ RULES:
         </div>
       </div>
 
-      {/* BaseDataGrid handles all CRUD operations internally */}
-      {viewMode !== "table" && (
-        <div className="flex-1 min-h-0 flex flex-col">
-          {viewMode === "tree" ? (
-            <DocumentTreeView
-              documents={documentsWithStagedEdits}
-              className="min-h-0 flex-1 px-1.5"
-              gridId={gridId}
-              identifierFields={canEditDocumentViews ? configuredIdentityColumns : undefined}
-              hasMore={hasNextPage}
-              isLoadingMore={isFetchingNextPage}
-              onLoadMore={fetchNextPage}
-              editable={canEditDocumentViews}
-              allowStructuralEdits={false}
-              onExpandCollapseRef={expandCollapseRef}
-              stagedDocIds={stagedDocIds}
-              onFieldEdit={canEditDocumentViews ? handleTreeFieldEdit : undefined}
-              onDocumentUndo={canEditDocumentViews ? handleTreeDocumentUndo : undefined}
-              onInsertDocument={!isReadOnly && commandFactory ? handleTreeInsertDocument : undefined}
-              onDeleteDocument={canEditDocumentViews && commandFactory ? handleTreeDeleteDocument : undefined}
-            />
-          ) : (
-            <DocumentJsonView
-              documents={documentsWithStagedEdits}
-              className="min-h-0 flex-1"
-            />
-          )}
-          <DataGridStatusBar
-            loadedRows={rows.length}
-            estimatedTotal={estimatedTotal}
-            isEstimatedCount={isEstimatedCount}
-            hasMore={hasNextPage}
-            executionTime={executionTime}
-            leftContent={viewMode === "tree" ? (
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => expandCollapseRef.current?.expandAll()} className="text-[11px] hover:text-foreground">Expand All</button>
-                <span className="text-border/50">|</span>
-                <button type="button" onClick={() => expandCollapseRef.current?.collapseAll()} className="text-[11px] hover:text-foreground">Collapse All</button>
-              </div>
-            ) : undefined}
-          />
+      {isLoading ? (
+        <div className="flex-1 min-h-0">
+          <DataGridSkeleton />
         </div>
-      )}
-      <div style={{ display: viewMode === "table" ? undefined : "none" }} className="flex-1 min-h-0">
-      <BaseDataGrid
-        gridId={gridId}
-        sortGridId={sortGridId !== gridId ? sortGridId : undefined}
-        defaultSortColumns={defaultSortColumns}
-        rows={rows}
-        columns={columns}
-        connectionId={connectionId}
-        database={database}
-        schema={schema}
-        tableName={tableName}
-        paradigm="sql"
-        dialect={dialect}
-        estimatedTotal={estimatedTotal}
-        isEstimatedCount={isEstimatedCount}
-        hasMore={hasNextPage}
-        onLoadMore={fetchNextPage}
-        isLoadingMore={isFetchingNextPage}
-        readOnly={isReadOnly}
-        readOnlyReason={readOnlyReason}
-        onSelectIdentifierColumns={
-          canConfigureIdentifierColumns ? handleSelectIdentifierColumns : undefined
-        }
-        identifierSelector={
-          canConfigureIdentifierColumns
-            ? {
-                open: showIdentifierSelector,
-                tableName,
-                availableColumns: selectableIdentifierColumns,
-                selectedColumns: customIdentityColumns,
-                onToggleColumn: handleToggleIdentifierColumn,
-                onClear: handleClearIdentifierColumns,
-                onCancel: handleCancelIdentifierColumns,
+      ) : (
+        <>
+          {/* BaseDataGrid handles all CRUD operations internally */}
+          {viewMode !== "table" && (
+            <div className="flex-1 min-h-0 flex flex-col">
+              {viewMode === "tree" ? (
+                <DocumentTreeView
+                  documents={documentsWithStagedEdits}
+                  className="min-h-0 flex-1 px-1.5"
+                  gridId={gridId}
+                  identifierFields={canEditDocumentViews ? configuredIdentityColumns : undefined}
+                  hasMore={hasNextPage}
+                  isLoadingMore={isFetchingNextPage}
+                  onLoadMore={fetchNextPage}
+                  editable={canEditDocumentViews}
+                  allowStructuralEdits={false}
+                  onExpandCollapseRef={expandCollapseRef}
+                  stagedDocIds={stagedDocIds}
+                  onFieldEdit={canEditDocumentViews ? handleTreeFieldEdit : undefined}
+                  onDocumentUndo={canEditDocumentViews ? handleTreeDocumentUndo : undefined}
+                  onInsertDocument={!isReadOnly && commandFactory ? handleTreeInsertDocument : undefined}
+                  onDeleteDocument={canEditDocumentViews && commandFactory ? handleTreeDeleteDocument : undefined}
+                />
+              ) : (
+                <DocumentJsonView
+                  documents={documentsWithStagedEdits}
+                  className="min-h-0 flex-1"
+                />
+              )}
+              <DataGridStatusBar
+                loadedRows={rows.length}
+                estimatedTotal={estimatedTotal}
+                isEstimatedCount={isEstimatedCount}
+                hasMore={hasNextPage}
+                executionTime={executionTime}
+                leftContent={viewMode === "tree" ? (
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => expandCollapseRef.current?.expandAll()} className="text-[11px] hover:text-foreground">Expand All</button>
+                    <span className="text-border/50">|</span>
+                    <button type="button" onClick={() => expandCollapseRef.current?.collapseAll()} className="text-[11px] hover:text-foreground">Collapse All</button>
+                  </div>
+                ) : undefined}
+              />
+            </div>
+          )}
+          <div
+            style={{ display: viewMode === "table" ? undefined : "none" }}
+            className="flex-1 min-h-0"
+          >
+            <BaseDataGrid
+              gridId={gridId}
+              sortGridId={sortGridId !== gridId ? sortGridId : undefined}
+              defaultSortColumns={defaultSortColumns}
+              rows={rows}
+              columns={columns}
+              connectionId={connectionId}
+              database={database}
+              schema={schema}
+              tableName={tableName}
+              paradigm="sql"
+              dialect={dialect}
+              estimatedTotal={estimatedTotal}
+              isEstimatedCount={isEstimatedCount}
+              hasMore={hasNextPage}
+              onLoadMore={fetchNextPage}
+              isLoadingMore={isFetchingNextPage}
+              readOnly={isReadOnly}
+              readOnlyReason={readOnlyReason}
+              onSelectIdentifierColumns={
+                canConfigureIdentifierColumns ? handleSelectIdentifierColumns : undefined
               }
-            : undefined
-        }
-        entityType={entityType}
-        enableFiltering={false} // Filter managed by SqlDataGrid, not BaseDataGrid
-        enableSorting={true}
-        enableExport={true}
-        enableRowPinning={true}
-        enableColumnManagement={true}
-        enableClipboard={true}
-        enableFillOperations={!isReadOnly}
-        enableStagedChanges={!isReadOnly}
-        // Command factory for CRUD operations
-        commandFactory={commandFactory}
-        // Callback for FK embedded value extraction
-        onCellEditCommit={handleCellEditCommit}
-        // FK data
-        referencedTableColumns={referencedTableColumns}
-        // Complete getCellContent override for FK embedded value display
-        // (follows TableDataGrid pattern - passes embeddedValue to buildGridCellV2)
-        getCellContent={getCellContent}
-        // Data invalidation refetch
-        onRefetch={refetch}
-        // Error handling and reconnection
-        error={
-          isError
-            ? error instanceof Error
-              ? error.message
-              : "Failed to load table data"
-            : undefined
-        }
-        onReconnect={handleReconnect}
-        // Query performance metrics
-        executionTime={executionTime}
-        // Focus management
-        focused={focused}
-        inspectorOpen={showInspector}
-        onInspectorOpenChange={setShowInspector}
-        inspectorDefaultTab={inspectorTab}
-        onInspectorTabChange={setInspectorTab}
-        showInspectorToggleButton={false}
-        // Pass QuickFilter ref for Cmd+F handling (since we manage our own QuickFilter)
-        externalQuickFilterRef={quickFilterRef}
-        className={cn("flex-1", className)}
-      />
-      </div>
+              identifierSelector={
+                canConfigureIdentifierColumns
+                  ? {
+                      open: showIdentifierSelector,
+                      tableName,
+                      availableColumns: selectableIdentifierColumns,
+                      selectedColumns: customIdentityColumns,
+                      onToggleColumn: handleToggleIdentifierColumn,
+                      onClear: handleClearIdentifierColumns,
+                      onCancel: handleCancelIdentifierColumns,
+                    }
+                  : undefined
+              }
+              entityType={entityType}
+              enableFiltering={false} // Filter managed by SqlDataGrid, not BaseDataGrid
+              enableSorting={true}
+              enableExport={true}
+              enableRowPinning={true}
+              enableColumnManagement={true}
+              enableClipboard={true}
+              enableFillOperations={!isReadOnly}
+              enableStagedChanges={!isReadOnly}
+              // Command factory for CRUD operations
+              commandFactory={commandFactory}
+              // Callback for FK embedded value extraction
+              onCellEditCommit={handleCellEditCommit}
+              // FK data
+              referencedTableColumns={referencedTableColumns}
+              // Complete getCellContent override for FK embedded value display
+              // (follows TableDataGrid pattern - passes embeddedValue to buildGridCellV2)
+              getCellContent={getCellContent}
+              // Data invalidation refetch
+              onRefetch={refetch}
+              // Error handling and reconnection
+              error={
+                isError
+                  ? error instanceof Error
+                    ? error.message
+                    : "Failed to load table data"
+                  : undefined
+              }
+              onReconnect={handleReconnect}
+              // Query performance metrics
+              executionTime={executionTime}
+              // Focus management
+              focused={focused}
+              inspectorOpen={showInspector}
+              onInspectorOpenChange={setShowInspector}
+              inspectorDefaultTab={inspectorTab}
+              onInspectorTabChange={setInspectorTab}
+              showInspectorToggleButton={false}
+              // Pass QuickFilter ref for Cmd+F handling (since we manage our own QuickFilter)
+              externalQuickFilterRef={quickFilterRef}
+              className={cn("flex-1", className)}
+            />
+          </div>
+        </>
+      )}
 
       {/* Empty state overlay - shown when no rows but grid/filters remain visible */}
-      {!isError && rows.length === 0 && (
+      {!isLoading && !isError && rows.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="text-center space-y-2 p-8">
             <div className="text-muted-foreground text-sm font-medium">
