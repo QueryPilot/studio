@@ -25,6 +25,55 @@ import { useAppStore } from "./stores/appStore";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { getSessionDatabase } from "./lib/db/sessionDb";
 import { windowManager } from "./services/windowManager";
+import { detectPlatform } from "./lib/platform";
+
+function showKeychainAccessToast() {
+  const { description, denied } = keychainAccessMessages();
+  toast.error("Keychain Access Required", {
+    description,
+    duration: Infinity,
+    action: {
+      label: "Request Access",
+      onClick: async () => {
+        const toastId = toast.loading("Requesting keychain access...");
+        const success = await vaultStorage.retryKeychainAccess();
+        toast.dismiss(toastId);
+        if (success) {
+          toast.success("Keychain access granted");
+          window.location.reload();
+        } else {
+          toast.error(denied);
+        }
+      },
+    },
+  });
+}
+
+function keychainAccessMessages() {
+  const platform = detectPlatform();
+  if (platform === "mac") {
+    return {
+      description:
+        "Click 'Request Access' to trigger the Keychain prompt, or grant access in System Settings > Privacy & Security.",
+      denied:
+        "Access denied. Check System Settings > Privacy & Security > Query Pilot.",
+    };
+  }
+  if (platform === "windows") {
+    return {
+      description:
+        "Click 'Request Access' to retry Windows Credential Manager, or ensure you're signed in with the same Windows account used before.",
+      denied:
+        "Access denied. Windows Credential Manager refused access — try running Query Pilot from the same user account.",
+    };
+  }
+  return {
+    description:
+      "Click 'Request Access' to unlock the system keyring (GNOME Keyring / KWallet). Ensure a keyring service is running and unlocked.",
+    denied:
+      "Access denied. Make sure gnome-keyring or kwalletd is installed, running, and unlocked for this session.",
+  };
+}
 import {
   setAppUpdateHandlers,
   type AppUpdateCheckOptions,
@@ -170,57 +219,13 @@ function App() {
 
             // Check if keychain access failed
             if (!vaultStorage.isKeychainAccessible()) {
-              toast.error("Keychain Access Required", {
-                description:
-                  "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
-                duration: Infinity,
-                action: {
-                  label: "Request Access",
-                  onClick: async () => {
-                    const toastId = toast.loading(
-                      "Requesting keychain access...",
-                    );
-                    const success = await vaultStorage.retryKeychainAccess();
-                    toast.dismiss(toastId);
-                    if (success) {
-                      toast.success("Keychain access granted");
-                      window.location.reload();
-                    } else {
-                      toast.error(
-                        "Access denied. Check System Settings > Privacy & Security > QueryPilot.",
-                      );
-                    }
-                  },
-                },
-              });
+              showKeychainAccessToast();
             }
           } catch (error) {
             logger.error("Vault initialization failed", error);
             // Show error toast when vault init fails due to keychain issues
             if (!vaultStorage.isKeychainAccessible()) {
-              toast.error("Keychain Access Required", {
-                description:
-                  "Click 'Request Access' to trigger keychain prompt, or grant access in System Settings.",
-                duration: Infinity,
-                action: {
-                  label: "Request Access",
-                  onClick: async () => {
-                    const toastId = toast.loading(
-                      "Requesting keychain access...",
-                    );
-                    const success = await vaultStorage.retryKeychainAccess();
-                    toast.dismiss(toastId);
-                    if (success) {
-                      toast.success("Keychain access granted");
-                      window.location.reload();
-                    } else {
-                      toast.error(
-                        "Access denied. Check System Settings > Privacy & Security > QueryPilot.",
-                      );
-                    }
-                  },
-                },
-              });
+              showKeychainAccessToast();
             }
           } finally {
             // Restore previous session if configured
@@ -507,14 +512,37 @@ function App() {
         return true;
       } catch (error) {
         logger.error("Update check failed", error);
-        const message =
+        const rawMessage =
           error instanceof Error
             ? error.message
             : "Failed to check for updates";
-        setUpdateError(message);
+
+        // When the updater manifest doesn't include an entry for the
+        // current platform, tauri-plugin-updater throws an error like
+        // "the platform `linux-x86_64` was not found on the response
+        // `platforms` object". That's not a failure the user can act
+        // on — it just means this release wasn't published for their
+        // OS/arch. Surface it as an informational "no update" instead
+        // of a red error toast.
+        const isPlatformNotPublished =
+          /platform .* (was )?not found/i.test(rawMessage) ||
+          /no updater .* for/i.test(rawMessage);
+
+        if (isPlatformNotPublished) {
+          setUpdateError(null);
+          if (manual) {
+            toast.info("No update available for your platform", {
+              description:
+                "This release wasn't published for your OS/arch yet. You can download the latest build manually from the releases page.",
+            });
+          }
+          return false;
+        }
+
+        setUpdateError(rawMessage);
         if (manual) {
           toast.error("Failed to check for updates", {
-            description: message,
+            description: rawMessage,
           });
         }
         return false;

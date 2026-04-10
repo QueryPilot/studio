@@ -9,13 +9,13 @@ use tauri::Manager;
 
 const VAULT_FILE: &str = "vault.bin";
 
-fn vault_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn vault_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_local_data_dir()
         .map_err(|e| format!("Failed to resolve app data dir: {}", e))?;
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create data dir: {}", e))?;
-    Ok(dir.join(VAULT_FILE))
+    Ok(dir)
 }
 
 /// Decode a base64 keychain password into a 32-byte encryption key.
@@ -34,15 +34,15 @@ fn decode_key(pwd: String) -> Result<[u8; 32], String> {
 
 /// Get existing key from keychain. Never creates a new one.
 /// Use when vault.bin already exists — a wrong key would destroy data.
-fn existing_key_from_keychain() -> Result<[u8; 32], String> {
-    let pwd = crate::keychain::get_existing_vault_password()?;
+fn existing_key_from_keychain(data_dir: &std::path::Path) -> Result<[u8; 32], String> {
+    let pwd = crate::keychain::get_existing_vault_password(data_dir)?;
     decode_key(pwd)
 }
 
 /// Get or create key from keychain. Only for initial vault creation.
 /// MUST only be called when vault.bin does NOT exist yet.
-fn key_from_keychain_or_create() -> Result<[u8; 32], String> {
-    let pwd = crate::keychain::get_or_create_vault_password()?;
+fn key_from_keychain_or_create(data_dir: &std::path::Path) -> Result<[u8; 32], String> {
+    let pwd = crate::keychain::get_or_create_vault_password(data_dir)?;
     decode_key(pwd)
 }
 
@@ -50,14 +50,15 @@ fn key_from_keychain_or_create() -> Result<[u8; 32], String> {
 pub async fn vault_write(app: tauri::AppHandle, plaintext_json: String) -> Result<(), String> {
     // Run encryption and file I/O in a blocking task to avoid blocking the async runtime
     tokio::task::spawn_blocking(move || {
-        let path = vault_path(&app)?;
+        let dir = vault_dir(&app)?;
+        let path = dir.join(VAULT_FILE);
 
         // If vault.bin already exists, we MUST use the existing key.
         // Only create a new key when writing the vault for the very first time.
         let key = if path.exists() {
-            existing_key_from_keychain()?
+            existing_key_from_keychain(&dir)?
         } else {
-            key_from_keychain_or_create()?
+            key_from_keychain_or_create(&dir)?
         };
 
         let cipher = ChaCha20Poly1305::new(&key.into());
@@ -92,17 +93,18 @@ pub async fn vault_write(app: tauri::AppHandle, plaintext_json: String) -> Resul
 pub async fn vault_read(app: tauri::AppHandle) -> Result<Option<String>, String> {
     // Run file I/O and decryption in a blocking task to avoid blocking the async runtime
     tokio::task::spawn_blocking(move || {
-        let path = vault_path(&app)?;
+        let dir = vault_dir(&app)?;
+        let path = dir.join(VAULT_FILE);
         if !path.exists() {
             return Ok(None);
         }
-        let bytes = fs::read(path).map_err(|e| format!("Read vault failed: {}", e))?;
+        let bytes = fs::read(&path).map_err(|e| format!("Read vault failed: {}", e))?;
         if bytes.len() < 12 {
             return Err("Vault file too small".into());
         }
         let (nonce_bytes, ct) = bytes.split_at(12);
         // vault.bin exists — MUST use existing key, never create a new one.
-        let key = existing_key_from_keychain()?;
+        let key = existing_key_from_keychain(&dir)?;
         let cipher = ChaCha20Poly1305::new(&key.into());
         let nonce = Nonce::from_slice(nonce_bytes);
         let plaintext = cipher
@@ -117,9 +119,17 @@ pub async fn vault_read(app: tauri::AppHandle) -> Result<Option<String>, String>
 
 #[tauri::command]
 pub fn vault_reset(app: tauri::AppHandle) -> Result<(), String> {
-    let path = vault_path(&app)?;
+    let dir = vault_dir(&app)?;
+    let path = dir.join(VAULT_FILE);
     if path.exists() {
         fs::remove_file(&path).map_err(|e| format!("Failed to delete vault: {}", e))?;
+    }
+    // Also drop the stored encryption key so the next vault is created
+    // with a freshly generated one. On Linux this deletes `vault.key`;
+    // on macOS / Windows this removes the keyring / credential entry.
+    // Best-effort: a reset that can't erase the key is still a reset.
+    if let Err(e) = crate::keychain::delete_vault_password(&dir) {
+        tracing::warn!("vault_reset: failed to delete vault password: {}", e);
     }
     Ok(())
 }

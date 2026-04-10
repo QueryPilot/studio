@@ -61,6 +61,13 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
+    "publisher": "Query Pilot",
+    "homepage": "https://querypilot.dev",
+    "category": "DeveloperTool",
+    "copyright": "Copyright © 2026 Query Pilot",
+    "license": "GPL-3.0",
+    "shortDescription": "Minimal. Fast. Cost saving. A database client that fits your workflow.",
+    "longDescription": "Query Pilot is a fast, local-first desktop database IDE for SQL, document, and key-value databases. Connect to PostgreSQL, MySQL, SQLite, MSSQL, MongoDB, and Redis with a unified interface featuring smart autocomplete, query history, data browsing, schema exploration, and AI-assisted query authoring.",
     "targets": [
       "nsis",
       "app",

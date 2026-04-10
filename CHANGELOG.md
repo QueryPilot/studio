@@ -5,6 +5,27 @@
 <!-- The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), -->
 <!-- and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). -->
 
+## [2026.1.0-beta.19] - 2026-04-11
+
+### Improvements
+- Populated Linux package metadata (publisher, homepage, license, category, description) so Query Pilot now shows a proper name, tagline, and links in GNOME Software, KDE Discover, and Ubuntu App Center instead of "unknown" / "(none)".
+- Disabled window transparency on Linux and switched to native GTK decorations with a solid themed background, fixing the broken look where the desktop bled through the sidebar.
+- Hid the File/Edit/View/Database/Window/Help menu bar and cleared the header bar title on Linux for a cleaner home screen, matching the macOS and Windows experience.
+- Made the "Keychain Access Required" toast platform-aware: macOS users see System Settings guidance, Windows users see Credential Manager guidance, and Linux users see GNOME Keyring / KWallet guidance.
+
+### Known Issues — Linux install
+
+- **AppImage silently does nothing when double-clicked.** Ubuntu 22.04+ ships FUSE 3 by default, but AppImages require FUSE 2. Install it with `sudo apt install libfuse2`, or run the AppImage with `--appimage-extract-and-run` to bypass FUSE entirely.
+- **AppImage is not executable by default.** Downloaded AppImages don't carry the execute bit. Right-click → Properties → Permissions → "Allow executing as program", or run `chmod +x Query-Pilot_*.AppImage`.
+- **`.deb` shows "Potentially unsafe — third-party package" in Ubuntu App Center** and runs a "Verifying query-pilot…" check on every launch. This is Ubuntu's handling for any side-loaded `.deb`; launching from the terminal or the `.desktop` shortcut bypasses it. A signed apt repository / Flatpak / Snap is on the roadmap.
+- **Login keyring locked → "Keychain Access Required" on every startup.** If you use auto-login, or your Ubuntu password drifted from your keyring password, the login keyring stays locked and Query Pilot cannot read its encryption key. Unlock it once in **Passwords and Keys** (Seahorse) → right-click **Login** → Unlock.
+
+### Known Issues — code signing
+
+- **macOS builds are signed and notarized.** No Gatekeeper warnings on first launch.
+- **Windows builds are not code-signed yet.** SmartScreen may show "Windows protected your PC" on first launch — click *More info* → *Run anyway*. Code signing is planned.
+- **Linux `.deb` / `.rpm` are not signed by a trusted apt/dnf key yet.** AppImage and RPM artifacts are GPG-signed, but there is no hosted apt repository, so `.deb` installs are treated as third-party by Ubuntu App Center.
+
 ## [2026.1.0-beta.18] - 2026-04-08
 
 ### Improvements

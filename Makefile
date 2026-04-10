@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp querypilot-cli build clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-manual release-local relc generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
+.PHONY: help d dev dev-profile dp querypilot-cli build clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-manual generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -70,7 +70,6 @@ help:
 	@echo "Release Management:"
 	@echo "  make release                       - Stable release (AI-assisted version + changelog)"
 	@echo "  make release beta                  - Beta release (auto-bump beta number)"
-	@echo "  make relc [V=2026.1.0]             - Local build, sign, notarize & upload"
 	@echo "  make version VERSION=2026.1.0      - Bump version only (no commit)"
 	@echo "  make generate-keys          - Generate Tauri updater signing keys"
 	@echo ""
@@ -434,11 +433,3 @@ version:
 	fi
 	@bash scripts/bump-version.sh $(VERSION)
 
-# Local release - build, sign, notarize, upload to GitHub
-# Usage: make relc V=0.7.1
-# Requires: gh CLI authenticated, Apple Developer cert in keychain
-# Optional env: APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID (for notarization)
-#               TAURI_PRIVATE_KEY, TAURI_KEY_PASSWORD (for update signing)
-#               SENTRY_DSN (for telemetry build)
-release-local relc:
-	@bash scripts/release-local.sh $(V)

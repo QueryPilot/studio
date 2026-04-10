@@ -23,7 +23,10 @@ import { initializeSentry, configureTelemetryBackend } from "./utils/sentry";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { useTabStateStore } from "./stores/tabStateStore";
 import { runSessionMigration } from "@/lib/db/sessionMigration";
+import { detectPlatform } from "@/lib/platform";
 import packageJson from "../package.json";
+
+document.documentElement.classList.add(`platform-${detectPlatform()}`);
 
 dayjs.extend(utc);
 dayjs.extend(timezone);

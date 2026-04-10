@@ -61,9 +61,8 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
           RELEASE_DATE=$(date -u +"%Y-%m-%d")
 
-          # Extract the full changelog section for this version from CHANGELOG.md.
-          # Include the ## [version] - date header so the format matches the local
-          # release script (release-local.sh generate_changelog output).
+          # Extract the full changelog section for this version from CHANGELOG.md,
+          # including the `## [version] - date` header.
           CHANGELOG_SECTION=$(awk "/^## \[$VERSION_NUMBER\]/{found=1} found && /^## \[/ && NR>1{exit} found" CHANGELOG.md 2>/dev/null || true)
 
           if [ -n "$CHANGELOG_SECTION" ]; then
@@ -603,11 +602,10 @@ jobs:
           VERSION_NUMBER="${VERSION#v}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Extract release notes body from CHANGELOG.md (body only, no version header —
-          # matches release-local.sh generate_manifest which uses the same awk pattern)
+          # Extract release notes body from CHANGELOG.md (body only, no version header).
           RAW_NOTES=$(awk "/^## \[$VERSION_NUMBER\]/{found=1;next} found && /^## \[/{exit} found" CHANGELOG.md 2>/dev/null | sed '/^[[:space:]]*$/d' || true)
 
-          # Fallback: generate from git commits (matches release-local.sh fallback)
+          # Fallback: generate release notes from git commits.
           if [ -z "$RAW_NOTES" ]; then
             PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${VERSION}$" | head -n 1 || true)
             if [ -n "$PREV_TAG" ]; then

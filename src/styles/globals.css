@@ -446,6 +446,16 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Linux has no window vibrancy / Mica, so make the "frosted" surfaces
+     fully opaque — otherwise the translucent --vibrancy tint composites
+     onto the body background and everything looks washed out. */
+  html.platform-linux body {
+    background: var(--background);
+  }
+  html.platform-linux {
+    --vibrancy: var(--background);
+  }
+
   #root {
     height: 100%;
     display: flex;

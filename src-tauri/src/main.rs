@@ -67,6 +67,7 @@ fn main() {
 
     let mut context = tauri::generate_context!();
     apply_macos_traffic_light_position(context.config_mut());
+    apply_linux_window_tweaks(context.config_mut());
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
@@ -100,6 +101,16 @@ fn main() {
             // Build and set the application menu (registers keyboard accelerators)
             let menu = query_pilot::menu::build_menu(app.handle()).expect("Failed to build menu");
             app.set_menu(menu).expect("Failed to set menu");
+
+            // Linux: keep native GTK decorations (for close/min/max) but hide the
+            // menu bar and clear the window title so the header bar stays clean.
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide_menu();
+                    let _ = window.set_title("");
+                }
+            }
 
             // Windows: remove native decorations, hide the menu bar, and apply Mica.
             // The menu stays registered so accelerators (Ctrl+N, Ctrl+T, etc.) still fire,
@@ -144,8 +155,15 @@ fn main() {
             Ok(())
         })
         .on_page_load(|_webview, _payload| {
-            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             let window = _webview.window();
+            #[cfg(target_os = "linux")]
+            {
+                // Re-hide the menu and re-clear the title in case a reload
+                // or theme change re-populated them from the Tauri config.
+                let _ = window.hide_menu();
+                let _ = window.set_title("");
+            }
             #[cfg(target_os = "macos")]
             {
                 use window_vibrancy::apply_vibrancy;
@@ -418,6 +436,22 @@ fn apply_macos_traffic_light_position(config: &mut tauri::Config) {
 
 #[cfg(not(target_os = "macos"))]
 fn apply_macos_traffic_light_position(_config: &mut tauri::Config) {}
+
+#[cfg(target_os = "linux")]
+fn apply_linux_window_tweaks(config: &mut tauri::Config) {
+    use tauri::utils::config::TitleBarStyle;
+    for window in &mut config.app.windows {
+        if window.label == "main" {
+            window.transparent = false;
+            window.decorations = true;
+            window.title_bar_style = TitleBarStyle::Visible;
+            window.hidden_title = false;
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn apply_linux_window_tweaks(_config: &mut tauri::Config) {}
 
 #[cfg(target_os = "macos")]
 fn macos_traffic_light_position() -> Option<tauri::utils::config::LogicalPosition> {

@@ -563,5 +563,7 @@ rm seeds/sqlite/query_pilot_test.db
 
 # Remove any lingering data
 docker volume prune
+
+postgresql://postgres.zrrvnaooiflbelrqiiws:tnUkcHCR6SnDYaUE@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres
 ```
 
