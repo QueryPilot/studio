@@ -57,6 +57,7 @@ const dbTypeToDialect: Record<DbType, SqlDialect> = {
   [DbType.MariaDB]: "mysql", // MariaDB uses MySQL syntax
   [DbType.SQLite]: "sqlite",
   [DbType.DuckDB]: "postgresql",
+  [DbType.MotherDuck]: "postgresql",
   [DbType.SQLServer]: "mssql",
   [DbType.Oracle]: "oracle",
   [DbType.MongoDB]: "postgresql",
@@ -70,6 +71,7 @@ const dbTypeToEditorLanguage: Record<DbType, CodeEditorLanguage> = {
   [DbType.MariaDB]: "sql",
   [DbType.SQLite]: "sql",
   [DbType.DuckDB]: "sql",
+  [DbType.MotherDuck]: "sql",
   [DbType.SQLServer]: "sql",
   [DbType.Oracle]: "sql",
   [DbType.MongoDB]: "json",

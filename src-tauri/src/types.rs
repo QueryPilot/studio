@@ -91,6 +91,7 @@ pub enum DbType {
     MariaDB,
     SQLite,
     DuckDB,
+    MotherDuck,
     SQLServer,
     Oracle,
     // New paradigms
@@ -133,6 +134,7 @@ impl DbType {
             | DbType::MariaDB
             | DbType::SQLite
             | DbType::DuckDB
+            | DbType::MotherDuck
             | DbType::SQLServer
             | DbType::Oracle
             | DbType::Trino => DatabaseParadigm::Sql,

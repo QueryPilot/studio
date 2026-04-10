@@ -161,7 +161,7 @@ pub async fn get_tool_status(db_type: DbType) -> Result<ToolStatus, String> {
         DbType::MariaDB => "MariaDB",
         DbType::MongoDB => "MongoDB",
         DbType::SQLite => "SQLite",
-        DbType::DuckDB => "DuckDB",
+        DbType::DuckDB | DbType::MotherDuck => "DuckDB",
         DbType::SQLServer => "SQLServer",
         DbType::Oracle => "Oracle",
         DbType::Redis => "Redis",

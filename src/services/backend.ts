@@ -10,6 +10,7 @@ export enum DbType {
   MariaDB = "MariaDB",
   SQLite = "SQLite",
   DuckDB = "DuckDB",
+  MotherDuck = "MotherDuck",
   SQLServer = "SQLServer",
   Oracle = "Oracle",
   // New paradigms

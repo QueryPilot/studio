@@ -147,6 +147,11 @@ impl UnifiedAdapter {
 
     /// Create a new UnifiedAdapter for DuckDB
     pub fn duckdb(adapter: DuckDbAdapter) -> Self {
+        Self::duckdb_with_type(adapter, DbType::DuckDB)
+    }
+
+    /// Create a new UnifiedAdapter for DuckDB or MotherDuck
+    pub fn duckdb_with_type(adapter: DuckDbAdapter, db_type: DbType) -> Self {
         let boxed = Box::new(adapter);
         let ptr = &*boxed as *const DuckDbAdapter;
         let sql_ptr: *const dyn SqlQueryable = ptr;
@@ -166,7 +171,7 @@ impl UnifiedAdapter {
             mongo: None,
             redis: None,
             trino: None,
-            db_type: DbType::DuckDB,
+            db_type,
         }
     }
 
@@ -1145,7 +1150,9 @@ impl ConnectionManager {
                 Ok(UnifiedAdapter::mysql(MySqlAdapter::new(), profile.db_type))
             }
             DbType::SQLite => Ok(UnifiedAdapter::sqlite(SqliteAdapter::new())),
-            DbType::DuckDB => Ok(UnifiedAdapter::duckdb(DuckDbAdapter::new())),
+            DbType::DuckDB | DbType::MotherDuck => {
+                Ok(UnifiedAdapter::duckdb_with_type(DuckDbAdapter::new(), profile.db_type))
+            }
             DbType::SQLServer => Ok(UnifiedAdapter::mssql(MssqlAdapter::new())),
             DbType::Oracle => Ok(UnifiedAdapter::oracle(OracleAdapter::new())),
             DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),

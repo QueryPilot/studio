@@ -79,6 +79,7 @@ function getDefaultPort(dbType: DbType): number {
       return 8080;
     case DbType.SQLite:
     case DbType.DuckDB:
+    case DbType.MotherDuck:
       return 0;
   }
 }

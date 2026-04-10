@@ -33,6 +33,7 @@ export enum DbType {
   MariaDB = "MariaDB",
   SQLite = "SQLite",
   DuckDB = "DuckDB",
+  MotherDuck = "MotherDuck",
   SQLServer = "SQLServer",
   Oracle = "Oracle",
   // New paradigms
@@ -55,6 +56,7 @@ export function getParadigm(dbType: DbType): DatabaseParadigm {
     case DbType.MariaDB:
     case DbType.SQLite:
     case DbType.DuckDB:
+    case DbType.MotherDuck:
     case DbType.SQLServer:
     case DbType.Oracle:
     case DbType.Trino:
@@ -113,6 +115,7 @@ export function getDefaultSchema(dbType: DbType, database?: string): string | nu
       return database || null;
     case DbType.SQLite:
     case DbType.DuckDB:
+    case DbType.MotherDuck:
       return 'main';
     case DbType.SQLServer:
       return 'dbo';

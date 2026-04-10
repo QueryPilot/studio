@@ -1855,6 +1855,70 @@ impl DuckDbAdapter {
     }
 }
 
+impl DuckDbAdapter {
+    pub async fn connect_motherduck(&self, profile: &ConnectionProfile) -> Result<()> {
+        if self.is_conn_open().await {
+            self.disconnect().await?;
+        }
+
+        let token = profile
+            .password
+            .clone()
+            .unwrap_or_default();
+        let database = profile.database.clone();
+
+        let conn = tokio::task::spawn_blocking(move || {
+            let config = Config::default()
+                .enable_autoload_extension(true)
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to enable DuckDB extension autoload: {}", e))
+                })?
+                .enable_external_access(true)
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to enable DuckDB external access: {}", e))
+                })?;
+
+            let conn = Connection::open_in_memory_with_flags(config).map_err(|e| {
+                AppError::Internal(format!("Failed to open in-memory DuckDB: {}", e))
+            })?;
+
+            conn.execute_batch("INSTALL motherduck; LOAD motherduck;")
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to load MotherDuck extension: {}", e))
+                })?;
+
+            let set_token_sql = format!(
+                "SET motherduck_token = {}",
+                Self::quote_string_literal(&token)
+            );
+            conn.execute_batch(&set_token_sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to set MotherDuck token: {}", e))
+            })?;
+
+            let attach_target = if database.is_empty() {
+                "md:".to_string()
+            } else {
+                format!("md:{}", database)
+            };
+            let attach_sql = format!(
+                "ATTACH {}",
+                Self::quote_string_literal(&attach_target)
+            );
+            conn.execute_batch(&attach_sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to attach MotherDuck database: {}", e))
+            })?;
+
+            Ok::<Connection, AppError>(conn)
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
+
+        *self.connection.lock().await = Some(conn);
+        *self.db_path.lock().await = None;
+        Ok(())
+    }
+}
+
 impl Default for DuckDbAdapter {
     fn default() -> Self {
         Self::new()
@@ -1864,6 +1928,10 @@ impl Default for DuckDbAdapter {
 #[async_trait]
 impl BaseCapability for DuckDbAdapter {
     async fn connect(&self, profile: &ConnectionProfile) -> Result<()> {
+        if profile.db_type == DbType::MotherDuck {
+            return self.connect_motherduck(profile).await;
+        }
+
         if self.is_conn_open().await {
             self.disconnect().await?;
         }

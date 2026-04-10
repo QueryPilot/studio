@@ -41,6 +41,7 @@ const SSL_MODE_OPTIONS_BY_DB: Record<DatabaseType, SslModeOption[]> = {
   ],
   sqlite: [{ value: SslMode.Disable, label: "Disable" }],
   duckdb: [{ value: SslMode.Disable, label: "Disable" }],
+  motherduck: [{ value: SslMode.Disable, label: "Disable" }],
   mongodb: [
     { value: SslMode.Disable, label: "Disable" },
     { value: SslMode.Require, label: "Require" },
@@ -87,6 +88,7 @@ export function normalizeSslModeForDb(
       return sslMode === SslMode.Disable ? SslMode.Disable : SslMode.Require;
     case "sqlite":
     case "duckdb":
+    case "motherduck":
       return SslMode.Disable;
     default:
       break;

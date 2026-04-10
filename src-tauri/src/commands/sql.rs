@@ -401,7 +401,7 @@ async fn execute_single_fetch_stream(
             execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
         }
         DbType::Oracle => execute_oracle_stream(sql, metadata_channel, data_channel, adapter).await,
-        DbType::DuckDB => execute_duckdb_stream(sql, metadata_channel, data_channel, adapter).await,
+        DbType::DuckDB | DbType::MotherDuck => execute_duckdb_stream(sql, metadata_channel, data_channel, adapter).await,
         DbType::SQLServer => {
             execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
         }

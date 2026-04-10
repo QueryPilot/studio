@@ -7,6 +7,7 @@ export type DatabaseType =
   | "mariadb"
   | "sqlite"
   | "duckdb"
+  | "motherduck"
   | "mssql"
   | "oracle"
   | "mongodb"
@@ -87,6 +88,7 @@ function looksLikeConnectionUri(text: string): boolean {
   if (/^(server|data source|address|addr|network address)\s*=/i.test(trimmed)) {
     return true;
   }
+  if (/^md:/i.test(trimmed)) return true;
   if (looksLikeSqlitePath(trimmed) || looksLikeDuckDbPath(trimmed)) return true;
 
   return false;
@@ -240,6 +242,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
       config.dbType = "sqlite";
     } else if (connLower === "duckdb" || connLower === "ddb") {
       config.dbType = "duckdb";
+    } else if (connLower === "motherduck" || connLower === "md") {
+      config.dbType = "motherduck";
     } else if (connLower === "mongodb" || connLower === "mongo") {
       config.dbType = "mongodb";
     } else if (connLower === "redis") {
@@ -261,6 +265,8 @@ export function parseConnectionEnv(text: string): ParsedEnvConfig {
     config.dbType = "sqlite";
   } else if (hasPrefix("DUCKDB_")) {
     config.dbType = "duckdb";
+  } else if (hasPrefix("MOTHERDUCK_")) {
+    config.dbType = "motherduck";
   } else if (hasPrefix("MONGO_") || hasPrefix("MONGODB_")) {
     config.dbType = "mongodb";
   } else if (hasPrefix("REDIS_")) {
@@ -1480,6 +1486,11 @@ export function parseConnectionUri(uri: string): ParsedUriConfig {
     return parseOracleThinConnectString(trimmed);
   }
 
+  if (/^md:/i.test(trimmed)) {
+    const dbName = trimmed.replace(/^md:/i, "").trim();
+    return { dbType: "motherduck", database: dbName };
+  }
+
   if (/^duckdb:/i.test(trimmed) || looksLikeDuckDbPath(trimmed)) {
     return parseDuckDbUri(trimmed);
   }
@@ -1576,6 +1587,9 @@ export function buildConnectionUri(
   if (db_type === DbType.DuckDB) {
     return database || "";
   }
+  if (db_type === DbType.MotherDuck) {
+    return database ? `md:${database}` : "md:";
+  }
 
   // Get the scheme based on database type
   const schemeMap: Record<DbType, string> = {
@@ -1584,6 +1598,7 @@ export function buildConnectionUri(
     [DbType.MariaDB]: "mariadb",
     [DbType.SQLite]: "sqlite",
     [DbType.DuckDB]: "duckdb",
+    [DbType.MotherDuck]: "md",
     [DbType.SQLServer]: "mssql",
     [DbType.Oracle]: "oracle",
     [DbType.MongoDB]: "mongodb",

@@ -131,11 +131,14 @@ export function detectSqlDialect(
     return "sqlite";
   }
 
-  // DuckDB - closest editor behavior is PostgreSQL
+  // DuckDB / MotherDuck - closest editor behavior is PostgreSQL
   if (
     normalizedDbType === DbType.DuckDB.toLowerCase() ||
+    normalizedDbType === DbType.MotherDuck.toLowerCase() ||
     normalizedDbType === "duckdb" ||
-    normalizedDbType.includes("duckdb")
+    normalizedDbType === "motherduck" ||
+    normalizedDbType.includes("duckdb") ||
+    normalizedDbType.includes("motherduck")
   ) {
     return "postgresql";
   }

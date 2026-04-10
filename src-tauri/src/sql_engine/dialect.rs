@@ -74,7 +74,7 @@ impl From<crate::types::DbType> for SqlDialect {
             crate::types::DbType::PostgreSQL => SqlDialect::PostgreSQL,
             crate::types::DbType::MySQL | crate::types::DbType::MariaDB => SqlDialect::MySQL,
             crate::types::DbType::SQLite => SqlDialect::SQLite,
-            crate::types::DbType::DuckDB => SqlDialect::DuckDB,
+            crate::types::DbType::DuckDB | crate::types::DbType::MotherDuck => SqlDialect::DuckDB,
             crate::types::DbType::SQLServer => SqlDialect::MsSQL,
             crate::types::DbType::Oracle => SqlDialect::Oracle,
             crate::types::DbType::Trino => SqlDialect::Trino,

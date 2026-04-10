@@ -841,6 +841,7 @@ export function ConnectionForm() {
     const resolvedId =
       idOverride ?? connection?.profile.id ?? `conn-${Date.now()}`;
     const isFileBased = isFileBasedDbType(dbType);
+    const isMotherDuck = dbType === "motherduck";
 
     const profile: ConnectionProfile = {
       id: resolvedId,
@@ -858,6 +859,8 @@ export function ConnectionForm() {
                   ? DbType.Oracle
                 : dbType === "duckdb"
                   ? DbType.DuckDB
+                : dbType === "motherduck"
+                  ? DbType.MotherDuck
                 : dbType === "mongodb"
                   ? DbType.MongoDB
                   : dbType === "redis"
@@ -865,13 +868,13 @@ export function ConnectionForm() {
                     : dbType === "trino"
                       ? DbType.Trino
                       : DbType.SQLServer,
-      host: !isFileBased ? host : "localhost",
+      host: !isFileBased && !isMotherDuck ? host : "localhost",
       port:
-        !isFileBased
+        !isFileBased && !isMotherDuck
           ? parseInt(port, 10) || parseInt(getDefaultPort(dbType), 10)
           : 5432,
-      username: !isFileBased ? username : "",
-      password: !isFileBased ? password || undefined : undefined,
+      username: !isFileBased && !isMotherDuck ? username : "",
+      password: isMotherDuck ? password || undefined : (!isFileBased ? password || undefined : undefined),
       database,
       ssl_mode: sslMode,
       ssl_config:
@@ -1153,6 +1156,12 @@ export function ConnectionForm() {
       beta: true,
     },
     {
+      value: "motherduck",
+      label: "MotherDuck",
+      logo: getDatabaseLogo(DbType.MotherDuck),
+      beta: true,
+    },
+    {
       value: "mssql",
       label: "SQL Server",
       logo: getDatabaseLogo(DbType.SQLServer),
@@ -1184,6 +1193,7 @@ export function ConnectionForm() {
 
   const currentDbType = dbTypeOptions.find((opt) => opt.value === dbType);
   const isFileBased = isFileBasedDbType(dbType);
+  const isMotherDuck = dbType === "motherduck";
   const fileInputPlaceholder = dbType === "duckdb"
     ? "/path/to/scratchpad.duckdb"
     : "/path/to/database.db";
@@ -1556,7 +1566,52 @@ export function ConnectionForm() {
           </div>
 
           {/* Connection Details */}
-          {!isFileBased ? (
+          {isMotherDuck ? (
+            <>
+              <div>
+                <Label htmlFor="password" className="text-xs">
+                  MotherDuck Token
+                </Label>
+                <Input
+                  id="password"
+                  className="mt-1 h-8 text-xs"
+                  type="password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                  }}
+                  placeholder="eyJ..."
+                  disabled={isTesting}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Get your token from{" "}
+                  <a
+                    href="https://app.motherduck.com/token-request?appName=QueryPilot"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-primary"
+                  >
+                    motherduck.com/token
+                  </a>
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="database" className="text-xs">
+                  Database
+                </Label>
+                <Input
+                  id="database"
+                  className="mt-1 h-8 text-xs"
+                  value={database}
+                  onChange={(e) => {
+                    setDatabase(e.target.value);
+                  }}
+                  placeholder="Leave empty for all databases"
+                  disabled={isTesting}
+                />
+              </div>
+            </>
+          ) : !isFileBased ? (
             <>
               <div className="grid grid-cols-12 gap-3">
                 <div className="col-span-8">
@@ -1904,7 +1959,7 @@ export function ConnectionForm() {
           )}
 
           {/* SSL Mode */}
-          {!isFileBased && (
+          {!isFileBased && !isMotherDuck && (
             <div>
               <Label className="flex items-center gap-1.5 text-xs">
                 <IconShield className="h-3 w-3 text-muted-foreground" />
@@ -2118,7 +2173,7 @@ export function ConnectionForm() {
           </div>
 
           {/* Connection Options */}
-          {!isFileBased && (
+          {!isFileBased && !isMotherDuck && (
             <div>
               <Label className="flex items-center gap-1.5 text-xs">
                 Connection Options
@@ -2178,7 +2233,7 @@ export function ConnectionForm() {
           )}
 
           {/* Tunnel */}
-          {!isFileBased && (
+          {!isFileBased && !isMotherDuck && (
             <TunnelSection
               tunnelMode={tunnelMode}
               onTunnelModeChange={setTunnelMode}
@@ -2199,7 +2254,7 @@ export function ConnectionForm() {
           )}
 
           {/* SSH Tunnel Fields */}
-          {!isFileBased && tunnelMode === "ssh" && (
+          {!isFileBased && !isMotherDuck && tunnelMode === "ssh" && (
             <div className="space-y-3">
                   <div className="grid grid-cols-12 gap-3">
                     <div className="col-span-8">

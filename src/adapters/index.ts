@@ -69,6 +69,8 @@ const sqlAdapterModules: Partial<
     import("./dialects/SQLiteAdapter").then((m) => m.SQLiteAdapter),
   [DbType.DuckDB]: () =>
     import("./dialects/DuckDBAdapter").then((m) => m.DuckDBAdapter),
+  [DbType.MotherDuck]: () =>
+    import("./dialects/DuckDBAdapter").then((m) => m.DuckDBAdapter),
   [DbType.SQLServer]: () =>
     import("./dialects/MSSQLAdapter").then((m) => m.MSSQLAdapter),
   [DbType.Oracle]: () =>
