@@ -11,6 +11,7 @@ import {
   IconPlug,
   IconKey,
   IconNetwork,
+  IconDatabase,
 } from "@tabler/icons-react";
 
 const categories = [
@@ -48,6 +49,11 @@ const categories = [
     id: "tunnel-profiles" as PreferenceCategory,
     label: "Tunnel Profiles",
     icon: IconNetwork,
+  },
+  {
+    id: "duckdb" as PreferenceCategory,
+    label: "DuckDB",
+    icon: IconDatabase,
   },
 ];
 

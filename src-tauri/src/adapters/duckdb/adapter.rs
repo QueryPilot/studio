@@ -2287,6 +2287,93 @@ impl DuckDbAdapter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DuckDbSetting {
+    pub name: String,
+    pub value: String,
+    pub description: String,
+    pub input_type: String,
+    pub scope: String,
+}
+
+impl DuckDbAdapter {
+    pub async fn get_settings(&self) -> Result<Vec<DuckDbSetting>> {
+        self.execute_blocking(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT name, value, description, input_type, scope \
+                     FROM duckdb_settings() \
+                     ORDER BY name",
+                )
+                .map_err(|e| AppError::DatabaseError(format!("Failed to prepare settings query: {}", e)))?;
+
+            let mut rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(format!("Failed to query settings: {}", e)))?;
+
+            let mut settings = Vec::new();
+            while let Some(row) = rows.next().map_err(|e| AppError::DatabaseError(e.to_string()))? {
+                settings.push(DuckDbSetting {
+                    name: row.get(0).map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                    value: row
+                        .get::<_, Option<String>>(1)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                        .unwrap_or_default(),
+                    description: row
+                        .get::<_, Option<String>>(2)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                        .unwrap_or_default(),
+                    input_type: row
+                        .get::<_, Option<String>>(3)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                        .unwrap_or_default(),
+                    scope: row
+                        .get::<_, Option<String>>(4)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                        .unwrap_or_default(),
+                });
+            }
+
+            Ok(settings)
+        })
+        .await
+    }
+
+    pub async fn set_setting(&self, name: &str, value: &str) -> Result<()> {
+        if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(AppError::InvalidInput(format!(
+                "Invalid setting name: {}. Only alphanumeric characters and underscores allowed.",
+                name
+            )));
+        }
+        let sql = format!("SET {} = {}", name, Self::quote_string_literal(value));
+        let sql_owned = sql;
+        self.execute_blocking(move |conn| {
+            conn.execute_batch(&sql_owned)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to set setting: {}", e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn reset_setting(&self, name: &str) -> Result<()> {
+        if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(AppError::InvalidInput(format!(
+                "Invalid setting name: {}. Only alphanumeric characters and underscores allowed.",
+                name
+            )));
+        }
+        let sql = format!("RESET {}", name);
+        self.execute_blocking(move |conn| {
+            conn.execute_batch(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to reset setting: {}", e)))?;
+            Ok(())
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DuckDbAutocompleteSuggestion {
     pub suggestion: String,
     pub suggestion_start: i32,

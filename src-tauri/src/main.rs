@@ -217,6 +217,9 @@ fn main() {
             commands::duckdb_explain_query,
             commands::duckdb_export_data,
             commands::duckdb_autocomplete,
+            commands::duckdb_get_settings,
+            commands::duckdb_set_setting,
+            commands::duckdb_reset_setting,
             // Query execution
             commands::query,
             commands::execute_query,

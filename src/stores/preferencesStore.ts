@@ -8,7 +8,8 @@ export type PreferenceCategory =
   | "telemetry"
   | "integrations"
   | "auth-profiles"
-  | "tunnel-profiles";
+  | "tunnel-profiles"
+  | "duckdb";
 
 export interface TelemetryPreferences {
   sentryEnabled: boolean; // Enable crash reporting to Sentry

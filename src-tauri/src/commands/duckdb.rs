@@ -6,7 +6,7 @@ use crate::adapters::duckdb::{
     DuckDbAttachedDatabase, DuckDbAutocompleteSuggestion, DuckDbCreateSecretRequest,
     DuckDbExportRequest, DuckDbExportResult, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
     DuckDbManagedObjectSummary, DuckDbQueryPlan, DuckDbReplaceManagedObjectRequest,
-    DuckDbSecretInfo,
+    DuckDbSecretInfo, DuckDbSetting,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -322,6 +322,61 @@ pub async fn duckdb_export_data(
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
     duckdb
         .export_data(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_get_settings(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<DuckDbSetting>, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb.get_settings().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_set_setting(
+    conn_id: String,
+    name: String,
+    value: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB set setting",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .set_setting(&name, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_reset_setting(
+    conn_id: String,
+    name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB reset setting",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .reset_setting(&name)
         .await
         .map_err(|e| e.to_string())
 }

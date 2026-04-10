@@ -20,6 +20,9 @@ const TunnelProfilesPanel = lazy(() =>
     default: m.TunnelProfilesPanel,
   })),
 );
+const DuckDbPreferencesPanel = lazy(
+  () => import("./panels/DuckDbPreferencesPanel"),
+);
 
 interface PreferencesDialogProps {
   open?: boolean;
@@ -105,6 +108,18 @@ export function PreferencesDialog({
             }
           >
             <TunnelProfilesPanel />
+          </Suspense>
+        );
+      case "duckdb":
+        return (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <DuckDbPreferencesPanel />
           </Suspense>
         );
       default:

@@ -169,6 +169,14 @@ export interface DuckDbQueryPlan {
   totalTimeMs: number | null;
 }
 
+export interface DuckDbSetting {
+  name: string;
+  value: string;
+  description: string;
+  inputType: string;
+  scope: string;
+}
+
 export interface DuckDbManagedObjectLineage {
   targetSchema: string;
   targetName: string;
@@ -655,6 +663,27 @@ export class BackendAPI {
     sql: string,
   ): Promise<DuckDbQueryPlan> {
     return invoke("duckdb_explain_query", { connId, sql });
+  }
+
+  static async duckdbGetSettings(
+    connId: string,
+  ): Promise<DuckDbSetting[]> {
+    return invoke("duckdb_get_settings", { connId });
+  }
+
+  static async duckdbSetSetting(
+    connId: string,
+    name: string,
+    value: string,
+  ): Promise<void> {
+    await invoke("duckdb_set_setting", { connId, name, value });
+  }
+
+  static async duckdbResetSetting(
+    connId: string,
+    name: string,
+  ): Promise<void> {
+    await invoke("duckdb_reset_setting", { connId, name });
   }
 
   // Streaming query
