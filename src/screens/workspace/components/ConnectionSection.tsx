@@ -174,6 +174,7 @@ import { BackendAPI } from "@/services/backend";
 import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
+import { DuckDbAttachCatalogDialog } from "./DuckDbAttachCatalogDialog";
 import { DuckDbSecretsPanel } from "./DuckDbSecretsPanel";
 import { DuckDbExtensionsPanel } from "./DuckDbExtensionsPanel";
 import {
@@ -368,6 +369,7 @@ export const ConnectionSection = forwardRef<
   const [duckDbImportUrlDialogOpen, setDuckDbImportUrlDialogOpen] =
     useState(false);
   const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
+  const [duckDbAttachCatalogDialogOpen, setDuckDbAttachCatalogDialogOpen] = useState(false);
   const [duckDbSecretsPanelOpen, setDuckDbSecretsPanelOpen] = useState(false);
   const [duckDbExtensionsPanelOpen, setDuckDbExtensionsPanelOpen] = useState(false);
   const [duckDbExportDialogOpen, setDuckDbExportDialogOpen] = useState(false);
@@ -1921,6 +1923,26 @@ export const ConnectionSection = forwardRef<
     }
   };
 
+  const handleAttachCatalog = async (
+    request: import("@/services/backend").DuckDbAttachCatalogRequest,
+  ) => {
+    const toastId = toast.loading("Attaching catalog...");
+    try {
+      await BackendAPI.duckdbAttachCatalog(connectionId, request);
+      toast.success(`Catalog attached as "${request.alias}"`, { id: toastId });
+      refreshConnectionData(connection);
+      void queryClient.invalidateQueries({
+        queryKey: ["attached-databases", connectionId],
+      });
+      setDuckDbAttachCatalogDialogOpen(false);
+    } catch (error) {
+      toast.error("Failed to attach catalog", {
+        id: toastId,
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const handleDetachDatabase = async (alias: string) => {
     const toastId = toast.loading(`Detaching "${alias}"...`);
     try {
@@ -3246,6 +3268,9 @@ export const ConnectionSection = forwardRef<
                         onAttachDatabase={() => {
                           setDuckDbAttachDialogOpen(true);
                         }}
+                        onAttachCatalog={() => {
+                          setDuckDbAttachCatalogDialogOpen(true);
+                        }}
                         onManageSecrets={() => {
                           setDuckDbSecretsPanelOpen(true);
                         }}
@@ -4104,6 +4129,14 @@ export const ConnectionSection = forwardRef<
           setDuckDbAttachDialogOpen(false);
         }}
         onSubmit={handleAttachDatabase}
+      />
+
+      <DuckDbAttachCatalogDialog
+        open={duckDbAttachCatalogDialogOpen}
+        onClose={() => {
+          setDuckDbAttachCatalogDialogOpen(false);
+        }}
+        onSubmit={handleAttachCatalog}
       />
 
       <DuckDbSecretsPanel

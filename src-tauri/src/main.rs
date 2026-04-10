@@ -208,6 +208,7 @@ fn main() {
             commands::duckdb_install_extension,
             commands::duckdb_load_extension,
             commands::duckdb_attach_database,
+            commands::duckdb_attach_catalog,
             commands::duckdb_detach_database,
             commands::duckdb_list_attached_databases,
             commands::duckdb_create_secret,
@@ -452,7 +453,7 @@ fn apply_linux_window_tweaks(config: &mut tauri::Config) {
     for window in &mut config.app.windows {
         if window.label == "main" {
             window.transparent = false;
-            window.decorations = true;
+            window.decorations = false;
         }
     }
 }

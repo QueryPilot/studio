@@ -2214,6 +2214,79 @@ impl SqlQueryable for DuckDbAdapter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DuckDbAttachCatalogRequest {
+    pub catalog_type: String,
+    pub alias: String,
+    pub catalog_uri: String,
+    pub extra_options: HashMap<String, String>,
+}
+
+impl DuckDbAdapter {
+    pub async fn attach_catalog(&self, request: DuckDbAttachCatalogRequest) -> Result<String> {
+        self.execute_blocking(move |conn| {
+            Self::validate_attach_alias(&request.alias)?;
+
+            let ext_name = match request.catalog_type.to_lowercase().as_str() {
+                "iceberg" => "iceberg",
+                "delta" => "delta",
+                "ducklake" => "ducklake",
+                _ => {
+                    return Err(AppError::InvalidInput(format!(
+                        "Unsupported catalog type: {}. Must be iceberg, delta, or ducklake.",
+                        request.catalog_type
+                    )));
+                }
+            };
+
+            conn.execute_batch(&format!("INSTALL '{}'; LOAD '{}';", ext_name, ext_name))
+                .map_err(|e| {
+                    AppError::DatabaseError(format!(
+                        "Failed to install/load {} extension: {}",
+                        ext_name, e
+                    ))
+                })?;
+
+            let type_upper = request.catalog_type.to_uppercase();
+            let mut options = vec![format!("TYPE {}", type_upper)];
+
+            if ext_name != "ducklake" && !request.catalog_uri.is_empty() {
+                options.push(format!(
+                    "CATALOG_URI {}",
+                    Self::quote_string_literal(&request.catalog_uri)
+                ));
+            }
+
+            for (key, value) in &request.extra_options {
+                if !value.is_empty() {
+                    options.push(format!("{} {}", key, Self::quote_string_literal(value)));
+                }
+            }
+
+            let attach_path = if ext_name == "ducklake" {
+                format!("ducklake:{}", request.catalog_uri)
+            } else {
+                request.catalog_uri.clone()
+            };
+
+            let sql = format!(
+                "ATTACH {} AS {} ({})",
+                Self::quote_string_literal(&attach_path),
+                Self::quote_identifier(&request.alias),
+                options.join(", ")
+            );
+
+            conn.execute_batch(&sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to attach catalog: {}", e))
+            })?;
+
+            Ok(request.alias)
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DuckDbAutocompleteSuggestion {
     pub suggestion: String,
     pub suggestion_start: i32,

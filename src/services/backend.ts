@@ -150,6 +150,13 @@ export interface DuckDbExportResult {
   format: string;
 }
 
+export interface DuckDbAttachCatalogRequest {
+  catalogType: string;
+  alias: string;
+  catalogUri: string;
+  extraOptions?: Record<string, string>;
+}
+
 export interface DuckDbAutocompleteSuggestion {
   suggestion: string;
   suggestionStart: number;
@@ -586,6 +593,13 @@ export class BackendAPI {
     request: DuckDbAttachDatabaseRequest,
   ): Promise<string> {
     return invoke("duckdb_attach_database", { connId, request });
+  }
+
+  static async duckdbAttachCatalog(
+    connId: string,
+    request: DuckDbAttachCatalogRequest,
+  ): Promise<string> {
+    return invoke("duckdb_attach_catalog", { connId, request });
   }
 
   static async duckdbDetachDatabase(

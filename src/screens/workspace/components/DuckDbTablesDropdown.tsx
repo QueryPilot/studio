@@ -18,6 +18,7 @@ import {
   IconPlugConnectedX,
   IconKey,
   IconPuzzle,
+  IconBuildingWarehouse,
 } from "@tabler/icons-react";
 
 export interface DuckDbConnectedSource {
@@ -38,6 +39,7 @@ interface DuckDbTablesDropdownProps {
   onImportUrl: () => void;
   onExportData?: () => void;
   onAttachDatabase?: () => void;
+  onAttachCatalog?: () => void;
   onDetachDatabase?: (alias: string) => void;
   onManageSecrets?: () => void;
   onManageExtensions?: () => void;
@@ -53,6 +55,7 @@ export function DuckDbTablesDropdown({
   onImportUrl,
   onExportData,
   onAttachDatabase,
+  onAttachCatalog,
   onDetachDatabase,
   onManageSecrets,
   onManageExtensions,
@@ -111,6 +114,12 @@ export function DuckDbTablesDropdown({
           <DropdownMenuItem onClick={onAttachDatabase}>
             <IconPlugConnected className="h-4 w-4 mr-2" />
             Attach Database...
+          </DropdownMenuItem>
+        )}
+        {onAttachCatalog && (
+          <DropdownMenuItem onClick={onAttachCatalog}>
+            <IconBuildingWarehouse className="h-4 w-4 mr-2" />
+            Attach Catalog...
           </DropdownMenuItem>
         )}
         {onManageSecrets && (

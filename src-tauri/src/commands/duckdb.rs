@@ -2,9 +2,9 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::adapters::duckdb::{
-    DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
-    DuckDbAutocompleteSuggestion, DuckDbCreateSecretRequest, DuckDbExportRequest,
-    DuckDbExportResult, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
+    DuckDbAddFileRequest, DuckDbAttachCatalogRequest, DuckDbAttachDatabaseRequest,
+    DuckDbAttachedDatabase, DuckDbAutocompleteSuggestion, DuckDbCreateSecretRequest,
+    DuckDbExportRequest, DuckDbExportResult, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
     DuckDbManagedObjectSummary, DuckDbQueryPlan, DuckDbReplaceManagedObjectRequest,
     DuckDbSecretInfo,
 };
@@ -160,6 +160,27 @@ pub async fn duckdb_attach_database(
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
     duckdb
         .attach_database(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_attach_catalog(
+    conn_id: String,
+    request: DuckDbAttachCatalogRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<String, String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB attach catalog",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .attach_catalog(request)
         .await
         .map_err(|e| e.to_string())
 }
