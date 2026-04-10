@@ -209,6 +209,9 @@ fn main() {
             commands::duckdb_attach_database,
             commands::duckdb_detach_database,
             commands::duckdb_list_attached_databases,
+            commands::duckdb_create_secret,
+            commands::duckdb_list_secrets,
+            commands::duckdb_drop_secret,
             // Query execution
             commands::query,
             commands::execute_query,

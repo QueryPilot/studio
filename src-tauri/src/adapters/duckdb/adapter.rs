@@ -1453,6 +1453,27 @@ impl DuckDbAdapter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DuckDbSecretInfo {
+    pub name: String,
+    pub secret_type: String,
+    pub provider: String,
+    pub scope: Vec<String>,
+    pub persistent: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbCreateSecretRequest {
+    pub name: String,
+    pub secret_type: String,
+    pub provider: String,
+    pub scope: Option<String>,
+    pub persistent: bool,
+    pub params: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DuckDbAttachedDatabase {
     pub database_name: String,
     pub path: String,
@@ -1577,6 +1598,132 @@ impl DuckDbAdapter {
             }
 
             Ok(databases)
+        })
+        .await
+    }
+}
+
+impl DuckDbAdapter {
+    pub async fn create_secret(&self, request: DuckDbCreateSecretRequest) -> Result<()> {
+        self.execute_blocking(move |conn| {
+            Self::validate_identifier(&request.name, "Secret name")?;
+
+            let persistence = if request.persistent {
+                "PERSISTENT"
+            } else {
+                "TEMPORARY"
+            };
+
+            let mut clauses = Vec::new();
+            clauses.push(format!("TYPE {}", request.secret_type));
+            clauses.push(format!(
+                "PROVIDER {}",
+                Self::quote_string_literal(&request.provider)
+            ));
+
+            for (key, value) in &request.params {
+                if !value.is_empty() {
+                    clauses.push(format!("{} {}", key, Self::quote_string_literal(value)));
+                }
+            }
+
+            if let Some(ref scope) = request.scope {
+                if !scope.trim().is_empty() {
+                    clauses.push(format!("SCOPE {}", Self::quote_string_literal(scope)));
+                }
+            }
+
+            let sql = format!(
+                "CREATE {} SECRET {} ({})",
+                persistence,
+                Self::quote_identifier(&request.name),
+                clauses.join(", ")
+            );
+
+            conn.execute_batch(&sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to create secret: {}", e))
+            })?;
+
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn list_secrets(&self) -> Result<Vec<DuckDbSecretInfo>> {
+        self.execute_blocking(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT name, type, provider, scope, persistent FROM duckdb_secrets()",
+                )
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            let mut rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            let mut secrets = Vec::new();
+            while let Some(row) =
+                rows.next()
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            {
+                let name: String = row
+                    .get(0)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                let secret_type: String = row
+                    .get(1)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                let provider: String = row
+                    .get(2)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+                let scope_ref = row
+                    .get_ref(3)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+                let scope = match scope_ref.to_owned() {
+                    DuckValue::List(items) | DuckValue::Array(items) => items
+                        .into_iter()
+                        .filter_map(|v| match v {
+                            DuckValue::Text(s) => Some(s),
+                            _ => None,
+                        })
+                        .collect(),
+                    DuckValue::Text(s) => vec![s],
+                    _ => vec![],
+                };
+
+                let persistent: bool = row
+                    .get(4)
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+                secrets.push(DuckDbSecretInfo {
+                    name,
+                    secret_type,
+                    provider,
+                    scope,
+                    persistent,
+                });
+            }
+
+            Ok(secrets)
+        })
+        .await
+    }
+
+    pub async fn drop_secret(&self, name: String, persistent: bool) -> Result<()> {
+        self.execute_blocking(move |conn| {
+            Self::validate_identifier(&name, "Secret name")?;
+
+            let sql = if persistent {
+                format!("DROP PERSISTENT SECRET {}", Self::quote_identifier(&name))
+            } else {
+                format!("DROP SECRET {}", Self::quote_identifier(&name))
+            };
+
+            conn.execute_batch(&sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to drop secret: {}", e))
+            })?;
+
+            Ok(())
         })
         .await
     }

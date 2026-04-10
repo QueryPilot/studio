@@ -3,8 +3,8 @@ use tauri::State;
 
 use crate::adapters::duckdb::{
     DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
-    DuckDbExtensionInfo, DuckDbManagedObjectLineage, DuckDbManagedObjectSummary,
-    DuckDbReplaceManagedObjectRequest,
+    DuckDbCreateSecretRequest, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
+    DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -178,6 +178,61 @@ pub async fn duckdb_list_attached_databases(
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
     duckdb
         .list_attached_databases()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_create_secret(
+    conn_id: String,
+    request: DuckDbCreateSecretRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB create secret",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .create_secret(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_list_secrets(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<DuckDbSecretInfo>, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb.list_secrets().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_drop_secret(
+    conn_id: String,
+    name: String,
+    persistent: bool,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB drop secret",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .drop_secret(name, persistent)
         .await
         .map_err(|e| e.to_string())
 }

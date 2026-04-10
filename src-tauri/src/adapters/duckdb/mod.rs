@@ -3,6 +3,7 @@ pub mod backup;
 
 pub use adapter::{
     DuckDbAdapter, DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
-    DuckDbColumnDefinition, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
-    DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest,
+    DuckDbColumnDefinition, DuckDbCreateSecretRequest, DuckDbExtensionInfo,
+    DuckDbManagedObjectLineage, DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest,
+    DuckDbSecretInfo,
 };

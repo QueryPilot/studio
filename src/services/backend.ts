@@ -115,6 +115,23 @@ export interface DuckDbAttachedDatabase {
   readOnly: boolean;
 }
 
+export interface DuckDbSecretInfo {
+  name: string;
+  secretType: string;
+  provider: string;
+  scope: string[];
+  persistent: boolean;
+}
+
+export interface DuckDbCreateSecretRequest {
+  name: string;
+  secretType: string;
+  provider: string;
+  scope?: string | null;
+  persistent: boolean;
+  params: Record<string, string>;
+}
+
 export interface DuckDbManagedObjectLineage {
   targetSchema: string;
   targetName: string;
@@ -542,6 +559,27 @@ export class BackendAPI {
     connId: string,
   ): Promise<DuckDbAttachedDatabase[]> {
     return invoke("duckdb_list_attached_databases", { connId });
+  }
+
+  static async duckdbCreateSecret(
+    connId: string,
+    request: DuckDbCreateSecretRequest,
+  ): Promise<void> {
+    await invoke("duckdb_create_secret", { connId, request });
+  }
+
+  static async duckdbListSecrets(
+    connId: string,
+  ): Promise<DuckDbSecretInfo[]> {
+    return invoke("duckdb_list_secrets", { connId });
+  }
+
+  static async duckdbDropSecret(
+    connId: string,
+    name: string,
+    persistent: boolean,
+  ): Promise<void> {
+    await invoke("duckdb_drop_secret", { connId, name, persistent });
   }
 
   // Streaming query

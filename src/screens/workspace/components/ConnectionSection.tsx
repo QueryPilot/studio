@@ -174,6 +174,7 @@ import { BackendAPI } from "@/services/backend";
 import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
+import { DuckDbSecretsPanel } from "./DuckDbSecretsPanel";
 import {
   DuckDbTablesDropdown,
   type DuckDbConnectedSource,
@@ -365,6 +366,7 @@ export const ConnectionSection = forwardRef<
   const [duckDbImportUrlDialogOpen, setDuckDbImportUrlDialogOpen] =
     useState(false);
   const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
+  const [duckDbSecretsPanelOpen, setDuckDbSecretsPanelOpen] = useState(false);
   const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
   const [snapshotSource, setSnapshotSource] =
     useState<DuckDbSnapshotSource | null>(null);
@@ -3235,6 +3237,9 @@ export const ConnectionSection = forwardRef<
                         onAttachDatabase={() => {
                           setDuckDbAttachDialogOpen(true);
                         }}
+                        onManageSecrets={() => {
+                          setDuckDbSecretsPanelOpen(true);
+                        }}
                         onDetachDatabase={(alias) => {
                           void handleDetachDatabase(alias);
                         }}
@@ -4087,6 +4092,14 @@ export const ConnectionSection = forwardRef<
           setDuckDbAttachDialogOpen(false);
         }}
         onSubmit={handleAttachDatabase}
+      />
+
+      <DuckDbSecretsPanel
+        open={duckDbSecretsPanelOpen}
+        onClose={() => {
+          setDuckDbSecretsPanelOpen(false);
+        }}
+        connectionId={connectionId}
       />
 
       <SnapshotToDuckDbDialog
