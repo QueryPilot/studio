@@ -6,6 +6,7 @@ use duckdb::types::{Value as DuckValue, ValueRef};
 use duckdb::{params, params_from_iter, AccessMode, Config, Connection, OptionalExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map as JsonMap, Number as JsonNumber, Value as JsonValue};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -91,6 +92,30 @@ pub struct DuckDbExtensionInfo {
     pub installed: bool,
     pub description: Option<String>,
     pub install_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbExportRequest {
+    pub source: DuckDbExportSource,
+    pub destination: String,
+    pub format: String,
+    pub options: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DuckDbExportSource {
+    Query(String),
+    Table { schema: String, name: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbExportResult {
+    pub rows_exported: i64,
+    pub destination: String,
+    pub format: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1604,6 +1629,107 @@ impl DuckDbAdapter {
 }
 
 impl DuckDbAdapter {
+    fn validate_export_format(format: &str) -> Result<()> {
+        match format.to_uppercase().as_str() {
+            "PARQUET" | "CSV" | "JSON" => Ok(()),
+            _ => Err(AppError::InvalidInput(format!(
+                "Unsupported export format '{}'. Must be PARQUET, CSV, or JSON.",
+                format
+            ))),
+        }
+    }
+
+    fn build_copy_options(format: &str, options: &HashMap<String, String>) -> String {
+        let mut parts = vec![format!("FORMAT {}", format.to_uppercase())];
+        for (key, value) in options {
+            let key_upper = key.to_uppercase();
+            let val_trimmed = value.trim();
+            if val_trimmed.is_empty() {
+                continue;
+            }
+            match val_trimmed.to_uppercase().as_str() {
+                "TRUE" | "FALSE" => parts.push(format!("{} {}", key_upper, val_trimmed)),
+                _ => {
+                    if val_trimmed.parse::<i64>().is_ok() || val_trimmed.parse::<f64>().is_ok() {
+                        parts.push(format!("{} {}", key_upper, val_trimmed));
+                    } else {
+                        parts.push(format!(
+                            "{} {}",
+                            key_upper,
+                            Self::quote_string_literal(val_trimmed)
+                        ));
+                    }
+                }
+            }
+        }
+        parts.join(", ")
+    }
+
+    pub async fn export_data(&self, request: DuckDbExportRequest) -> Result<DuckDbExportResult> {
+        self.execute_blocking(move |conn| {
+            Self::validate_export_format(&request.format)?;
+
+            if request.destination.trim().is_empty() {
+                return Err(AppError::InvalidInput(
+                    "Export destination must not be empty".to_string(),
+                ));
+            }
+
+            Self::ensure_httpfs_loaded(conn, &request.destination)?;
+
+            let source_sql = match &request.source {
+                DuckDbExportSource::Query(sql) => {
+                    if sql.trim().is_empty() {
+                        return Err(AppError::InvalidInput(
+                            "Export query must not be empty".to_string(),
+                        ));
+                    }
+                    format!("({})", sql)
+                }
+                DuckDbExportSource::Table { schema, name } => {
+                    Self::validate_identifier(schema, "Schema")?;
+                    Self::validate_identifier(name, "Table name")?;
+                    Self::qualified_name(schema, name)
+                }
+            };
+
+            let count_sql = match &request.source {
+                DuckDbExportSource::Query(sql) => {
+                    format!("SELECT count(*) FROM ({})", sql)
+                }
+                DuckDbExportSource::Table { schema, name } => {
+                    format!("SELECT count(*) FROM {}", Self::qualified_name(schema, name))
+                }
+            };
+            let rows_exported: i64 = conn
+                .query_row(&count_sql, [], |row| row.get(0))
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to count export rows: {}", e))
+                })?;
+
+            let options_str = Self::build_copy_options(&request.format, &request.options);
+            let copy_sql = format!(
+                "COPY {} TO {} ({})",
+                source_sql,
+                Self::quote_string_literal(&request.destination),
+                options_str
+            );
+
+            conn.execute_batch(&copy_sql).map_err(|e| {
+                AppError::DatabaseError(format!("COPY TO failed: {}", e))
+            })?;
+
+            Ok(DuckDbExportResult {
+                rows_exported,
+                destination: request.destination,
+                format: request.format.to_uppercase(),
+            })
+        })
+        .await
+    }
+}
+
+impl DuckDbAdapter {
     pub async fn create_secret(&self, request: DuckDbCreateSecretRequest) -> Result<()> {
         self.execute_blocking(move |conn| {
             Self::validate_identifier(&request.name, "Secret name")?;
@@ -1742,12 +1868,24 @@ impl BaseCapability for DuckDbAdapter {
             self.disconnect().await?;
         }
 
+        let read_only = profile
+            .options
+            .get("read_only")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
         let db_path = PathBuf::from(&profile.database);
         let path = db_path.clone();
 
         let conn = tokio::task::spawn_blocking(move || {
+            let access_mode = if read_only {
+                AccessMode::ReadOnly
+            } else {
+                AccessMode::ReadWrite
+            };
+
             let config = Config::default()
-                .access_mode(AccessMode::ReadWrite)
+                .access_mode(access_mode)
                 .map_err(|e| {
                     AppError::Internal(format!("Failed to set DuckDB access mode: {}", e))
                 })?
@@ -1764,7 +1902,9 @@ impl BaseCapability for DuckDbAdapter {
                 AppError::Internal(format!("Failed to open DuckDB database: {}", e))
             })?;
 
-            Self::bootstrap_connection(&conn)?;
+            if !read_only {
+                Self::bootstrap_connection(&conn)?;
+            }
 
             Ok::<Connection, AppError>(conn)
         })

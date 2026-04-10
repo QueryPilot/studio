@@ -383,7 +383,7 @@ export function ConnectionForm() {
   );
 
   // Connection options state (e.g., charset=utf8mb4)
-  // Filter out Oracle-specific keys so they don't appear in the generic textarea
+  // Filter out DB-specific keys so they don't appear in the generic textarea
   const oracleOptionKeys = new Set([
     "oracle_connect_mode",
     "oracle_sid",
@@ -391,10 +391,17 @@ export function ConnectionForm() {
     "oracle_connect_string",
     "oracle_wallet_dir",
   ]);
+  const duckdbDedicatedOptionKeys = new Set(["read_only"]);
+  const [duckdbReadOnly, setDuckdbReadOnly] = useState(
+    () => existingOptions?.read_only === "true",
+  );
   const [connectionOptions, setConnectionOptions] = useState<string>(() => {
     if (connection?.profile.options) {
       return Object.entries(connection.profile.options)
-        .filter(([k]) => !oracleOptionKeys.has(k))
+        .filter(
+          ([k]) =>
+            !oracleOptionKeys.has(k) && !duckdbDedicatedOptionKeys.has(k),
+        )
         .map(([k, v]) => `${k}=${v}`)
         .join("\n");
     }
@@ -879,26 +886,35 @@ export function ConnectionForm() {
           : undefined,
       ssh_tunnel: undefined,
       bastion: undefined,
-      options: {
-        ...parseConnectionOptions(connectionOptions),
-        ...(dbType === "oracle"
-          ? {
-              oracle_connect_mode: oracleConnectMode,
-              ...(oracleConnectMode === "sid" && oracleSid
-                ? { oracle_sid: oracleSid }
-                : {}),
-              ...(oracleConnectMode === "tns_alias" && oracleTnsAlias
-                ? { oracle_tns_alias: oracleTnsAlias }
-                : {}),
-              ...(oracleConnectMode === "connect_string" && oracleConnectString
-                ? { oracle_connect_string: oracleConnectString }
-                : {}),
-              ...(oracleWalletDir
-                ? { oracle_wallet_dir: oracleWalletDir }
-                : {}),
-            }
-          : {}),
-      },
+      options: (() => {
+        const parsed = parseConnectionOptions(connectionOptions);
+        if (dbType === "duckdb") {
+          delete parsed.read_only;
+        }
+        return {
+          ...parsed,
+          ...(dbType === "oracle"
+            ? {
+                oracle_connect_mode: oracleConnectMode,
+                ...(oracleConnectMode === "sid" && oracleSid
+                  ? { oracle_sid: oracleSid }
+                  : {}),
+                ...(oracleConnectMode === "tns_alias" && oracleTnsAlias
+                  ? { oracle_tns_alias: oracleTnsAlias }
+                  : {}),
+                ...(oracleConnectMode === "connect_string" && oracleConnectString
+                  ? { oracle_connect_string: oracleConnectString }
+                  : {}),
+                ...(oracleWalletDir
+                  ? { oracle_wallet_dir: oracleWalletDir }
+                  : {}),
+              }
+            : {}),
+          ...(dbType === "duckdb" && duckdbReadOnly
+            ? { read_only: "true" }
+            : {}),
+        };
+      })(),
       default_schema: defaultSchema || undefined,
       ...(dbType === "trino" && trinoCatalogs.length > 0
         ? { trino_catalogs: trinoCatalogs }
@@ -1865,6 +1881,25 @@ export function ConnectionForm() {
                   </Button>
                 )}
               </div>
+            </div>
+          )}
+
+          {dbType === "duckdb" && (
+            <div className="flex items-center gap-2 pt-1">
+              <Checkbox
+                id="duckdb-read-only"
+                checked={duckdbReadOnly}
+                onCheckedChange={(checked) =>
+                  setDuckdbReadOnly(checked === true)
+                }
+                disabled={isTesting}
+              />
+              <Label
+                htmlFor="duckdb-read-only"
+                className="text-xs font-normal leading-snug cursor-pointer"
+              >
+                Open as read-only (allows other tools to write simultaneously)
+              </Label>
             </div>
           )}
 

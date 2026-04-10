@@ -179,6 +179,7 @@ import {
   DuckDbTablesDropdown,
   type DuckDbConnectedSource,
 } from "./DuckDbTablesDropdown";
+import { DuckDbExportDialog, type DuckDbExportSourceProp } from "./DuckDbExportDialog";
 import {
   SnapshotToDuckDbDialog,
   type DuckDbScratchpadOption,
@@ -367,6 +368,8 @@ export const ConnectionSection = forwardRef<
     useState(false);
   const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
   const [duckDbSecretsPanelOpen, setDuckDbSecretsPanelOpen] = useState(false);
+  const [duckDbExportDialogOpen, setDuckDbExportDialogOpen] = useState(false);
+  const [duckDbExportSource, setDuckDbExportSource] = useState<DuckDbExportSourceProp | null>(null);
   const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
   const [snapshotSource, setSnapshotSource] =
     useState<DuckDbSnapshotSource | null>(null);
@@ -3234,6 +3237,10 @@ export const ConnectionSection = forwardRef<
                         onImportUrl={() => {
                           setDuckDbImportUrlDialogOpen(true);
                         }}
+                        onExportData={() => {
+                          setDuckDbExportSource({ type: "query", sql: "" });
+                          setDuckDbExportDialogOpen(true);
+                        }}
                         onAttachDatabase={() => {
                           setDuckDbAttachDialogOpen(true);
                         }}
@@ -4101,6 +4108,20 @@ export const ConnectionSection = forwardRef<
         }}
         connectionId={connectionId}
       />
+
+      {duckDbExportSource && (
+        <DuckDbExportDialog
+          open={duckDbExportDialogOpen}
+          onOpenChange={(openValue) => {
+            setDuckDbExportDialogOpen(openValue);
+            if (!openValue) {
+              setDuckDbExportSource(null);
+            }
+          }}
+          connId={connectionId}
+          source={duckDbExportSource}
+        />
+      )}
 
       <SnapshotToDuckDbDialog
         key={

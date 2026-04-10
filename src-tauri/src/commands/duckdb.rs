@@ -3,8 +3,9 @@ use tauri::State;
 
 use crate::adapters::duckdb::{
     DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
-    DuckDbCreateSecretRequest, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
-    DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo,
+    DuckDbCreateSecretRequest, DuckDbExportRequest, DuckDbExportResult, DuckDbExtensionInfo,
+    DuckDbManagedObjectLineage, DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest,
+    DuckDbSecretInfo,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -233,6 +234,27 @@ pub async fn duckdb_drop_secret(
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
     duckdb
         .drop_secret(name, persistent)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_export_data(
+    conn_id: String,
+    request: DuckDbExportRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<DuckDbExportResult, String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB export data",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .export_data(request)
         .await
         .map_err(|e| e.to_string())
 }

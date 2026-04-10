@@ -11,6 +11,7 @@ import {
 import {
   IconTablePlus,
   IconFileImport,
+  IconFileExport,
   IconLink,
   IconDatabaseImport,
   IconPlugConnected,
@@ -34,6 +35,7 @@ interface DuckDbTablesDropdownProps {
   onNewTable: () => void;
   onImportFile: () => void;
   onImportUrl: () => void;
+  onExportData?: () => void;
   onAttachDatabase?: () => void;
   onDetachDatabase?: (alias: string) => void;
   onManageSecrets?: () => void;
@@ -47,6 +49,7 @@ export function DuckDbTablesDropdown({
   onNewTable,
   onImportFile,
   onImportUrl,
+  onExportData,
   onAttachDatabase,
   onDetachDatabase,
   onManageSecrets,
@@ -92,6 +95,15 @@ export function DuckDbTablesDropdown({
           <IconLink className="h-4 w-4 mr-2" />
           Import from URL...
         </DropdownMenuItem>
+        {onExportData && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onExportData}>
+              <IconFileExport className="h-4 w-4 mr-2" />
+              Export...
+            </DropdownMenuItem>
+          </>
+        )}
         {onAttachDatabase && (
           <DropdownMenuItem onClick={onAttachDatabase}>
             <IconPlugConnected className="h-4 w-4 mr-2" />

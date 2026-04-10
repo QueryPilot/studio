@@ -132,6 +132,23 @@ export interface DuckDbCreateSecretRequest {
   params: Record<string, string>;
 }
 
+export type DuckDbExportSource =
+  | { query: string }
+  | { table: { schema: string; name: string } };
+
+export interface DuckDbExportRequest {
+  source: DuckDbExportSource;
+  destination: string;
+  format: string;
+  options: Record<string, string>;
+}
+
+export interface DuckDbExportResult {
+  rowsExported: number;
+  destination: string;
+  format: string;
+}
+
 export interface DuckDbManagedObjectLineage {
   targetSchema: string;
   targetName: string;
@@ -580,6 +597,13 @@ export class BackendAPI {
     persistent: boolean,
   ): Promise<void> {
     await invoke("duckdb_drop_secret", { connId, name, persistent });
+  }
+
+  static async duckdbExportData(
+    connId: string,
+    request: DuckDbExportRequest,
+  ): Promise<DuckDbExportResult> {
+    return invoke("duckdb_export_data", { connId, request });
   }
 
   // Streaming query
