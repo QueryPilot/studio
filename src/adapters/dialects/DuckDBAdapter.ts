@@ -217,6 +217,7 @@ FROM (
     ('usmallint', 'numeric'),
     ('utinyint', 'numeric'),
     ('uuid', 'other'),
+    ('variant', 'other'),
     ('varchar', 'string'),
     ('list', 'composite'),
     ('map', 'composite'),

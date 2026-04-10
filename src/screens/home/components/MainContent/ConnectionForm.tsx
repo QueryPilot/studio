@@ -42,6 +42,8 @@ import {
   IconLayout2,
   IconX,
   IconAlertTriangle,
+  IconEye,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import {
   Tooltip,
@@ -391,10 +393,14 @@ export function ConnectionForm() {
     "oracle_connect_string",
     "oracle_wallet_dir",
   ]);
-  const duckdbDedicatedOptionKeys = new Set(["read_only"]);
+  const duckdbDedicatedOptionKeys = new Set(["read_only", "encryption_key"]);
   const [duckdbReadOnly, setDuckdbReadOnly] = useState(
     () => existingOptions?.read_only === "true",
   );
+  const [duckdbEncryptionKey, setDuckdbEncryptionKey] = useState(
+    () => existingOptions?.encryption_key ?? "",
+  );
+  const [showDuckdbEncryptionKey, setShowDuckdbEncryptionKey] = useState(false);
   const [connectionOptions, setConnectionOptions] = useState<string>(() => {
     if (connection?.profile.options) {
       return Object.entries(connection.profile.options)
@@ -893,6 +899,7 @@ export function ConnectionForm() {
         const parsed = parseConnectionOptions(connectionOptions);
         if (dbType === "duckdb") {
           delete parsed.read_only;
+          delete parsed.encryption_key;
         }
         return {
           ...parsed,
@@ -915,6 +922,9 @@ export function ConnectionForm() {
             : {}),
           ...(dbType === "duckdb" && duckdbReadOnly
             ? { read_only: "true" }
+            : {}),
+          ...(dbType === "duckdb" && duckdbEncryptionKey.trim()
+            ? { encryption_key: duckdbEncryptionKey }
             : {}),
         };
       })(),
@@ -1940,21 +1950,66 @@ export function ConnectionForm() {
           )}
 
           {dbType === "duckdb" && (
-            <div className="flex items-center gap-2 pt-1">
-              <Checkbox
-                id="duckdb-read-only"
-                checked={duckdbReadOnly}
-                onCheckedChange={(checked) =>
-                  setDuckdbReadOnly(checked === true)
-                }
-                disabled={isTesting}
-              />
-              <Label
-                htmlFor="duckdb-read-only"
-                className="text-xs font-normal leading-snug cursor-pointer"
-              >
-                Open as read-only (allows other tools to write simultaneously)
-              </Label>
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="duckdb-read-only"
+                  checked={duckdbReadOnly}
+                  onCheckedChange={(checked) =>
+                    setDuckdbReadOnly(checked === true)
+                  }
+                  disabled={isTesting}
+                />
+                <Label
+                  htmlFor="duckdb-read-only"
+                  className="text-xs font-normal leading-snug cursor-pointer"
+                >
+                  Open as read-only (allows other tools to write simultaneously)
+                </Label>
+              </div>
+              <div>
+                <Label htmlFor="duckdb-encryption-key" className="text-xs">
+                  Encryption key
+                </Label>
+                <div className="flex gap-1 mt-1">
+                  <Input
+                    id="duckdb-encryption-key"
+                    className="h-8 text-xs flex-1 font-mono"
+                    type={showDuckdbEncryptionKey ? "text" : "password"}
+                    value={duckdbEncryptionKey}
+                    onChange={(e) => {
+                      setDuckdbEncryptionKey(e.target.value);
+                    }}
+                    placeholder="Optional — DuckDB 1.4+ encrypted database files"
+                    disabled={isTesting}
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 shrink-0 p-0"
+                    onClick={() => {
+                      setShowDuckdbEncryptionKey((v) => !v);
+                    }}
+                    disabled={isTesting}
+                    title={showDuckdbEncryptionKey ? "Hide key" : "Show key"}
+                    aria-label={
+                      showDuckdbEncryptionKey ? "Hide encryption key" : "Show encryption key"
+                    }
+                  >
+                    {showDuckdbEncryptionKey ? (
+                      <IconEyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <IconEye className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Set before opening the file; must match the key used to create or encrypt the
+                  database.
+                </p>
+              </div>
             </div>
           )}
 

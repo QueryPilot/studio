@@ -2046,6 +2046,13 @@ impl BaseCapability for DuckDbAdapter {
             .map(|v| v == "true")
             .unwrap_or(false);
 
+        let encryption_key = profile
+            .options
+            .get("encryption_key")
+            .map(|s| s.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+
         let db_path = PathBuf::from(&profile.database);
         let path = db_path.clone();
 
@@ -2073,6 +2080,16 @@ impl BaseCapability for DuckDbAdapter {
             let conn = Connection::open_with_flags(&path, config).map_err(|e| {
                 AppError::Internal(format!("Failed to open DuckDB database: {}", e))
             })?;
+
+            if let Some(ref key) = encryption_key {
+                let pragma = format!(
+                    "PRAGMA encryption_key = {}",
+                    Self::quote_string_literal(key)
+                );
+                conn.execute_batch(&pragma).map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to set encryption key: {}", e))
+                })?;
+            }
 
             if !read_only {
                 Self::bootstrap_connection(&conn)?;
