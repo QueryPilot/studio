@@ -21,6 +21,7 @@ import { VariablePanel } from "./Variables/VariablePanel";
 import { VariablePopover } from "./Variables/VariablePopover";
 import type { BatchStatementResult } from "./query-batch-orchestrator";
 import type { QueryExecutionStatus } from "./queryExecutionState";
+import type { DuckDbQueryProgress } from "@/services/backend";
 
 interface QueryPanelLayoutProps {
   panelContainerRef: RefObject<HTMLDivElement | null>;
@@ -83,6 +84,11 @@ interface QueryPanelLayoutProps {
   onVariableValueChange?: (key: string, value: string) => void;
   onVariableTypeChange?: (key: string, type: VariableType) => void;
   onVariableScopeChange?: (scope: VariableScope) => void;
+
+  showDuckDbQueryProgress?: boolean;
+  duckDbQueryProgress?: DuckDbQueryProgress | null;
+  duckDbProgressEtaSeconds?: number | null;
+  onDuckDbProgressCancel?: () => void;
 }
 
 function getStatementKeyword(statement: string): string {
@@ -156,6 +162,10 @@ export function QueryPanelLayout({
   onVariableValueChange,
   onVariableTypeChange,
   onVariableScopeChange,
+  showDuckDbQueryProgress = false,
+  duckDbQueryProgress = null,
+  duckDbProgressEtaSeconds = null,
+  onDuckDbProgressCancel,
 }: QueryPanelLayoutProps) {
   const hasModeTabs = activeSupportedModes.length > 0;
   const showResultHeader = batchResults.length > 0 || hasModeTabs;
@@ -440,6 +450,10 @@ export function QueryPanelLayout({
                           onFixWithAI={onFixWithAI}
                           refreshNotice={refreshNotice}
                           onRefreshResults={onRefreshResults}
+                          showDuckDbQueryProgress={showDuckDbQueryProgress}
+                          duckDbQueryProgress={duckDbQueryProgress}
+                          duckDbProgressEtaSeconds={duckDbProgressEtaSeconds}
+                          onDuckDbProgressCancel={onDuckDbProgressCancel}
                         />
                       </div>
                     </div>

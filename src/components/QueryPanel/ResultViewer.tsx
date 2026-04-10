@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CodeEditor } from "@/components/CodeEditor";
 import { type ColumnMeta } from "@/types/database";
-import type { RawCellValue } from "@/services/backend";
+import type { DuckDbQueryProgress, RawCellValue } from "@/services/backend";
 import { normalizeBackendValue } from "@/services/tableDataTransform";
 import { exportToCSV, type ExportOptions } from "@/utils/csvExport";
 import {
@@ -81,6 +81,10 @@ interface ResultViewerProps {
   networkMs?: number;
   conversionMs?: number;
   ipcSendMs?: number;
+  showDuckDbQueryProgress?: boolean;
+  duckDbQueryProgress?: DuckDbQueryProgress | null;
+  duckDbProgressEtaSeconds?: number | null;
+  onDuckDbProgressCancel?: () => void;
 }
 
 interface ExportMenuProps {
@@ -104,6 +108,82 @@ const DB_TYPE_MAP: Record<string, DbType> = {
   mongo: DbType.MongoDB,
   redis: DbType.Redis,
 };
+
+function formatEtaSeconds(sec: number): string {
+  if (sec < 60) return `${Math.max(1, Math.round(sec))}s remaining`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}m ${s}s remaining`;
+}
+
+const DuckDbProgressStrip = memo(function DuckDbProgressStrip({
+  progress,
+  etaSeconds,
+  onCancel,
+}: {
+  progress: DuckDbQueryProgress | null;
+  etaSeconds: number | null;
+  onCancel?: () => void;
+}) {
+  const pct = progress?.percentage ?? -1;
+  const rows = progress?.rowsProcessed ?? 0;
+  const total = progress?.totalRowsToProcess ?? 0;
+  const showDeterminate = pct >= 0 && pct <= 100;
+  const widthPct = showDeterminate
+    ? Math.min(100, Math.max(0, pct))
+    : null;
+
+  return (
+    <div className="shrink-0 border-b border-border/60 bg-muted/30 px-3 py-2 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+            {widthPct != null ? (
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                style={{ width: `${widthPct}%` }}
+              />
+            ) : (
+              <div className="h-full w-1/3 rounded-full bg-primary/70 animate-pulse" />
+            )}
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span>
+              {showDeterminate ? (
+                <span className="font-medium text-foreground tabular-nums">
+                  {Math.round(pct)}% ·{" "}
+                </span>
+              ) : null}
+              {rows.toLocaleString()} rows processed
+              {total > 0 ? ` / ${total.toLocaleString()} total` : ""}
+            </span>
+            {showDeterminate && pct > 0 && etaSeconds != null && (
+              <span className="text-foreground/80 tabular-nums">
+                ~{formatEtaSeconds(etaSeconds)}
+              </span>
+            )}
+            {!showDeterminate && (
+              <span className="italic">Waiting for engine progress…</span>
+            )}
+          </div>
+        </div>
+        {onCancel && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0 text-xs"
+            onClick={() => {
+              onCancel();
+            }}
+          >
+            Cancel
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+});
 
 const ExportMenu = memo(function ExportMenu({
   columns,
@@ -486,6 +566,10 @@ export const ResultViewer = memo(function ResultViewer({
   onFixWithAI,
   onRefreshResults,
   refreshNotice,
+  showDuckDbQueryProgress = false,
+  duckDbQueryProgress = null,
+  duckDbProgressEtaSeconds = null,
+  onDuckDbProgressCancel,
 }: ResultViewerProps) {
   // Determine paradigm from database type
   const paradigm: DatabaseParadigm = useMemo(() => {
@@ -524,11 +608,25 @@ export const ResultViewer = memo(function ResultViewer({
     }
   }, [result, viewMode]);
 
+  const duckBarVisible =
+    showDuckDbQueryProgress &&
+    (isLoading || isStreaming) &&
+    executionStatus !== "cancelled";
+
   // Show skeleton when loading/streaming and no result yet
   if ((isLoading || isStreaming) && !result) {
     return (
-      <div className={cn("h-full", className)}>
-        <DataGridSkeleton />
+      <div className={cn("h-full flex flex-col min-h-0", className)}>
+        {duckBarVisible && (
+          <DuckDbProgressStrip
+            progress={duckDbQueryProgress}
+            etaSeconds={duckDbProgressEtaSeconds}
+            onCancel={onDuckDbProgressCancel}
+          />
+        )}
+        <div className="flex-1 min-h-0">
+          <DataGridSkeleton />
+        </div>
       </div>
     );
   }
@@ -657,7 +755,7 @@ export const ResultViewer = memo(function ResultViewer({
             </div>
             <div className="text-center space-y-1">
               <p className="text-sm font-medium text-foreground">
-                {displayMessage ?? "Query executed successfully"}
+                {displayMessage}
               </p>
               {result.affectedRows !== undefined && !result.message && (
                 <>
@@ -686,6 +784,13 @@ export const ResultViewer = memo(function ResultViewer({
 
   return (
     <div className={cn("overflow-hidden h-full flex flex-col", className)}>
+      {duckBarVisible && (
+        <DuckDbProgressStrip
+          progress={duckDbQueryProgress}
+          etaSeconds={duckDbProgressEtaSeconds}
+          onCancel={onDuckDbProgressCancel}
+        />
+      )}
       {(executionStatus === "streaming" || executionStatus === "cancelled") && (
         <div className="px-2 py-1.5 border-b border-border/60 bg-muted/20 flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">

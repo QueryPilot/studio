@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -143,6 +143,29 @@ struct ManagedObjectTarget<'a> {
 pub struct DuckDbAdapter {
     pub(crate) connection: Arc<Mutex<Option<Connection>>>,
     pub(crate) db_path: Arc<Mutex<Option<PathBuf>>>,
+    /// Thread-safe interrupt handle (DuckDB C API); works while another thread holds the connection lock.
+    interrupt_handle: Arc<StdMutex<Option<Arc<duckdb::InterruptHandle>>>>,
+    /// Latest progress from the active chunked query (updated from inside the query loop; read by `duckdb_query_progress` IPC).
+    query_progress_cache: Arc<StdMutex<Option<DuckDbQueryProgress>>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbQueryProgress {
+    /// 0.0–100.0 while a query reports progress; `-1.0` when idle or unknown.
+    pub percentage: f64,
+    pub rows_processed: u64,
+    pub total_rows_to_process: u64,
+}
+
+impl DuckDbQueryProgress {
+    pub fn idle() -> Self {
+        Self {
+            percentage: -1.0,
+            rows_processed: 0,
+            total_rows_to_process: 0,
+        }
+    }
 }
 
 impl DuckDbAdapter {
@@ -150,6 +173,69 @@ impl DuckDbAdapter {
         Self {
             connection: Arc::new(Mutex::new(None)),
             db_path: Arc::new(Mutex::new(None)),
+            interrupt_handle: Arc::new(StdMutex::new(None)),
+            query_progress_cache: Arc::new(StdMutex::new(None)),
+        }
+    }
+
+    fn clear_query_progress_cache(cache: &Arc<StdMutex<Option<DuckDbQueryProgress>>>) {
+        if let Ok(mut g) = cache.lock() {
+            *g = None;
+        }
+    }
+
+    /// Reads engine progress for the current connection. Intended to be called from the same thread
+    /// that is executing the query (inside `execute_query_chunked`).
+    fn fetch_query_progress_sql(conn: &Connection) -> Result<DuckDbQueryProgress> {
+        let mut stmt = conn
+            .prepare("SELECT * FROM duckdb_query_progress()")
+            .map_err(|e| AppError::DatabaseError(format!("duckdb_query_progress prepare: {}", e)))?;
+        let mut rows = stmt
+            .query([])
+            .map_err(|e| AppError::DatabaseError(format!("duckdb_query_progress query: {}", e)))?;
+        let row = rows
+            .next()
+            .map_err(|e| AppError::DatabaseError(format!("duckdb_query_progress row: {}", e)))?
+            .ok_or_else(|| {
+                AppError::DatabaseError("duckdb_query_progress returned no rows".to_string())
+            })?;
+
+        let percentage: f64 = row.get(0).map_err(|e| {
+            AppError::DatabaseError(format!("duckdb_query_progress percentage column: {}", e))
+        })?;
+        let rows_processed_i: i64 = row.get(1).map_err(|e| {
+            AppError::DatabaseError(format!("duckdb_query_progress rows_processed column: {}", e))
+        })?;
+        let total_rows_i: i64 = row.get(2).map_err(|e| {
+            AppError::DatabaseError(format!("duckdb_query_progress total_rows column: {}", e))
+        })?;
+
+        Ok(DuckDbQueryProgress {
+            percentage,
+            rows_processed: rows_processed_i.max(0) as u64,
+            total_rows_to_process: total_rows_i.max(0) as u64,
+        })
+    }
+
+    /// Snapshot for IPC: last value written during chunked execution, or idle.
+    pub async fn query_progress_snapshot(&self) -> DuckDbQueryProgress {
+        let cache = self.query_progress_cache.clone();
+        tokio::task::spawn_blocking(move || {
+            cache
+                .lock()
+                .map(|g| g.clone().unwrap_or_else(DuckDbQueryProgress::idle))
+                .unwrap_or_else(|e| e.into_inner().clone().unwrap_or_else(DuckDbQueryProgress::idle))
+        })
+        .await
+        .unwrap_or_else(|_| DuckDbQueryProgress::idle())
+    }
+
+    /// Request cancellation of the running statement on this connection (thread-safe).
+    pub fn interrupt_query(&self) {
+        if let Ok(guard) = self.interrupt_handle.lock() {
+            if let Some(handle) = guard.as_ref() {
+                handle.interrupt();
+            }
         }
     }
 
@@ -1553,7 +1639,6 @@ impl DuckDbAdapter {
     }
 
     pub async fn attach_database(&self, request: DuckDbAttachDatabaseRequest) -> Result<String> {
-        let alias = request.alias.clone();
         self.execute_blocking(move |conn| {
             Self::validate_attach_alias(&request.alias)?;
 
@@ -1931,6 +2016,7 @@ impl DuckDbAdapter {
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
 
+        *self.interrupt_handle.lock().unwrap() = Some(conn.interrupt_handle());
         *self.connection.lock().await = Some(conn);
         *self.db_path.lock().await = None;
         Ok(())
@@ -1997,12 +2083,15 @@ impl BaseCapability for DuckDbAdapter {
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
 
+        *self.interrupt_handle.lock().unwrap() = Some(conn.interrupt_handle());
         *self.connection.lock().await = Some(conn);
         *self.db_path.lock().await = Some(db_path);
         Ok(())
     }
 
     async fn disconnect(&self) -> Result<()> {
+        *self.interrupt_handle.lock().unwrap() = None;
+        Self::clear_query_progress_cache(&self.query_progress_cache);
         let conn = self.connection.lock().await.take();
         if let Some(conn) = conn {
             tokio::task::spawn_blocking(move || {
@@ -2059,72 +2148,96 @@ impl DuckDbAdapter {
         sql: &str,
     ) -> Result<(Vec<CapabilityColumnMeta>, Vec<Vec<Vec<JsonValue>>>)> {
         let sql = sql.to_string();
+        let progress_cache = self.query_progress_cache.clone();
         self.execute_blocking(move |conn| {
-            if Self::is_multi_statement(&sql) {
-                conn.execute_batch(&sql)
-                    .map_err(|e| AppError::DatabaseError(format!("Batch execute failed: {}", e)))?;
-                return Ok((
-                    vec![CapabilityColumnMeta {
-                        name: "result".to_string(),
-                        data_type: "TEXT".to_string(),
-                    }],
-                    vec![vec![vec![JsonValue::String(
-                        "Batch executed successfully".to_string(),
-                    )]]],
-                ));
-            }
+            Self::clear_query_progress_cache(&progress_cache);
+            let poll_interval = std::time::Duration::from_millis(500);
+            let mut last_poll = std::time::Instant::now()
+                .checked_sub(poll_interval)
+                .unwrap_or_else(std::time::Instant::now);
 
-            let mut stmt = conn
-                .prepare(&sql)
-                .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
-            let mut result_rows = stmt
-                .query([])
-                .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
-            let stmt_ref = result_rows
-                .as_ref()
-                .ok_or_else(|| AppError::DatabaseError("No statement handle".to_string()))?;
-            let column_count = stmt_ref.column_count();
-            let columns: Vec<CapabilityColumnMeta> = (0..column_count)
-                .map(|i| CapabilityColumnMeta {
-                    name: stmt_ref
-                        .column_name(i)
-                        .map_or("?", |name| name.as_str())
-                        .to_string(),
-                    data_type: Self::column_type_name(stmt_ref, i),
-                })
-                .collect();
-
-            let batch_sizes = [16, 64, 256, 1024, 2048];
-            let mut chunks: Vec<Vec<Vec<JsonValue>>> = Vec::new();
-            let mut batch_idx = 0;
-            let mut current_chunk: Vec<Vec<JsonValue>> = Vec::new();
-            let mut batch_target = batch_sizes[0];
-
-            while let Some(row) = result_rows
-                .next()
-                .map_err(|e| AppError::DatabaseError(format!("Row fetch failed: {}", e)))?
-            {
-                let mut converted = Vec::with_capacity(column_count);
-                for i in 0..column_count {
-                    let value = row.get_ref(i).map_err(|e| {
-                        AppError::DatabaseError(format!("Column read failed: {}", e))
+            type ChunkedQueryOut = (Vec<CapabilityColumnMeta>, Vec<Vec<Vec<JsonValue>>>);
+            let mut run = || -> Result<ChunkedQueryOut> {
+                if Self::is_multi_statement(&sql) {
+                    conn.execute_batch(&sql).map_err(|e| {
+                        AppError::DatabaseError(format!("Batch execute failed: {}", e))
                     })?;
-                    converted.push(Self::value_ref_to_json(value));
+                    return Ok((
+                        vec![CapabilityColumnMeta {
+                            name: "result".to_string(),
+                            data_type: "TEXT".to_string(),
+                        }],
+                        vec![vec![vec![JsonValue::String(
+                            "Batch executed successfully".to_string(),
+                        )]]],
+                    ));
                 }
-                current_chunk.push(converted);
-                if current_chunk.len() >= batch_target {
-                    chunks.push(std::mem::take(&mut current_chunk));
-                    if batch_idx < batch_sizes.len() - 1 {
-                        batch_idx += 1;
-                    }
-                    batch_target = batch_sizes[batch_idx];
-                }
-            }
-            if !current_chunk.is_empty() {
-                chunks.push(current_chunk);
-            }
 
-            Ok((columns, chunks))
+                let mut stmt = conn
+                    .prepare(&sql)
+                    .map_err(|e| AppError::DatabaseError(format!("Prepare failed: {}", e)))?;
+                let mut result_rows = stmt
+                    .query([])
+                    .map_err(|e| AppError::DatabaseError(format!("Query failed: {}", e)))?;
+                let stmt_ref = result_rows
+                    .as_ref()
+                    .ok_or_else(|| AppError::DatabaseError("No statement handle".to_string()))?;
+                let column_count = stmt_ref.column_count();
+                let columns: Vec<CapabilityColumnMeta> = (0..column_count)
+                    .map(|i| CapabilityColumnMeta {
+                        name: stmt_ref
+                            .column_name(i)
+                            .map_or("?", |name| name.as_str())
+                            .to_string(),
+                        data_type: Self::column_type_name(stmt_ref, i),
+                    })
+                    .collect();
+
+                let batch_sizes = [16, 64, 256, 1024, 2048];
+                let mut chunks: Vec<Vec<Vec<JsonValue>>> = Vec::new();
+                let mut batch_idx = 0;
+                let mut current_chunk: Vec<Vec<JsonValue>> = Vec::new();
+                let mut batch_target = batch_sizes[0];
+
+                while let Some(row) = result_rows
+                    .next()
+                    .map_err(|e| AppError::DatabaseError(format!("Row fetch failed: {}", e)))?
+                {
+                    if last_poll.elapsed() >= poll_interval {
+                        last_poll = std::time::Instant::now();
+                        if let Ok(p) = Self::fetch_query_progress_sql(conn) {
+                            if let Ok(mut g) = progress_cache.lock() {
+                                *g = Some(p);
+                            }
+                        }
+                    }
+
+                    let mut converted = Vec::with_capacity(column_count);
+                    for i in 0..column_count {
+                        let value = row.get_ref(i).map_err(|e| {
+                            AppError::DatabaseError(format!("Column read failed: {}", e))
+                        })?;
+                        converted.push(Self::value_ref_to_json(value));
+                    }
+                    current_chunk.push(converted);
+                    if current_chunk.len() >= batch_target {
+                        chunks.push(std::mem::take(&mut current_chunk));
+                        if batch_idx < batch_sizes.len() - 1 {
+                            batch_idx += 1;
+                        }
+                        batch_target = batch_sizes[batch_idx];
+                    }
+                }
+                if !current_chunk.is_empty() {
+                    chunks.push(current_chunk);
+                }
+
+                Ok((columns, chunks))
+            };
+
+            let out = run();
+            Self::clear_query_progress_cache(&progress_cache);
+            out
         })
         .await
     }

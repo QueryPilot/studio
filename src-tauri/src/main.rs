@@ -220,6 +220,8 @@ fn main() {
             commands::duckdb_get_settings,
             commands::duckdb_set_setting,
             commands::duckdb_reset_setting,
+            commands::duckdb_query_progress,
+            commands::duckdb_interrupt_query,
             // Query execution
             commands::query,
             commands::execute_query,

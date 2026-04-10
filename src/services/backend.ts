@@ -169,6 +169,13 @@ export interface DuckDbQueryPlan {
   totalTimeMs: number | null;
 }
 
+/** DuckDB engine query progress; `percentage` is -1 when idle or unknown. */
+export interface DuckDbQueryProgress {
+  percentage: number;
+  rowsProcessed: number;
+  totalRowsToProcess: number;
+}
+
 export interface DuckDbSetting {
   name: string;
   value: string;
@@ -684,6 +691,16 @@ export class BackendAPI {
     name: string,
   ): Promise<void> {
     await invoke("duckdb_reset_setting", { connId, name });
+  }
+
+  static async duckdbQueryProgress(
+    connId: string,
+  ): Promise<DuckDbQueryProgress> {
+    return invoke("duckdb_query_progress", { connId });
+  }
+
+  static async duckdbInterruptQuery(connId: string): Promise<void> {
+    await invoke("duckdb_interrupt_query", { connId });
   }
 
   // Streaming query

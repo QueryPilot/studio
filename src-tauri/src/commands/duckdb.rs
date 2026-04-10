@@ -5,8 +5,8 @@ use crate::adapters::duckdb::{
     DuckDbAddFileRequest, DuckDbAttachCatalogRequest, DuckDbAttachDatabaseRequest,
     DuckDbAttachedDatabase, DuckDbAutocompleteSuggestion, DuckDbCreateSecretRequest,
     DuckDbExportRequest, DuckDbExportResult, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
-    DuckDbManagedObjectSummary, DuckDbQueryPlan, DuckDbReplaceManagedObjectRequest,
-    DuckDbSecretInfo, DuckDbSetting,
+    DuckDbManagedObjectSummary, DuckDbQueryPlan, DuckDbQueryProgress,
+    DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo, DuckDbSetting,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -379,4 +379,29 @@ pub async fn duckdb_reset_setting(
         .reset_setting(&name)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_query_progress(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<DuckDbQueryProgress, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    Ok(duckdb.query_progress_snapshot().await)
+}
+
+#[tauri::command]
+pub async fn duckdb_interrupt_query(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb.interrupt_query();
+    Ok(())
 }

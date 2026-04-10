@@ -6,5 +6,5 @@ pub use adapter::{
     DuckDbAttachedDatabase, DuckDbAutocompleteSuggestion, DuckDbColumnDefinition,
     DuckDbCreateSecretRequest, DuckDbExportRequest, DuckDbExportResult, DuckDbExportSource,
     DuckDbExtensionInfo, DuckDbManagedObjectLineage, DuckDbManagedObjectSummary, DuckDbQueryPlan,
-    DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo, DuckDbSetting,
+    DuckDbQueryProgress, DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo, DuckDbSetting,
 };

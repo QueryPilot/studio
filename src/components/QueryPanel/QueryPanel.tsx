@@ -46,6 +46,8 @@ import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { QueryPanelLayout } from "./QueryPanelLayout";
 import { useQueryPanelState } from "./useQueryPanelState";
+import { useDuckDbQueryProgress } from "@/hooks/useDuckDbQueryProgress";
+import { BackendAPI } from "@/services/backend";
 import {
   buildResultViewPresentation,
   createEmptyResultViewPresentation,
@@ -185,6 +187,12 @@ export const QueryPanel = memo(function QueryPanel({
     dbType,
     initialSql,
   });
+
+  const isDuckDbLike = /^(duckdb|motherduck)$/i.test(dbType);
+  const duckDbProgress = useDuckDbQueryProgress(
+    effectiveConnectionId,
+    isDuckDbLike && (isExecuting || isStreaming),
+  );
 
   // Query variables
   const initialQueryVariables = useTabStateStore(
@@ -1215,6 +1223,10 @@ export const QueryPanel = memo(function QueryPanel({
     if (isExecutingRef.current) {
       cancelRequestedRef.current = true;
 
+      if (isDuckDbLike && effectiveConnectionId) {
+        void BackendAPI.duckdbInterruptQuery(effectiveConnectionId);
+      }
+
       // Cancel backend streaming — rejects the streamQuery promise with AbortError
       tableStreamingService.cancel();
 
@@ -1229,7 +1241,14 @@ export const QueryPanel = memo(function QueryPanel({
         isBatchExecuting ? "Batch cancellation requested" : "Query cancelled",
       );
     }
-  }, [isBatchExecuting, setExecutionStatus, setIsExecuting, setIsStreaming]);
+  }, [
+    effectiveConnectionId,
+    isBatchExecuting,
+    isDuckDbLike,
+    setExecutionStatus,
+    setIsExecuting,
+    setIsStreaming,
+  ]);
 
   const handleSelectionChange = useCallback(
     (selection: string) => {
@@ -1426,7 +1445,6 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   const runButtonLabel = selectedStatementCount >= 2 ? "Run Selections" : "Run";
-  const isDuckDbLike = /^(duckdb|motherduck)$/i.test(dbType);
   const canRefreshResults = Boolean(
     refreshActionQuery ?? lastSelectQueryRef.current,
   );
@@ -1505,6 +1523,10 @@ export const QueryPanel = memo(function QueryPanel({
         onVariableValueChange={setVariableValue}
         onVariableTypeChange={setVariableType}
         onVariableScopeChange={setVariableScope}
+        showDuckDbQueryProgress={isDuckDbLike}
+        duckDbQueryProgress={duckDbProgress.progress}
+        duckDbProgressEtaSeconds={duckDbProgress.estimatedSecondsRemaining}
+        onDuckDbProgressCancel={duckDbProgress.cancel}
       />
       <SaveQueryDialog
         open={showSaveDialog}
