@@ -1,9 +1,18 @@
 import { logger } from "@/lib/logger";
-import { memo, useCallback, forwardRef, useEffect, useRef } from "react";
+import {
+  memo,
+  useCallback,
+  forwardRef,
+  useEffect,
+  useRef,
+  type RefObject,
+} from "react";
 import { SqlEditor } from "@/components/CodeEditor/SqlEditor";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor";
 import type { QueryVariable } from "@/lib/queryVariables/types";
+import { useDuckDbFileDrop } from "@/hooks/useDuckDbFileDrop";
+import { cn } from "@/lib/utils";
 
 interface QueryEditorProps {
   connectionId: string;
@@ -57,6 +66,12 @@ export const QueryEditor = memo(
       valueRef.current = value;
     }, [value]);
 
+    const { dropZoneRef, isFileDragOver } = useDuckDbFileDrop(
+      ref as RefObject<SqlEditorRef | null>,
+      dbType,
+      { readOnly },
+    );
+
     const handleExecute = useCallback(
       (query?: string) => {
         logger.debug("query-editor", "Execute requested", {
@@ -85,7 +100,22 @@ export const QueryEditor = memo(
     );
 
     return (
-      <div className="h-full overflow-hidden">
+      <div
+        ref={dropZoneRef}
+        className={cn(
+          "relative h-full overflow-hidden rounded-md transition-[box-shadow] duration-150",
+          isFileDragOver &&
+            "ring-2 ring-primary ring-offset-2 ring-offset-background shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.35)]",
+        )}
+      >
+        {isFileDragOver && (
+          <div
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md bg-background/75 text-sm font-medium text-primary backdrop-blur-[2px]"
+            aria-live="polite"
+          >
+            Drop file to query
+          </div>
+        )}
         <SqlEditor
           ref={ref}
           value={value}

@@ -173,6 +173,7 @@ import type { QueryColumnMeta, RawCellValue } from "@/services/backend";
 import { BackendAPI } from "@/services/backend";
 import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
+import { DuckDbGlobHelperDialog } from "./DuckDbGlobHelperDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
 import { DuckDbAttachCatalogDialog } from "./DuckDbAttachCatalogDialog";
 import { DuckDbSecretsPanel } from "./DuckDbSecretsPanel";
@@ -367,6 +368,8 @@ export const ConnectionSection = forwardRef<
   const [duckDbAddFileDialogOpen, setDuckDbAddFileDialogOpen] = useState(false);
   const [isAddingDuckDbFile, setIsAddingDuckDbFile] = useState(false);
   const [duckDbImportUrlDialogOpen, setDuckDbImportUrlDialogOpen] =
+    useState(false);
+  const [duckDbGlobHelperDialogOpen, setDuckDbGlobHelperDialogOpen] =
     useState(false);
   const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
   const [duckDbAttachCatalogDialogOpen, setDuckDbAttachCatalogDialogOpen] = useState(false);
@@ -3261,6 +3264,9 @@ export const ConnectionSection = forwardRef<
                         onImportUrl={() => {
                           setDuckDbImportUrlDialogOpen(true);
                         }}
+                        onFilePatternHelper={() => {
+                          setDuckDbGlobHelperDialogOpen(true);
+                        }}
                         onExportData={() => {
                           setDuckDbExportSource({ type: "query", sql: "" });
                           setDuckDbExportDialogOpen(true);
@@ -4121,6 +4127,13 @@ export const ConnectionSection = forwardRef<
           setDuckDbImportUrlDialogOpen(false);
         }}
         onSubmit={handleImportDuckDbUrl}
+      />
+
+      <DuckDbGlobHelperDialog
+        open={duckDbGlobHelperDialogOpen}
+        onClose={() => {
+          setDuckDbGlobHelperDialogOpen(false);
+        }}
       />
 
       <DuckDbAttachDatabaseDialog
