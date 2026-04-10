@@ -175,6 +175,7 @@ import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
 import { DuckDbSecretsPanel } from "./DuckDbSecretsPanel";
+import { DuckDbExtensionsPanel } from "./DuckDbExtensionsPanel";
 import {
   DuckDbTablesDropdown,
   type DuckDbConnectedSource,
@@ -368,6 +369,7 @@ export const ConnectionSection = forwardRef<
     useState(false);
   const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
   const [duckDbSecretsPanelOpen, setDuckDbSecretsPanelOpen] = useState(false);
+  const [duckDbExtensionsPanelOpen, setDuckDbExtensionsPanelOpen] = useState(false);
   const [duckDbExportDialogOpen, setDuckDbExportDialogOpen] = useState(false);
   const [duckDbExportSource, setDuckDbExportSource] = useState<DuckDbExportSourceProp | null>(null);
   const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
@@ -3247,6 +3249,9 @@ export const ConnectionSection = forwardRef<
                         onManageSecrets={() => {
                           setDuckDbSecretsPanelOpen(true);
                         }}
+                        onManageExtensions={() => {
+                          setDuckDbExtensionsPanelOpen(true);
+                        }}
                         onDetachDatabase={(alias) => {
                           void handleDetachDatabase(alias);
                         }}
@@ -4105,6 +4110,14 @@ export const ConnectionSection = forwardRef<
         open={duckDbSecretsPanelOpen}
         onClose={() => {
           setDuckDbSecretsPanelOpen(false);
+        }}
+        connectionId={connectionId}
+      />
+
+      <DuckDbExtensionsPanel
+        open={duckDbExtensionsPanelOpen}
+        onClose={() => {
+          setDuckDbExtensionsPanelOpen(false);
         }}
         connectionId={connectionId}
       />

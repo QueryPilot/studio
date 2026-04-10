@@ -206,6 +206,7 @@ fn main() {
             commands::duckdb_get_object_lineage,
             commands::duckdb_list_extensions,
             commands::duckdb_install_extension,
+            commands::duckdb_load_extension,
             commands::duckdb_attach_database,
             commands::duckdb_detach_database,
             commands::duckdb_list_attached_databases,
@@ -448,13 +449,10 @@ fn apply_macos_traffic_light_position(_config: &mut tauri::Config) {}
 
 #[cfg(target_os = "linux")]
 fn apply_linux_window_tweaks(config: &mut tauri::Config) {
-    use tauri::utils::config::TitleBarStyle;
     for window in &mut config.app.windows {
         if window.label == "main" {
             window.transparent = false;
             window.decorations = true;
-            window.title_bar_style = TitleBarStyle::Visible;
-            window.hidden_title = false;
         }
     }
 }

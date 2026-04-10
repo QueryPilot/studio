@@ -128,6 +128,22 @@ pub async fn duckdb_install_extension(
 }
 
 #[tauri::command]
+pub async fn duckdb_load_extension(
+    conn_id: String,
+    extension_name: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .load_extension(&extension_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn duckdb_attach_database(
     conn_id: String,
     request: DuckDbAttachDatabaseRequest,

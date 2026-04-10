@@ -571,6 +571,16 @@ export class BackendAPI {
     });
   }
 
+  static async duckdbLoadExtension(
+    connectionId: string,
+    extensionName: string,
+  ): Promise<void> {
+    await invoke("duckdb_load_extension", {
+      connId: connectionId,
+      extensionName,
+    });
+  }
+
   static async duckdbAttachDatabase(
     connId: string,
     request: DuckDbAttachDatabaseRequest,

@@ -1175,6 +1175,24 @@ impl DuckDbAdapter {
         .await
     }
 
+    pub async fn load_extension(&self, name: &str) -> Result<()> {
+        if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(AppError::InvalidInput(format!(
+                "Invalid extension name: {}. Only alphanumeric characters and underscores allowed.",
+                name
+            )));
+        }
+        let name = name.to_string();
+        self.execute_blocking(move |conn| {
+            conn.execute_batch(&format!("LOAD '{}'", name))
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to load extension: {}", e))
+                })?;
+            Ok(())
+        })
+        .await
+    }
+
     fn is_multi_statement(sql: &str) -> bool {
         let trimmed = sql.trim();
         let mut in_single_quote = false;
