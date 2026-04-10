@@ -109,6 +109,7 @@ import {
   clearCompletionCache,
   recordCompletionUsage,
 } from "./languages/sql/optimized-completion";
+import { createDuckDbCompletionSource } from "@/components/QueryPanel/duckdbCompletionSource";
 import { clearInstanceCaches } from "./languages/sql/shared";
 import { useRustSchemaSync } from "@/hooks/useRustSchemaSync";
 import { useQueryHistoryStore } from "@/stores/queryHistoryStore";
@@ -515,12 +516,28 @@ export const SqlEditor = memo(
       ];
     }, [connectionId, defaultSchema, effectiveDialect, sqlLang, trinoCatalogs]);
 
+    // DuckDB-native completion source (additive, for DuckDB/MotherDuck only)
+    const duckDbSource = useMemo(() => {
+      const normalized = dbType?.toLowerCase() ?? "";
+      if (
+        connectionId &&
+        (normalized.includes("duckdb") || normalized.includes("motherduck"))
+      ) {
+        return createDuckDbCompletionSource(connectionId);
+      }
+      return null;
+    }, [connectionId, dbType]);
+
     // Completion extension
     const completionExtension = useMemo(() => {
-      return sqlLang.language.data.of({
-        autocomplete: completionSource,
-      });
-    }, [sqlLang, completionSource]);
+      const sources = [
+        sqlLang.language.data.of({ autocomplete: completionSource }),
+      ];
+      if (duckDbSource) {
+        sources.push(sqlLang.language.data.of({ autocomplete: duckDbSource }));
+      }
+      return sources;
+    }, [sqlLang, completionSource, duckDbSource]);
 
     // --- Compartments hook: dynamic reconfiguration ---
     useSqlEditorCompartments({

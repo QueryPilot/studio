@@ -150,6 +150,12 @@ export interface DuckDbExportResult {
   format: string;
 }
 
+export interface DuckDbAutocompleteSuggestion {
+  suggestion: string;
+  suggestionStart: number;
+  suggestionType: string | null;
+}
+
 export interface DuckDbManagedObjectLineage {
   targetSchema: string;
   targetName: string;
@@ -605,6 +611,13 @@ export class BackendAPI {
     request: DuckDbExportRequest,
   ): Promise<DuckDbExportResult> {
     return invoke("duckdb_export_data", { connId, request });
+  }
+
+  static async duckdbAutocomplete(
+    connId: string,
+    partialSql: string,
+  ): Promise<DuckDbAutocompleteSuggestion[]> {
+    return invoke("duckdb_autocomplete", { connId, partialSql });
   }
 
   // Streaming query

@@ -3,9 +3,9 @@ use tauri::State;
 
 use crate::adapters::duckdb::{
     DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
-    DuckDbCreateSecretRequest, DuckDbExportRequest, DuckDbExportResult, DuckDbExtensionInfo,
-    DuckDbManagedObjectLineage, DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest,
-    DuckDbSecretInfo,
+    DuckDbAutocompleteSuggestion, DuckDbCreateSecretRequest, DuckDbExportRequest,
+    DuckDbExportResult, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
+    DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -234,6 +234,22 @@ pub async fn duckdb_drop_secret(
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
     duckdb
         .drop_secret(name, persistent)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_autocomplete(
+    conn_id: String,
+    partial_sql: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<DuckDbAutocompleteSuggestion>, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .autocomplete(&partial_sql)
         .await
         .map_err(|e| e.to_string())
 }

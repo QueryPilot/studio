@@ -2194,6 +2194,54 @@ impl SqlQueryable for DuckDbAdapter {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbAutocompleteSuggestion {
+    pub suggestion: String,
+    pub suggestion_start: i32,
+    pub suggestion_type: Option<String>,
+}
+
+impl DuckDbAdapter {
+    pub async fn autocomplete(
+        &self,
+        partial_sql: &str,
+    ) -> Result<Vec<DuckDbAutocompleteSuggestion>> {
+        let partial_sql = partial_sql.to_string();
+        self.execute_blocking(move |conn| {
+            let mut stmt = conn
+                .prepare("SELECT suggestion, suggestion_start, suggestion_type FROM sql_auto_complete(?)")
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to prepare autocomplete: {}", e))
+                })?;
+
+            let mut rows = stmt
+                .query(params![partial_sql])
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Autocomplete query failed: {}", e))
+                })?;
+
+            let mut suggestions = Vec::new();
+            while let Some(row) = rows.next().map_err(|e| {
+                AppError::DatabaseError(format!("Failed to read autocomplete row: {}", e))
+            })? {
+                suggestions.push(DuckDbAutocompleteSuggestion {
+                    suggestion: row.get(0).map_err(|e| {
+                        AppError::DatabaseError(format!("Failed to read suggestion: {}", e))
+                    })?,
+                    suggestion_start: row.get(1).map_err(|e| {
+                        AppError::DatabaseError(format!("Failed to read suggestion_start: {}", e))
+                    })?,
+                    suggestion_type: row.get(2).ok(),
+                });
+            }
+
+            Ok(suggestions)
+        })
+        .await
+    }
+}
+
 impl DuckDbAdapter {
     /// Perform a lightweight health check on the DuckDB connection.
     pub async fn ping(&self) -> bool {
