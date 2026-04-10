@@ -43,7 +43,7 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
@@ -170,8 +170,10 @@ import type {
   KeyValueResult,
 } from "@/adapters/types/ipc";
 import type { QueryColumnMeta, RawCellValue } from "@/services/backend";
+import { BackendAPI } from "@/services/backend";
 import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
+import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
 import {
   DuckDbTablesDropdown,
   type DuckDbConnectedSource,
@@ -301,6 +303,7 @@ export const ConnectionSection = forwardRef<
     schema,
     error,
   } = connection;
+  const queryClient = useQueryClient();
   const dbType = profile.db_type;
   const paradigm = getParadigm(dbType);
   const isSqlDb = paradigm === "sql";
@@ -361,6 +364,7 @@ export const ConnectionSection = forwardRef<
   const [isAddingDuckDbFile, setIsAddingDuckDbFile] = useState(false);
   const [duckDbImportUrlDialogOpen, setDuckDbImportUrlDialogOpen] =
     useState(false);
+  const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
   const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
   const [snapshotSource, setSnapshotSource] =
     useState<DuckDbSnapshotSource | null>(null);
@@ -536,6 +540,13 @@ export const ConnectionSection = forwardRef<
         })),
     [storedConnections],
   );
+  const { data: attachedDatabases = [] } = useQuery({
+    queryKey: ["attached-databases", connectionId],
+    queryFn: () => BackendAPI.duckdbListAttachedDatabases(connectionId),
+    enabled: dbType === DbType.DuckDB && status === "connected",
+    staleTime: 30_000,
+  });
+
   // Connected non-DuckDB connections for snapshot dropdown.
   // Selector returns a stable string key (primitives compare by value),
   // then useMemo builds objects only when the key changes.
@@ -1875,6 +1886,51 @@ export const ConnectionSection = forwardRef<
     }
   };
 
+  const handleAttachDatabase = async (
+    path: string,
+    alias: string,
+    attachDbType: string | undefined,
+    readOnly: boolean,
+  ) => {
+    const toastId = toast.loading("Attaching database...");
+    try {
+      await BackendAPI.duckdbAttachDatabase(connectionId, {
+        path,
+        alias,
+        dbType: attachDbType ?? null,
+        readOnly,
+      });
+      toast.success(`Database attached as "${alias}"`, { id: toastId });
+      refreshConnectionData(connection);
+      void queryClient.invalidateQueries({
+        queryKey: ["attached-databases", connectionId],
+      });
+      setDuckDbAttachDialogOpen(false);
+    } catch (error) {
+      toast.error("Failed to attach database", {
+        id: toastId,
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  const handleDetachDatabase = async (alias: string) => {
+    const toastId = toast.loading(`Detaching "${alias}"...`);
+    try {
+      await BackendAPI.duckdbDetachDatabase(connectionId, alias);
+      toast.success(`Database "${alias}" detached`, { id: toastId });
+      refreshConnectionData(connection);
+      void queryClient.invalidateQueries({
+        queryKey: ["attached-databases", connectionId],
+      });
+    } catch (error) {
+      toast.error("Failed to detach database", {
+        id: toastId,
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const handleRevealDuckDbFile = async () => {
     if (!duckDbFilePath) {
       toast.error("Scratchpad file path is unavailable");
@@ -3176,6 +3232,13 @@ export const ConnectionSection = forwardRef<
                         onImportUrl={() => {
                           setDuckDbImportUrlDialogOpen(true);
                         }}
+                        onAttachDatabase={() => {
+                          setDuckDbAttachDialogOpen(true);
+                        }}
+                        onDetachDatabase={(alias) => {
+                          void handleDetachDatabase(alias);
+                        }}
+                        attachedDatabases={attachedDatabases}
                         connections={connectedNonDuckDbSources}
                         onSnapshotFromConnection={(_connId, connName) => {
                           toast.info(
@@ -4016,6 +4079,14 @@ export const ConnectionSection = forwardRef<
           setDuckDbImportUrlDialogOpen(false);
         }}
         onSubmit={handleImportDuckDbUrl}
+      />
+
+      <DuckDbAttachDatabaseDialog
+        open={duckDbAttachDialogOpen}
+        onClose={() => {
+          setDuckDbAttachDialogOpen(false);
+        }}
+        onSubmit={handleAttachDatabase}
       />
 
       <SnapshotToDuckDbDialog

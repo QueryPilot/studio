@@ -13,6 +13,8 @@ import {
   IconFileImport,
   IconLink,
   IconDatabaseImport,
+  IconPlugConnected,
+  IconPlugConnectedX,
 } from "@tabler/icons-react";
 
 export interface DuckDbConnectedSource {
@@ -20,10 +22,20 @@ export interface DuckDbConnectedSource {
   name: string;
 }
 
+export interface DuckDbAttachedDatabaseEntry {
+  databaseName: string;
+  path: string;
+  dbType: string;
+  readOnly: boolean;
+}
+
 interface DuckDbTablesDropdownProps {
   onNewTable: () => void;
   onImportFile: () => void;
   onImportUrl: () => void;
+  onAttachDatabase?: () => void;
+  onDetachDatabase?: (alias: string) => void;
+  attachedDatabases?: DuckDbAttachedDatabaseEntry[];
   connections: DuckDbConnectedSource[];
   onSnapshotFromConnection: (connectionId: string, connectionName: string) => void;
   disabled?: boolean;
@@ -33,10 +45,16 @@ export function DuckDbTablesDropdown({
   onNewTable,
   onImportFile,
   onImportUrl,
+  onAttachDatabase,
+  onDetachDatabase,
+  attachedDatabases = [],
   connections,
   onSnapshotFromConnection,
   disabled = false,
 }: DuckDbTablesDropdownProps) {
+  const detachableDatabases = attachedDatabases.filter(
+    (db) => db.databaseName !== "memory" && db.databaseName !== "system",
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -71,6 +89,36 @@ export function DuckDbTablesDropdown({
           <IconLink className="h-4 w-4 mr-2" />
           Import from URL...
         </DropdownMenuItem>
+        {onAttachDatabase && (
+          <DropdownMenuItem onClick={onAttachDatabase}>
+            <IconPlugConnected className="h-4 w-4 mr-2" />
+            Attach Database...
+          </DropdownMenuItem>
+        )}
+        {onDetachDatabase && detachableDatabases.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconPlugConnectedX className="h-4 w-4 mr-2" />
+              Detach Database
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {detachableDatabases.map((db) => (
+                <DropdownMenuItem
+                  key={db.databaseName}
+                  onClick={() => {
+                    onDetachDatabase(db.databaseName);
+                  }}
+                >
+                  <span className="truncate">{db.databaseName}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {db.dbType || "duckdb"}
+                    {db.readOnly ? " (ro)" : ""}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         {connections.length > 0 && (
           <>
             <DropdownMenuSeparator />

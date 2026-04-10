@@ -1451,6 +1451,137 @@ impl DuckDbAdapter {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbAttachedDatabase {
+    pub database_name: String,
+    pub path: String,
+    pub db_type: String,
+    pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbAttachDatabaseRequest {
+    pub path: String,
+    pub alias: String,
+    pub db_type: Option<String>,
+    pub read_only: bool,
+}
+
+impl DuckDbAdapter {
+    fn validate_attach_alias(alias: &str) -> Result<()> {
+        if alias.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "Alias must not be empty".to_string(),
+            ));
+        }
+        if !alias
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+        {
+            return Err(AppError::InvalidInput(format!(
+                "Alias '{}' contains invalid characters. Only alphanumeric and underscores allowed.",
+                alias
+            )));
+        }
+        Ok(())
+    }
+
+    pub async fn attach_database(&self, request: DuckDbAttachDatabaseRequest) -> Result<String> {
+        let alias = request.alias.clone();
+        self.execute_blocking(move |conn| {
+            Self::validate_attach_alias(&request.alias)?;
+
+            let mut sql = format!(
+                "ATTACH {} AS {}",
+                Self::quote_string_literal(&request.path),
+                Self::quote_identifier(&request.alias),
+            );
+
+            let mut options = Vec::new();
+            if let Some(ref db_type) = request.db_type {
+                let upper = db_type.trim().to_uppercase();
+                if !["POSTGRES", "MYSQL", "SQLITE", "DUCKDB"].contains(&upper.as_str()) {
+                    return Err(AppError::InvalidInput(format!(
+                        "Unsupported ATTACH database type: {}",
+                        db_type
+                    )));
+                }
+                options.push(format!("TYPE {}", upper));
+            }
+            if request.read_only {
+                options.push("READ_ONLY".to_string());
+            }
+            if !options.is_empty() {
+                sql.push_str(&format!(" ({})", options.join(", ")));
+            }
+
+            conn.execute_batch(&sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to attach database: {}", e))
+            })?;
+
+            Ok(request.alias)
+        })
+        .await
+    }
+
+    pub async fn detach_database(&self, alias: String) -> Result<()> {
+        self.execute_blocking(move |conn| {
+            Self::validate_attach_alias(&alias)?;
+            let sql = format!("DETACH {}", Self::quote_identifier(&alias));
+            conn.execute_batch(&sql).map_err(|e| {
+                AppError::DatabaseError(format!("Failed to detach database: {}", e))
+            })?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn list_attached_databases(&self) -> Result<Vec<DuckDbAttachedDatabase>> {
+        self.execute_blocking(|conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT database_name, path, type, readonly \
+                     FROM duckdb_databases() \
+                     WHERE NOT internal \
+                     ORDER BY database_name",
+                )
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            let mut rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?;
+
+            let mut databases = Vec::new();
+            while let Some(row) =
+                rows.next()
+                    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            {
+                databases.push(DuckDbAttachedDatabase {
+                    database_name: row
+                        .get(0)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                    path: row
+                        .get::<_, Option<String>>(1)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                        .unwrap_or_default(),
+                    db_type: row
+                        .get::<_, Option<String>>(2)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?
+                        .unwrap_or_default(),
+                    read_only: row
+                        .get(3)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                });
+            }
+
+            Ok(databases)
+        })
+        .await
+    }
+}
+
 impl Default for DuckDbAdapter {
     fn default() -> Self {
         Self::new()

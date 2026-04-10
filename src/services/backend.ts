@@ -101,6 +101,20 @@ export interface DuckDbExtensionInfo {
   installPath: string | null;
 }
 
+export interface DuckDbAttachDatabaseRequest {
+  path: string;
+  alias: string;
+  dbType?: string | null;
+  readOnly: boolean;
+}
+
+export interface DuckDbAttachedDatabase {
+  databaseName: string;
+  path: string;
+  dbType: string;
+  readOnly: boolean;
+}
+
 export interface DuckDbManagedObjectLineage {
   targetSchema: string;
   targetName: string;
@@ -508,6 +522,26 @@ export class BackendAPI {
       connId: connectionId,
       extensionName,
     });
+  }
+
+  static async duckdbAttachDatabase(
+    connId: string,
+    request: DuckDbAttachDatabaseRequest,
+  ): Promise<string> {
+    return invoke("duckdb_attach_database", { connId, request });
+  }
+
+  static async duckdbDetachDatabase(
+    connId: string,
+    alias: string,
+  ): Promise<void> {
+    await invoke("duckdb_detach_database", { connId, alias });
+  }
+
+  static async duckdbListAttachedDatabases(
+    connId: string,
+  ): Promise<DuckDbAttachedDatabase[]> {
+    return invoke("duckdb_list_attached_databases", { connId });
   }
 
   // Streaming query

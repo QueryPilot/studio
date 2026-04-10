@@ -12,7 +12,8 @@ SELECT
   NULL AS owner,
   NULL AS encoding,
   NULL AS collation,
-  NULL AS size
+  NULL AS size,
+  CASE WHEN database_name != 'memory' AND path IS NOT NULL AND path != '' THEN true ELSE false END AS is_attached
 FROM duckdb_databases()
 WHERE NOT internal
 ORDER BY database_name`;

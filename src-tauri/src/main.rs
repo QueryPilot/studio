@@ -206,6 +206,9 @@ fn main() {
             commands::duckdb_get_object_lineage,
             commands::duckdb_list_extensions,
             commands::duckdb_install_extension,
+            commands::duckdb_attach_database,
+            commands::duckdb_detach_database,
+            commands::duckdb_list_attached_databases,
             // Query execution
             commands::query,
             commands::execute_query,

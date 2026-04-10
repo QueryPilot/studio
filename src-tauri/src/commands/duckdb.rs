@@ -2,8 +2,9 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::adapters::duckdb::{
-    DuckDbAddFileRequest, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
-    DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest,
+    DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
+    DuckDbExtensionInfo, DuckDbManagedObjectLineage, DuckDbManagedObjectSummary,
+    DuckDbReplaceManagedObjectRequest,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -120,6 +121,63 @@ pub async fn duckdb_install_extension(
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
     duckdb
         .install_extension(&extension_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_attach_database(
+    conn_id: String,
+    request: DuckDbAttachDatabaseRequest,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<String, String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB attach database",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .attach_database(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_detach_database(
+    conn_id: String,
+    alias: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB detach database",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .detach_database(alias)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_list_attached_databases(
+    conn_id: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<DuckDbAttachedDatabase>, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .list_attached_databases()
         .await
         .map_err(|e| e.to_string())
 }
