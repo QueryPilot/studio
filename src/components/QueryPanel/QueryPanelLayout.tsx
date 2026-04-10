@@ -46,6 +46,7 @@ interface QueryPanelLayoutProps {
   detectedDialect: SqlDialect;
   runButtonLabel: string;
   onExecuteAll: () => void;
+  onExplain?: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
@@ -120,6 +121,7 @@ export function QueryPanelLayout({
   detectedDialect,
   runButtonLabel,
   onExecuteAll,
+  onExplain,
   onCancel,
   onBeautify,
   onToggleResults,
@@ -251,6 +253,7 @@ export function QueryPanelLayout({
                       runLabel={runButtonLabel}
                       onExecute={onExecute}
                       onExecuteAll={onExecuteAll}
+                      onExplain={onExplain}
                       onCancel={onCancel}
                       onBeautify={onBeautify}
                       onToggleResults={onToggleResults}

@@ -5,7 +5,8 @@ use crate::adapters::duckdb::{
     DuckDbAddFileRequest, DuckDbAttachDatabaseRequest, DuckDbAttachedDatabase,
     DuckDbAutocompleteSuggestion, DuckDbCreateSecretRequest, DuckDbExportRequest,
     DuckDbExportResult, DuckDbExtensionInfo, DuckDbManagedObjectLineage,
-    DuckDbManagedObjectSummary, DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo,
+    DuckDbManagedObjectSummary, DuckDbQueryPlan, DuckDbReplaceManagedObjectRequest,
+    DuckDbSecretInfo,
 };
 use crate::core::manager::AdapterHandle;
 use crate::core::safe_mode::{check_safe_mode, OperationKind};
@@ -252,6 +253,19 @@ pub async fn duckdb_autocomplete(
         .autocomplete(&partial_sql)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_explain_query(
+    conn_id: String,
+    sql: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<DuckDbQueryPlan, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb.explain_query(&sql).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

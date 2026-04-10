@@ -1174,6 +1174,43 @@ export const QueryPanel = memo(function QueryPanel({
     await executeBatchScript(script, statements);
   }, [applyVariableSubstitution, executeBatchScript, queryRef, resetBatchExecutionState]);
 
+  const handleExplain = useCallback(async () => {
+    const rawSql = resolveExecutionTargetSql();
+    const sqlToExecute = applyVariableSubstitution(rawSql);
+    if (sqlToExecute === null) return;
+
+    const trimmed = sqlToExecute.trim();
+    if (!trimmed) return;
+
+    const explainSql = trimmed.toUpperCase().startsWith("EXPLAIN")
+      ? trimmed
+      : `EXPLAIN ANALYZE ${trimmed}`;
+
+    resetBatchExecutionState();
+    setShowResults(true);
+    const singleResult = await executeSingleStatement(explainSql, {
+      runContext: "single",
+    });
+    setBatchResults([
+      {
+        statementIndex: 1,
+        statement: singleResult.sql,
+        status: singleResult.success ? "success" : "error",
+        result: singleResult.result,
+        presentation: singleResult.presentation,
+      },
+    ]);
+    setActiveBatchResultIndex(0);
+  }, [
+    applyVariableSubstitution,
+    executeSingleStatement,
+    resetBatchExecutionState,
+    resolveExecutionTargetSql,
+    setActiveBatchResultIndex,
+    setBatchResults,
+    setShowResults,
+  ]);
+
   const handleCancel = useCallback(() => {
     if (isExecutingRef.current) {
       cancelRequestedRef.current = true;
@@ -1389,6 +1426,7 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   const runButtonLabel = selectedStatementCount >= 2 ? "Run Selections" : "Run";
+  const isDuckDbLike = /^(duckdb|motherduck)$/i.test(dbType);
   const canRefreshResults = Boolean(
     refreshActionQuery ?? lastSelectQueryRef.current,
   );
@@ -1428,6 +1466,7 @@ export const QueryPanel = memo(function QueryPanel({
         onExecuteAll={() => {
           void handleExecuteAll();
         }}
+        onExplain={isDuckDbLike ? () => { void handleExplain(); } : undefined}
         onCancel={handleCancel}
         onBeautify={handleBeautify}
         onToggleResults={toggleResults}

@@ -212,6 +212,7 @@ fn main() {
             commands::duckdb_create_secret,
             commands::duckdb_list_secrets,
             commands::duckdb_drop_secret,
+            commands::duckdb_explain_query,
             commands::duckdb_export_data,
             commands::duckdb_autocomplete,
             // Query execution

@@ -30,6 +30,7 @@ import {
   IconBraces,
   IconChevronDown,
   IconAlertTriangle,
+  IconReportAnalytics,
 } from "@tabler/icons-react";
 import type { SqlDialect } from "@/components/CodeEditor";
 import type { VariableScope } from "@/lib/queryVariables/types";
@@ -70,6 +71,7 @@ interface QueryToolbarProps {
   detectedDialect?: SqlDialect;
   onExecute: () => void;
   onExecuteAll?: () => void;
+  onExplain?: () => void;
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
@@ -97,6 +99,7 @@ export const QueryToolbar = memo(function QueryToolbar({
   detectedDialect,
   onExecute,
   onExecuteAll,
+  onExplain,
   onCancel,
   onBeautify,
   onToggleResults,
@@ -393,6 +396,18 @@ export const QueryToolbar = memo(function QueryToolbar({
                     <IconPlayerPlay className="h-3.5 w-3.5 mr-2" />
                     Run All Statements
                   </DropdownMenuItem>
+                  {onExplain && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={onExplain}
+                        className="text-xs"
+                      >
+                        <IconReportAnalytics className="h-3.5 w-3.5 mr-2" />
+                        Explain Analyze
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

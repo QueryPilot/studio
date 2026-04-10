@@ -2242,6 +2242,68 @@ impl DuckDbAdapter {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuckDbQueryPlan {
+    pub plan_text: String,
+    pub plan_json: Option<JsonValue>,
+    pub total_time_ms: Option<f64>,
+}
+
+impl DuckDbAdapter {
+    pub async fn explain_query(&self, sql: &str) -> Result<DuckDbQueryPlan> {
+        let sql = sql.to_string();
+        self.execute_blocking(move |conn| {
+            let explain_sql = if sql.trim_start().to_uppercase().starts_with("EXPLAIN") {
+                sql.clone()
+            } else {
+                format!("EXPLAIN ANALYZE {}", sql)
+            };
+
+            let mut stmt = conn
+                .prepare(&explain_sql)
+                .map_err(|e| AppError::DatabaseError(format!("EXPLAIN prepare failed: {}", e)))?;
+
+            let mut rows = stmt
+                .query([])
+                .map_err(|e| AppError::DatabaseError(format!("EXPLAIN query failed: {}", e)))?;
+
+            let mut lines = Vec::new();
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(format!("EXPLAIN row fetch failed: {}", e)))?
+            {
+                let value: String = row.get(0).unwrap_or_default();
+                lines.push(value);
+            }
+
+            let plan_text = lines.join("\n");
+
+            let total_time_ms = plan_text
+                .lines()
+                .rev()
+                .find_map(|line| {
+                    let trimmed = line.trim().to_lowercase();
+                    if trimmed.starts_with("total time:") || trimmed.starts_with("run time:") {
+                        trimmed
+                            .split_whitespace()
+                            .find_map(|token| token.trim_end_matches('s').parse::<f64>().ok())
+                            .map(|secs| secs * 1000.0)
+                    } else {
+                        None
+                    }
+                });
+
+            Ok(DuckDbQueryPlan {
+                plan_text,
+                plan_json: None,
+                total_time_ms,
+            })
+        })
+        .await
+    }
+}
+
 impl DuckDbAdapter {
     /// Perform a lightweight health check on the DuckDB connection.
     pub async fn ping(&self) -> bool {
