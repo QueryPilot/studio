@@ -416,6 +416,23 @@ impl DuckDbAdapter {
         format!("'{}'", value.replace('\'', "''"))
     }
 
+    fn validate_sql_key(key: &str, label: &str) -> Result<()> {
+        let trimmed = key.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::InvalidInput(format!(
+                "{} must not be empty",
+                label
+            )));
+        }
+        if !trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(AppError::InvalidInput(format!(
+                "{} '{}' contains invalid characters. Only alphanumeric and underscores allowed.",
+                label, trimmed
+            )));
+        }
+        Ok(())
+    }
+
     fn qualified_name(schema: &str, name: &str) -> String {
         format!(
             "{}.{}",
@@ -1742,9 +1759,10 @@ impl DuckDbAdapter {
         }
     }
 
-    fn build_copy_options(format: &str, options: &HashMap<String, String>) -> String {
+    fn build_copy_options(format: &str, options: &HashMap<String, String>) -> Result<String> {
         let mut parts = vec![format!("FORMAT {}", format.to_uppercase())];
         for (key, value) in options {
+            Self::validate_sql_key(key, "COPY option key")?;
             let key_upper = key.to_uppercase();
             let val_trimmed = value.trim();
             if val_trimmed.is_empty() {
@@ -1765,7 +1783,7 @@ impl DuckDbAdapter {
                 }
             }
         }
-        parts.join(", ")
+        Ok(parts.join(", "))
     }
 
     pub async fn export_data(&self, request: DuckDbExportRequest) -> Result<DuckDbExportResult> {
@@ -1810,7 +1828,7 @@ impl DuckDbAdapter {
                     AppError::DatabaseError(format!("Failed to count export rows: {}", e))
                 })?;
 
-            let options_str = Self::build_copy_options(&request.format, &request.options);
+            let options_str = Self::build_copy_options(&request.format, &request.options)?;
             let copy_sql = format!(
                 "COPY {} TO {} ({})",
                 source_sql,
@@ -1836,6 +1854,8 @@ impl DuckDbAdapter {
     pub async fn create_secret(&self, request: DuckDbCreateSecretRequest) -> Result<()> {
         self.execute_blocking(move |conn| {
             Self::validate_identifier(&request.name, "Secret name")?;
+            Self::validate_sql_key(&request.secret_type, "Secret type")?;
+            Self::validate_sql_key(&request.provider, "Provider")?;
 
             let persistence = if request.persistent {
                 "PERSISTENT"
@@ -1844,7 +1864,7 @@ impl DuckDbAdapter {
             };
 
             let mut clauses = Vec::new();
-            clauses.push(format!("TYPE {}", request.secret_type));
+            clauses.push(format!("TYPE {}", request.secret_type.to_uppercase()));
             clauses.push(format!(
                 "PROVIDER {}",
                 Self::quote_string_literal(&request.provider)
@@ -1852,7 +1872,12 @@ impl DuckDbAdapter {
 
             for (key, value) in &request.params {
                 if !value.is_empty() {
-                    clauses.push(format!("{} {}", key, Self::quote_string_literal(value)));
+                    Self::validate_sql_key(key, "Secret parameter key")?;
+                    clauses.push(format!(
+                        "{} {}",
+                        key.to_uppercase(),
+                        Self::quote_string_literal(value)
+                    ));
                 }
             }
 
@@ -2016,7 +2041,9 @@ impl DuckDbAdapter {
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
 
-        *self.interrupt_handle.lock().unwrap() = Some(conn.interrupt_handle());
+        if let Ok(mut guard) = self.interrupt_handle.lock() {
+            *guard = Some(conn.interrupt_handle());
+        }
         *self.connection.lock().await = Some(conn);
         *self.db_path.lock().await = None;
         Ok(())
@@ -2100,14 +2127,18 @@ impl BaseCapability for DuckDbAdapter {
         .await
         .map_err(|e| AppError::Internal(format!("Task join error: {}", e)))??;
 
-        *self.interrupt_handle.lock().unwrap() = Some(conn.interrupt_handle());
+        if let Ok(mut guard) = self.interrupt_handle.lock() {
+            *guard = Some(conn.interrupt_handle());
+        }
         *self.connection.lock().await = Some(conn);
         *self.db_path.lock().await = Some(db_path);
         Ok(())
     }
 
     async fn disconnect(&self) -> Result<()> {
-        *self.interrupt_handle.lock().unwrap() = None;
+        if let Ok(mut guard) = self.interrupt_handle.lock() {
+            *guard = None;
+        }
         Self::clear_query_progress_cache(&self.query_progress_cache);
         let conn = self.connection.lock().await.take();
         if let Some(conn) = conn {
@@ -2388,7 +2419,12 @@ impl DuckDbAdapter {
 
             for (key, value) in &request.extra_options {
                 if !value.is_empty() {
-                    options.push(format!("{} {}", key, Self::quote_string_literal(value)));
+                    Self::validate_sql_key(key, "Catalog option key")?;
+                    options.push(format!(
+                        "{} {}",
+                        key.to_uppercase(),
+                        Self::quote_string_literal(value)
+                    ));
                 }
             }
 
@@ -2592,14 +2628,17 @@ impl DuckDbAdapter {
                 .rev()
                 .find_map(|line| {
                     let trimmed = line.trim().to_lowercase();
-                    if trimmed.starts_with("total time:") || trimmed.starts_with("run time:") {
-                        trimmed
-                            .split_whitespace()
-                            .find_map(|token| token.trim_end_matches('s').parse::<f64>().ok())
-                            .map(|secs| secs * 1000.0)
-                    } else {
-                        None
+                    if !trimmed.starts_with("total time:") && !trimmed.starts_with("run time:") {
+                        return None;
                     }
+                    let after_colon = trimmed.split(':').nth(1)?;
+                    after_colon
+                        .trim()
+                        .trim_end_matches('s')
+                        .trim()
+                        .parse::<f64>()
+                        .ok()
+                        .map(|secs| secs * 1000.0)
                 });
 
             Ok(DuckDbQueryPlan {

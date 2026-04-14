@@ -1,4 +1,4 @@
-.PHONY: help d dev dev-profile dp querypilot-cli build clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-manual generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
+.PHONY: help d dev dev-profile dp querypilot-cli build clean install test t test-all test-quick test-unit test-frontend test-backend test-integration ti test-watch test-coverage docker-up docker-down docker-reset seed-all seed-postgres seed-mysql seed-sqlite seed-duckdb seed-sqlserver seed-oracle seed-mongodb seed-redis setup version release beta release-manual generate-keys test-ssh-setup test-ssh test-ssh-all-adapters test-ssh-clean test-ssh-full test-ssh-all-smoke
 
 SSH_KEYGEN ?= ssh-keygen
 SQLSERVER_CONTAINER ?= query-pilot-sqlserver
@@ -61,6 +61,7 @@ help:
 	@echo "  make seed-postgres  - Seed PostgreSQL only"
 	@echo "  make seed-mysql     - Seed MySQL only"
 	@echo "  make seed-sqlite    - Seed SQLite only"
+	@echo "  make seed-duckdb    - Seed DuckDB test databases"
 	@echo "  make seed-sqlserver - Seed SQL Server only"
 	@echo "  make seed-oracle    - Seed Oracle only"
 	@echo "  make seed-mongodb   - Seed MongoDB only"
@@ -295,6 +296,11 @@ seed-sqlite:
 	@cd seeds/sqlite && python3 seed_sqlite.py
 	@echo "SQLite seeded successfully!"
 
+seed-duckdb:
+	@echo "Seeding DuckDB..."
+	@./seeds/duckdb/seed_duckdb.sh
+	@echo "DuckDB seeded successfully!"
+
 seed-sqlserver:
 	@echo "Waiting for SQL Server to be ready..."
 	@echo "Testing SQL Server connection..."
@@ -336,7 +342,7 @@ seed-redis:
 	@bash seeds/redis/seed_redis.sh
 	@echo "Redis seeded successfully!"
 
-seed-all: seed-postgres seed-mysql seed-sqlite seed-sqlserver seed-oracle seed-mongodb seed-redis
+seed-all: seed-postgres seed-mysql seed-sqlite seed-duckdb seed-sqlserver seed-oracle seed-mongodb seed-redis
 	@echo "All databases seeded successfully!"
 
 # Reset and reseed databases (cleans existing data first)

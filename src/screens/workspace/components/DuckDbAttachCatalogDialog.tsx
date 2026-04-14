@@ -56,7 +56,7 @@ const ALIAS_PATTERN = /^[a-zA-Z0-9_]+$/;
 interface DuckDbAttachCatalogDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (request: DuckDbAttachCatalogRequest) => void;
+  onSubmit: (request: DuckDbAttachCatalogRequest) => void | Promise<void>;
 }
 
 function buildPreviewSql(
@@ -167,7 +167,7 @@ function DuckDbAttachCatalogForm({
     [catalogType, alias, catalogUri, readOnly, extraOptions],
   );
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     setError(null);
@@ -177,12 +177,18 @@ function DuckDbAttachCatalogForm({
       allOptions["READ_ONLY"] = "true";
     }
 
-    onSubmit({
-      catalogType,
-      alias: alias.trim(),
-      catalogUri: catalogUri.trim(),
-      extraOptions: allOptions,
-    });
+    try {
+      await onSubmit({
+        catalogType,
+        alias: alias.trim(),
+        catalogUri: catalogUri.trim(),
+        extraOptions: allOptions,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmitting(false);
+    }
   }, [
     isSubmitting,
     catalogType,
@@ -360,7 +366,7 @@ function DuckDbAttachCatalogForm({
             <Checkbox
               id="catalog-readonly"
               checked={readOnly}
-              onCheckedChange={setReadOnly}
+              onCheckedChange={(checked) => { setReadOnly(checked === true); }}
             />
             <Label htmlFor="catalog-readonly" className="text-sm font-normal">
               Read-only
@@ -416,7 +422,7 @@ function DuckDbAttachCatalogForm({
             </Button>
           )}
           {step === 2 && (
-            <Button onClick={handleSubmit} disabled={isSubmitting}>
+            <Button onClick={() => { void handleSubmit(); }} disabled={isSubmitting}>
               {isSubmitting ? "Attaching..." : "Attach"}
             </Button>
           )}

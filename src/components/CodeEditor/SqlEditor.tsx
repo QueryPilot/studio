@@ -517,15 +517,23 @@ export const SqlEditor = memo(
     }, [connectionId, defaultSchema, effectiveDialect, sqlLang, trinoCatalogs]);
 
     // DuckDB-native completion source (additive, for DuckDB/MotherDuck only)
-    const duckDbSource = useMemo(() => {
+    const duckDbHandleRef = useRef<ReturnType<typeof createDuckDbCompletionSource> | null>(null);
+
+    useEffect(() => {
+      duckDbHandleRef.current?.dispose();
+      duckDbHandleRef.current = null;
+
       const normalized = dbType?.toLowerCase() ?? "";
       if (
         connectionId &&
         (normalized.includes("duckdb") || normalized.includes("motherduck"))
       ) {
-        return createDuckDbCompletionSource(connectionId);
+        duckDbHandleRef.current = createDuckDbCompletionSource(connectionId);
       }
-      return null;
+      return () => {
+        duckDbHandleRef.current?.dispose();
+        duckDbHandleRef.current = null;
+      };
     }, [connectionId, dbType]);
 
     // Completion extension
@@ -533,11 +541,13 @@ export const SqlEditor = memo(
       const sources = [
         sqlLang.language.data.of({ autocomplete: completionSource }),
       ];
-      if (duckDbSource) {
-        sources.push(sqlLang.language.data.of({ autocomplete: duckDbSource }));
+      const handle = duckDbHandleRef.current;
+      if (handle) {
+        sources.push(sqlLang.language.data.of({ autocomplete: handle.source }));
       }
       return sources;
-    }, [sqlLang, completionSource, duckDbSource]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sqlLang, completionSource, connectionId, dbType]);
 
     // --- Compartments hook: dynamic reconfiguration ---
     useSqlEditorCompartments({

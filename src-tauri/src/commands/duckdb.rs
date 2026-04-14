@@ -133,6 +133,11 @@ pub async fn duckdb_load_extension(
     extension_name: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB load extension",
+    )?;
     let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
     let duckdb = adapter
         .as_duckdb()
@@ -298,6 +303,11 @@ pub async fn duckdb_explain_query(
     sql: String,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<DuckDbQueryPlan, String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB explain query",
+    )?;
     let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
     let duckdb = adapter
         .as_duckdb()

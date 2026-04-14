@@ -325,7 +325,7 @@ function DuckDbExportForm({
                     <Checkbox
                       id="csv-header"
                       checked={csvHeader}
-                      onCheckedChange={setCsvHeader}
+                      onCheckedChange={(checked) => { setCsvHeader(checked === true); }}
                     />
                     <Label htmlFor="csv-header" className="text-sm font-normal">
                       Include header row
@@ -413,7 +413,7 @@ function DuckDbExportForm({
                     <Checkbox
                       id="json-array"
                       checked={jsonArray}
-                      onCheckedChange={setJsonArray}
+                      onCheckedChange={(checked) => { setJsonArray(checked === true); }}
                     />
                     <Label htmlFor="json-array" className="text-sm font-normal">
                       Wrap output in JSON array
@@ -441,10 +441,10 @@ function DuckDbExportForm({
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Checkbox
+                    <Checkbox
                     id="overwrite-or-ignore"
                     checked={overwriteOrIgnore}
-                    onCheckedChange={setOverwriteOrIgnore}
+                    onCheckedChange={(checked) => { setOverwriteOrIgnore(checked === true); }}
                   />
                   <Label
                     htmlFor="overwrite-or-ignore"

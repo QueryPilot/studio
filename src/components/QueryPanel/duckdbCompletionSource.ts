@@ -32,25 +32,36 @@ function mapSuggestionType(
   }
 }
 
+interface DuckDbCompletionSourceHandle {
+  source: CompletionSource;
+  dispose: () => void;
+}
+
 /**
  * Creates a CodeMirror CompletionSource backed by DuckDB's sql_auto_complete().
  *
  * The source debounces calls (150ms) and silently returns null on errors
  * (partial SQL may be invalid, which is expected during typing).
+ *
+ * Returns a `{ source, dispose }` handle — call `dispose()` when the editor
+ * unmounts or the connection changes to prevent stale timer fires.
  */
 export function createDuckDbCompletionSource(
   connId: string,
-): CompletionSource {
+): DuckDbCompletionSourceHandle {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastResult: CompletionResult | null = null;
   let lastText = "";
+  let disposed = false;
 
-  return (context: CompletionContext): Promise<CompletionResult | null> => {
+  const source: CompletionSource = (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
     const { state, pos } = context;
     const fullDoc = state.doc.toString();
     const textUpToCursor = fullDoc.slice(0, pos);
 
-    if (!textUpToCursor.trim()) {
+    if (!textUpToCursor.trim() || disposed) {
       return Promise.resolve(null);
     }
 
@@ -62,9 +73,18 @@ export function createDuckDbCompletionSource(
       if (debounceTimer) clearTimeout(debounceTimer);
 
       debounceTimer = setTimeout(async () => {
+        if (disposed) {
+          resolve(null);
+          return;
+        }
         try {
           const suggestions: DuckDbAutocompleteSuggestion[] =
             await BackendAPI.duckdbAutocomplete(connId, textUpToCursor);
+
+          if (disposed) {
+            resolve(null);
+            return;
+          }
 
           if (suggestions.length === 0) {
             lastText = textUpToCursor;
@@ -95,4 +115,14 @@ export function createDuckDbCompletionSource(
       }, DEBOUNCE_MS);
     });
   };
+
+  const dispose = () => {
+    disposed = true;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+  };
+
+  return { source, dispose };
 }

@@ -918,7 +918,9 @@ export const QuickFilter = memo(
         const firstChar = newValue[0];
 
         // Detect mode shortcuts and switch mode
-        if (firstChar === "?" && mode !== "where") {
+        // Only trigger when the entire input is just the prefix character (typed on empty input).
+        // This prevents mode switches when ? or / appears mid-text (e.g. /regex/i in search mode).
+        if (firstChar === "?" && newValue.length === 1 && mode !== "where") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("where");
@@ -939,7 +941,7 @@ export const QuickFilter = memo(
           });
           return;
         }
-        if (firstChar === "/" && mode !== "ai") {
+        if (firstChar === "/" && newValue.length === 1 && mode !== "ai") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("ai");
@@ -960,7 +962,7 @@ export const QuickFilter = memo(
           });
           return;
         }
-        if (firstChar === "!" && mode !== "search") {
+        if (firstChar === "!" && newValue.length === 1 && mode !== "search") {
           const contentWithoutPrefix = newValue.slice(1);
           justSwitchedMode.current = true;
           onModeChange("search");

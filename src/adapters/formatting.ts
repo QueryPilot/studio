@@ -67,7 +67,12 @@ export function quoteIdentifier(name: string, dbType: DbType | string): string {
 }
 
 /**
- * Format a fully qualified table name with optional schema
+ * Format a fully qualified table name with optional schema.
+ *
+ * For DuckDB, a schema value containing a dot (e.g. `attached_db.main`) is
+ * interpreted as `database.schema` and emitted as a three-part identifier
+ * `"database"."schema"."table"`. This is how attached-database schemas are
+ * surfaced by `DuckDBAdapter.getSchemasQuery()`.
  */
 export function formatTableName(
   schema: string | undefined,
@@ -78,6 +83,17 @@ export function formatTableName(
 
   if (!schema) {
     return quoteIdentifier(table, type);
+  }
+
+  const rawDbType = typeof dbType === "string" ? dbType.toLowerCase() : dbType;
+  const isDuckDb = rawDbType === DbType.DuckDB || rawDbType === "duckdb";
+  if (isDuckDb) {
+    const dotIdx = schema.indexOf(".");
+    if (dotIdx !== -1) {
+      const dbName = schema.substring(0, dotIdx);
+      const schemaName = schema.substring(dotIdx + 1);
+      return `${quoteIdentifier(dbName, type)}.${quoteIdentifier(schemaName, type)}.${quoteIdentifier(table, type)}`;
+    }
   }
 
   return `${quoteIdentifier(schema, type)}.${quoteIdentifier(table, type)}`;

@@ -73,7 +73,7 @@ export function useDuckDbFileDrop(
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let detachListeners: (() => void) | undefined;
     let attempts = 0;
-    const maxAttempts = 120;
+    const maxAttempts = 15;
 
     const attachToDropZone = (mountEl: HTMLElement) => {
       const containsFiles = (e: DragEvent) => {
@@ -195,7 +195,8 @@ export function useDuckDbFileDrop(
       if (attempts >= maxAttempts) {
         return;
       }
-      retryTimer = setTimeout(tryAttach, 50);
+      const delay = Math.min(50 * Math.pow(2, attempts - 1), 1000);
+      retryTimer = setTimeout(tryAttach, delay);
     };
 
     tryAttach();

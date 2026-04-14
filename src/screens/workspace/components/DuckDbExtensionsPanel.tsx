@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -283,7 +282,7 @@ export function DuckDbExtensionsPanel({
         if (!v) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IconPuzzle className="h-4 w-4" />
@@ -322,7 +321,7 @@ export function DuckDbExtensionsPanel({
           </Button>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
+        <div className="max-h-[50vh] overflow-y-auto">
           {isLoading && <LoadingSkeleton />}
 
           {error && (
@@ -343,7 +342,7 @@ export function DuckDbExtensionsPanel({
           {!isLoading && !error && filtered.length > 0 && (
             <div className="border rounded-md overflow-hidden">
               <table className="w-full text-xs">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="border-b bg-muted/50">
                     <th className="text-left px-3 py-2 font-medium">
                       Extension
@@ -377,7 +376,7 @@ export function DuckDbExtensionsPanel({
                 No extensions match &ldquo;{search}&rdquo;.
               </div>
             )}
-        </ScrollArea>
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

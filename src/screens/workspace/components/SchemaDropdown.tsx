@@ -73,7 +73,8 @@ export function SchemaDropdown({
     dbType === DbType.PostgreSQL ||
     dbType === DbType.SQLServer ||
     dbType === DbType.Oracle ||
-    dbType === DbType.Trino;
+    dbType === DbType.Trino ||
+    dbType === DbType.DuckDB;
   const canCreateSchema =
     dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 

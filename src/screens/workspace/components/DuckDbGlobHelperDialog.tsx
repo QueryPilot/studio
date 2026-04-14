@@ -24,8 +24,6 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { insertSqlIntoFocusedEditor } from "@/utils/insertSqlIntoFocusedEditor";
 import { isTauri } from "@/utils/tauri";
 
-const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
-
 type FileKind = "parquet" | "csv" | "json";
 
 const READ_FN: Record<FileKind, string> = {
@@ -92,6 +90,7 @@ function DuckDbGlobHelperForm({ onClose }: DuckDbGlobHelperFormProps) {
       return;
     }
     try {
+      const { open: openDialog } = await import("@tauri-apps/plugin-dialog");
       const selected = await openDialog({
         title: "Base directory",
         directory: true,

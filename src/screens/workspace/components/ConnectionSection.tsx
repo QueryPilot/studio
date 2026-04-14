@@ -41,6 +41,12 @@ import {
   IconHash,
   IconPackage,
   IconPlus,
+  IconFileExport,
+  IconKey,
+  IconPuzzle,
+  IconBuildingWarehouse,
+  IconPlugConnectedX,
+  IconFileCode,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -176,6 +182,7 @@ import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
 import { DuckDbGlobHelperDialog } from "./DuckDbGlobHelperDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
 import { DuckDbAttachCatalogDialog } from "./DuckDbAttachCatalogDialog";
+import { DuckDbAttachedDatabaseSection } from "./DuckDbAttachedDatabaseSection";
 import { DuckDbSecretsPanel } from "./DuckDbSecretsPanel";
 import { DuckDbExtensionsPanel } from "./DuckDbExtensionsPanel";
 import {
@@ -1898,7 +1905,7 @@ export const ConnectionSection = forwardRef<
     }
   };
 
-  const handleAttachDatabase = async (
+  const handleAttachDatabase = useCallback(async (
     path: string,
     alias: string,
     attachDbType: string | undefined,
@@ -1915,7 +1922,14 @@ export const ConnectionSection = forwardRef<
       toast.success(`Database attached as "${alias}"`, { id: toastId });
       refreshConnectionData(connection);
       void queryClient.invalidateQueries({
-        queryKey: ["attached-databases", connectionId],
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[1] === connectionId &&
+          (q.queryKey[0] === "attached-databases" ||
+            q.queryKey[0] === "schemas" ||
+            q.queryKey[0] === "databases" ||
+            q.queryKey[0] === "tables" ||
+            q.queryKey[0] === "useSchemaData.SchemaData"),
       });
       setDuckDbAttachDialogOpen(false);
     } catch (error) {
@@ -1924,9 +1938,9 @@ export const ConnectionSection = forwardRef<
         description: error instanceof Error ? error.message : String(error),
       });
     }
-  };
+  }, [connectionId, connection, queryClient]);
 
-  const handleAttachCatalog = async (
+  const handleAttachCatalog = useCallback(async (
     request: import("@/services/backend").DuckDbAttachCatalogRequest,
   ) => {
     const toastId = toast.loading("Attaching catalog...");
@@ -1935,7 +1949,14 @@ export const ConnectionSection = forwardRef<
       toast.success(`Catalog attached as "${request.alias}"`, { id: toastId });
       refreshConnectionData(connection);
       void queryClient.invalidateQueries({
-        queryKey: ["attached-databases", connectionId],
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[1] === connectionId &&
+          (q.queryKey[0] === "attached-databases" ||
+            q.queryKey[0] === "schemas" ||
+            q.queryKey[0] === "databases" ||
+            q.queryKey[0] === "tables" ||
+            q.queryKey[0] === "useSchemaData.SchemaData"),
       });
       setDuckDbAttachCatalogDialogOpen(false);
     } catch (error) {
@@ -1944,16 +1965,23 @@ export const ConnectionSection = forwardRef<
         description: error instanceof Error ? error.message : String(error),
       });
     }
-  };
+  }, [connectionId, connection, queryClient]);
 
-  const handleDetachDatabase = async (alias: string) => {
+  const handleDetachDatabase = useCallback(async (alias: string) => {
     const toastId = toast.loading(`Detaching "${alias}"...`);
     try {
       await BackendAPI.duckdbDetachDatabase(connectionId, alias);
       toast.success(`Database "${alias}" detached`, { id: toastId });
       refreshConnectionData(connection);
       void queryClient.invalidateQueries({
-        queryKey: ["attached-databases", connectionId],
+        predicate: (q) =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[1] === connectionId &&
+          (q.queryKey[0] === "attached-databases" ||
+            q.queryKey[0] === "schemas" ||
+            q.queryKey[0] === "databases" ||
+            q.queryKey[0] === "tables" ||
+            q.queryKey[0] === "useSchemaData.SchemaData"),
       });
     } catch (error) {
       toast.error("Failed to detach database", {
@@ -1961,7 +1989,7 @@ export const ConnectionSection = forwardRef<
         description: error instanceof Error ? error.message : String(error),
       });
     }
-  };
+  }, [connectionId, connection, queryClient]);
 
   const handleRevealDuckDbFile = async () => {
     if (!duckDbFilePath) {
@@ -3023,6 +3051,72 @@ export const ConnectionSection = forwardRef<
                 <IconFolderOpen className="h-4 w-4 mr-2" />
                 Reveal File
               </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                onClick={() => {
+                  setDuckDbExportSource({ type: "query", sql: "" });
+                  setDuckDbExportDialogOpen(true);
+                }}
+              >
+                <IconFileExport className="h-4 w-4 mr-2" />
+                Export...
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => { setDuckDbAttachDialogOpen(true); }}
+              >
+                <IconPlugConnected className="h-4 w-4 mr-2" />
+                Attach Database...
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => { setDuckDbAttachCatalogDialogOpen(true); }}
+              >
+                <IconBuildingWarehouse className="h-4 w-4 mr-2" />
+                Attach Catalog...
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => { setDuckDbSecretsPanelOpen(true); }}
+              >
+                <IconKey className="h-4 w-4 mr-2" />
+                Secrets...
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => { setDuckDbExtensionsPanelOpen(true); }}
+              >
+                <IconPuzzle className="h-4 w-4 mr-2" />
+                Extensions...
+              </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => { setDuckDbGlobHelperDialogOpen(true); }}
+              >
+                <IconFileCode className="h-4 w-4 mr-2" />
+                File Pattern Helper...
+              </ContextMenuItem>
+              {attachedDatabases.filter(
+                (db) => db.databaseName !== "memory" && db.databaseName !== "system",
+              ).length > 0 && (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger>
+                    <IconPlugConnectedX className="h-4 w-4 mr-2" />
+                    Detach Database
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    {attachedDatabases
+                      .filter((db) => db.databaseName !== "memory" && db.databaseName !== "system")
+                      .map((db) => (
+                        <ContextMenuItem
+                          key={db.databaseName}
+                          onClick={() => { void handleDetachDatabase(db.databaseName); }}
+                        >
+                          <span className="truncate">{db.databaseName}</span>
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {db.dbType || "duckdb"}
+                            {db.readOnly ? " (ro)" : ""}
+                          </span>
+                        </ContextMenuItem>
+                      ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              )}
             </>
           )}
           <ContextMenuSeparator />
@@ -3299,6 +3393,78 @@ export const ConnectionSection = forwardRef<
                   }
                   onSelectAll={handleSelectAllTables}
                   onCopyAllNames={handleCopyAllTableNames}
+                  extraContextMenuItems={
+                    dbType === DbType.DuckDB ? (
+                      <>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          onClick={() => {
+                            setDuckDbExportSource({ type: "query", sql: "" });
+                            setDuckDbExportDialogOpen(true);
+                          }}
+                        >
+                          <IconFileExport className="h-4 w-4 mr-2" />
+                          Export...
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => { setDuckDbAttachDialogOpen(true); }}
+                        >
+                          <IconPlugConnected className="h-4 w-4 mr-2" />
+                          Attach Database...
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => { setDuckDbAttachCatalogDialogOpen(true); }}
+                        >
+                          <IconBuildingWarehouse className="h-4 w-4 mr-2" />
+                          Attach Catalog...
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => { setDuckDbSecretsPanelOpen(true); }}
+                        >
+                          <IconKey className="h-4 w-4 mr-2" />
+                          Secrets...
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => { setDuckDbExtensionsPanelOpen(true); }}
+                        >
+                          <IconPuzzle className="h-4 w-4 mr-2" />
+                          Extensions...
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => { setDuckDbGlobHelperDialogOpen(true); }}
+                        >
+                          <IconFileCode className="h-4 w-4 mr-2" />
+                          File Pattern Helper...
+                        </ContextMenuItem>
+                        {attachedDatabases.filter(
+                          (db) => db.databaseName !== "memory" && db.databaseName !== "system",
+                        ).length > 0 && (
+                          <ContextMenuSub>
+                            <ContextMenuSubTrigger>
+                              <IconPlugConnectedX className="h-4 w-4 mr-2" />
+                              Detach Database
+                            </ContextMenuSubTrigger>
+                            <ContextMenuSubContent>
+                              {attachedDatabases
+                                .filter((db) => db.databaseName !== "memory" && db.databaseName !== "system")
+                                .map((db) => (
+                                  <ContextMenuItem
+                                    key={db.databaseName}
+                                    onClick={() => { void handleDetachDatabase(db.databaseName); }}
+                                  >
+                                    <span className="truncate">{db.databaseName}</span>
+                                    <span className="ml-2 text-xs text-muted-foreground">
+                                      {db.dbType || "duckdb"}
+                                      {db.readOnly ? " (ro)" : ""}
+                                    </span>
+                                  </ContextMenuItem>
+                                ))}
+                            </ContextMenuSubContent>
+                          </ContextMenuSub>
+                        )}
+                      </>
+                    ) : undefined
+                  }
                 >
                   {sidebarDraftTables.map((draft) => {
                     const isDraftActive = Boolean(
@@ -3578,6 +3744,32 @@ export const ConnectionSection = forwardRef<
                   })}
                 </SidebarSection>
               )}
+
+              {/* Attached Databases (DuckDB only) */}
+              {dbType === DbType.DuckDB &&
+                attachedDatabases
+                  .filter((db) => {
+                    if (db.databaseName === "memory" || db.databaseName === "system") {
+                      return false;
+                    }
+                    // Exclude the primary/current database of this connection
+                    const primaryDbName = connection.database
+                      ?.split(/[/\\]/)
+                      .pop()
+                      ?.replace(/\.duckdb$/i, "");
+                    return db.databaseName !== primaryDbName;
+                  })
+                  .map((db) => (
+                    <DuckDbAttachedDatabaseSection
+                      key={`attached-${db.databaseName}`}
+                      connectionId={connectionId}
+                      dbName={db.databaseName}
+                      dbType={db.dbType}
+                      readOnly={db.readOnly}
+                      onTableClick={(table) => { handleTableClick(table, "data"); }}
+                      onDetach={(name) => { void handleDetachDatabase(name); }}
+                    />
+                  ))}
 
               {/* Functions Section */}
               {allFunctions.length > 0 && (
@@ -4142,6 +4334,7 @@ export const ConnectionSection = forwardRef<
           setDuckDbAttachDialogOpen(false);
         }}
         onSubmit={handleAttachDatabase}
+        currentConnectionId={connectionId}
       />
 
       <DuckDbAttachCatalogDialog

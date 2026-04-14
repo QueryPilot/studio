@@ -240,6 +240,7 @@ mod db_type_tests {
             DbType::MySQL,
             DbType::SQLite,
             DbType::DuckDB,
+            DbType::MotherDuck,
             DbType::SQLServer,
             DbType::Oracle,
         ];
@@ -263,6 +264,22 @@ mod db_type_tests {
         assert!(DbType::DuckDB.is_sql());
         assert!(!DbType::DuckDB.is_document());
         assert!(!DbType::DuckDB.is_keyvalue());
+    }
+
+    #[test]
+    fn test_motherduck_is_sql_paradigm() {
+        assert_eq!(DbType::MotherDuck.paradigm(), DatabaseParadigm::Sql);
+        assert!(DbType::MotherDuck.is_sql());
+        assert!(!DbType::MotherDuck.is_document());
+        assert!(!DbType::MotherDuck.is_keyvalue());
+    }
+
+    #[test]
+    fn test_motherduck_serialization() {
+        let md = DbType::MotherDuck;
+        let json = serde_json::to_string(&md).unwrap();
+        let deserialized: DbType = serde_json::from_str(&json).unwrap();
+        assert_eq!(md, deserialized);
     }
 }
 

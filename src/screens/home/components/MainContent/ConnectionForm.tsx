@@ -1239,10 +1239,10 @@ export function ConnectionForm() {
               <span>{currentDbType?.label}</span>
             </div>
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="min-w-[13rem]">
             {dbTypeOptions.map((opt) => (
               <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 whitespace-nowrap pr-2">
                   <img src={opt.logo} alt={opt.label} className="h-3.5 w-3.5" />
                   {opt.label}
                   {opt.beta && (

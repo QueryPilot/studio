@@ -483,27 +483,51 @@ export default function DuckDbPreferencesPanel() {
     [resetMutation],
   );
 
+  const [isApplyingPreset, setIsApplyingPreset] = useState(false);
+
   const applyPreset = useCallback(
     async (presetKey: string) => {
       const preset = PRESETS[presetKey];
       if (!preset || !connId) return;
 
+      setIsApplyingPreset(true);
+      const entries = Object.entries(preset.settings);
+      let applied = 0;
+      const failures: string[] = [];
+
       try {
-        for (const [name, value] of Object.entries(preset.settings)) {
-          await BackendAPI.duckdbSetSetting(connId, name, value);
+        for (const [name, value] of entries) {
+          try {
+            await BackendAPI.duckdbSetSetting(connId, name, value);
+            applied += 1;
+          } catch (err) {
+            failures.push(`${name}: ${String(err)}`);
+          }
         }
-        toast.success(`"${preset.label}" preset applied`);
+
+        if (failures.length === 0) {
+          toast.success(`"${preset.label}" preset applied (${applied} settings)`);
+        } else if (applied > 0) {
+          toast.warning(`Preset partially applied`, {
+            description: `${applied}/${entries.length} succeeded. Failed: ${failures.join("; ")}`,
+          });
+        } else {
+          toast.error(`Failed to apply preset`, {
+            description: failures.join("; "),
+          });
+        }
+
         void queryClient.invalidateQueries({
           queryKey: ["duckdb-settings", connId],
         });
-      } catch (err) {
-        toast.error(`Failed to apply preset`, { description: String(err) });
+      } finally {
+        setIsApplyingPreset(false);
       }
     },
     [connId, queryClient],
   );
 
-  const isPending = setMutation.isPending || resetMutation.isPending;
+  const isPending = setMutation.isPending || resetMutation.isPending || isApplyingPreset;
 
   if (!connId) {
     return (

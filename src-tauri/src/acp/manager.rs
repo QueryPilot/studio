@@ -18,7 +18,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use agent_client_protocol::{
     Agent, CancelNotification, Client, ClientCapabilities, ClientSideConnection, ContentBlock,
-    FileSystemCapability, Implementation, InitializeRequest, ModelId, NewSessionRequest,
+    FileSystemCapabilities, Implementation, InitializeRequest, ModelId, NewSessionRequest,
     PermissionOptionKind, PromptRequest, PromptResponse, ProtocolVersion, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome, SessionId,
     SessionNotification, SetSessionModelRequest, ToolKind,
@@ -604,7 +604,7 @@ impl AcpWorker {
 
         // Initialize ACP handshake
         let client_caps = ClientCapabilities::new()
-            .fs(FileSystemCapability::default())
+            .fs(FileSystemCapabilities::default())
             .terminal(false);
 
         let client_info =

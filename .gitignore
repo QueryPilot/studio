@@ -30,8 +30,14 @@ dist-ssr
 *.duckdb
 *.duckdb.wal
 
-# Seed data files
-seeds/duckdb/
+# Seed data files (binary/generated — scripts are tracked)
+seeds/duckdb/*.duckdb
+seeds/duckdb/*.duckdb.wal
+seeds/duckdb/*.parquet
+seeds/duckdb/*.csv
+seeds/duckdb/*.json
+seeds/duckdb/*.jsonl
+seeds/duckdb/test_exports/
 
 # Env files
 .env

@@ -302,7 +302,7 @@ function DuckDbCreateSecretForm({
           <Checkbox
             id="secret-persistent"
             checked={persistent}
-            onCheckedChange={setPersistent}
+            onCheckedChange={(checked) => { setPersistent(checked === true); }}
           />
           <Label htmlFor="secret-persistent" className="text-sm font-normal">
             Persistent (survives restarts)

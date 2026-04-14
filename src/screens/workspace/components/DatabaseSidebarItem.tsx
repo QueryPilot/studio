@@ -37,6 +37,8 @@ interface SidebarSectionProps {
   onCollapseAll?: () => void;
   onSelectAll?: () => void;
   onCopyAllNames?: () => void;
+  /** Extra context menu items rendered after the built-in ones */
+  extraContextMenuItems?: ReactNode;
 }
 
 export function SidebarSection({
@@ -54,9 +56,10 @@ export function SidebarSection({
   onCollapseAll,
   onSelectAll,
   onCopyAllNames,
+  extraContextMenuItems,
 }: SidebarSectionProps) {
   const hasContextMenu =
-    onExpandAll || onCollapseAll || onSelectAll || onCopyAllNames;
+    onExpandAll || onCollapseAll || onSelectAll || onCopyAllNames || extraContextMenuItems;
 
   const headerContent = (
     <div className="flex items-center bg-muted/50 rounded-l text-xs text-foreground/80 dark:text-foreground/70">
@@ -152,6 +155,7 @@ export function SidebarSection({
                   Copy All Names
                 </ContextMenuItem>
               )}
+              {extraContextMenuItems}
             </ContextMenuContent>
           </ContextMenu>
         ) : (
