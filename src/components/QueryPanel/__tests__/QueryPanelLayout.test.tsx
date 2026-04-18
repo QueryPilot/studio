@@ -28,10 +28,6 @@ vi.mock("../QueryToolbar", () => ({
   QueryToolbar: () => <div data-testid="query-toolbar" />,
 }));
 
-vi.mock("../QueryOutline", () => ({
-  QueryOutline: () => null,
-}));
-
 vi.mock("../ResultViewer", () => ({
   ResultViewer: () => <div data-testid="result-viewer" />,
 }));
@@ -61,7 +57,6 @@ describe("QueryPanelLayout", () => {
       onDialectDetected: vi.fn(),
       hasQuery: true,
       showResults: true,
-      showOutline: false,
       focused: true,
       detectedDialect: "sql",
       runButtonLabel: "Run",
@@ -69,10 +64,7 @@ describe("QueryPanelLayout", () => {
       onCancel: vi.fn(),
       onBeautify: vi.fn(),
       onToggleResults: vi.fn(),
-      onToggleOutline: vi.fn(),
       onDialectChange: vi.fn(),
-      deferredQuery: "SELECT 1",
-      onCloseOutline: vi.fn(),
       batchResults: [],
       activeBatchResultIndex: 0,
       onActiveBatchResultChange: vi.fn(),

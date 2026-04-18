@@ -189,7 +189,9 @@ impl DuckDbAdapter {
     fn fetch_query_progress_sql(conn: &Connection) -> Result<DuckDbQueryProgress> {
         let mut stmt = conn
             .prepare("SELECT * FROM duckdb_query_progress()")
-            .map_err(|e| AppError::DatabaseError(format!("duckdb_query_progress prepare: {}", e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("duckdb_query_progress prepare: {}", e))
+            })?;
         let mut rows = stmt
             .query([])
             .map_err(|e| AppError::DatabaseError(format!("duckdb_query_progress query: {}", e)))?;
@@ -204,7 +206,10 @@ impl DuckDbAdapter {
             AppError::DatabaseError(format!("duckdb_query_progress percentage column: {}", e))
         })?;
         let rows_processed_i: i64 = row.get(1).map_err(|e| {
-            AppError::DatabaseError(format!("duckdb_query_progress rows_processed column: {}", e))
+            AppError::DatabaseError(format!(
+                "duckdb_query_progress rows_processed column: {}",
+                e
+            ))
         })?;
         let total_rows_i: i64 = row.get(2).map_err(|e| {
             AppError::DatabaseError(format!("duckdb_query_progress total_rows column: {}", e))
@@ -224,7 +229,11 @@ impl DuckDbAdapter {
             cache
                 .lock()
                 .map(|g| g.clone().unwrap_or_else(DuckDbQueryProgress::idle))
-                .unwrap_or_else(|e| e.into_inner().clone().unwrap_or_else(DuckDbQueryProgress::idle))
+                .unwrap_or_else(|e| {
+                    e.into_inner()
+                        .clone()
+                        .unwrap_or_else(DuckDbQueryProgress::idle)
+                })
         })
         .await
         .unwrap_or_else(|_| DuckDbQueryProgress::idle())
@@ -383,10 +392,21 @@ impl DuckDbAdapter {
     }
 
     fn validate_identifier(identifier: &str, label: &str) -> Result<()> {
-        if identifier.trim().is_empty() {
+        let trimmed = identifier.trim();
+        if trimmed.is_empty() {
             return Err(AppError::InvalidInput(format!(
                 "{} must not be empty",
                 label
+            )));
+        }
+        if trimmed.contains('\0')
+            || trimmed.contains(';')
+            || trimmed.contains("--")
+            || trimmed.contains("/*")
+        {
+            return Err(AppError::InvalidInput(format!(
+                "{} '{}' contains unsafe characters",
+                label, trimmed
             )));
         }
         Ok(())
@@ -1269,7 +1289,7 @@ impl DuckDbAdapter {
         }
         let name = name.to_string();
         self.execute_blocking(move |conn| {
-            conn.execute_batch(&format!("INSTALL '{}'; LOAD '{}';", name, name))
+            conn.execute_batch(&format!("INSTALL '{}'", name))
                 .map_err(|e| {
                     AppError::DatabaseError(format!("Failed to install extension: {}", e))
                 })?;
@@ -1288,9 +1308,7 @@ impl DuckDbAdapter {
         let name = name.to_string();
         self.execute_blocking(move |conn| {
             conn.execute_batch(&format!("LOAD '{}'", name))
-                .map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to load extension: {}", e))
-                })?;
+                .map_err(|e| AppError::DatabaseError(format!("Failed to load extension: {}", e)))?;
             Ok(())
         })
         .await
@@ -1643,10 +1661,7 @@ impl DuckDbAdapter {
                 "Alias must not be empty".to_string(),
             ));
         }
-        if !alias
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_')
-        {
+        if !alias.chars().all(|c| c.is_alphanumeric() || c == '_') {
             return Err(AppError::InvalidInput(format!(
                 "Alias '{}' contains invalid characters. Only alphanumeric and underscores allowed.",
                 alias
@@ -1720,9 +1735,9 @@ impl DuckDbAdapter {
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             let mut databases = Vec::new();
-            while let Some(row) =
-                rows.next()
-                    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?
             {
                 databases.push(DuckDbAttachedDatabase {
                     database_name: row
@@ -1819,14 +1834,17 @@ impl DuckDbAdapter {
                     format!("SELECT count(*) FROM ({})", sql)
                 }
                 DuckDbExportSource::Table { schema, name } => {
-                    format!("SELECT count(*) FROM {}", Self::qualified_name(schema, name))
+                    format!(
+                        "SELECT count(*) FROM {}",
+                        Self::qualified_name(schema, name)
+                    )
                 }
             };
-            let rows_exported: i64 = conn
-                .query_row(&count_sql, [], |row| row.get(0))
-                .map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to count export rows: {}", e))
-                })?;
+            let rows_exported: i64 =
+                conn.query_row(&count_sql, [], |row| row.get(0))
+                    .map_err(|e| {
+                        AppError::DatabaseError(format!("Failed to count export rows: {}", e))
+                    })?;
 
             let options_str = Self::build_copy_options(&request.format, &request.options)?;
             let copy_sql = format!(
@@ -1836,9 +1854,8 @@ impl DuckDbAdapter {
                 options_str
             );
 
-            conn.execute_batch(&copy_sql).map_err(|e| {
-                AppError::DatabaseError(format!("COPY TO failed: {}", e))
-            })?;
+            conn.execute_batch(&copy_sql)
+                .map_err(|e| AppError::DatabaseError(format!("COPY TO failed: {}", e)))?;
 
             Ok(DuckDbExportResult {
                 rows_exported,
@@ -1894,9 +1911,8 @@ impl DuckDbAdapter {
                 clauses.join(", ")
             );
 
-            conn.execute_batch(&sql).map_err(|e| {
-                AppError::DatabaseError(format!("Failed to create secret: {}", e))
-            })?;
+            conn.execute_batch(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to create secret: {}", e)))?;
 
             Ok(())
         })
@@ -1906,9 +1922,7 @@ impl DuckDbAdapter {
     pub async fn list_secrets(&self) -> Result<Vec<DuckDbSecretInfo>> {
         self.execute_blocking(|conn| {
             let mut stmt = conn
-                .prepare(
-                    "SELECT name, type, provider, scope, persistent FROM duckdb_secrets()",
-                )
+                .prepare("SELECT name, type, provider, scope, persistent FROM duckdb_secrets()")
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             let mut rows = stmt
@@ -1916,9 +1930,9 @@ impl DuckDbAdapter {
                 .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
             let mut secrets = Vec::new();
-            while let Some(row) =
-                rows.next()
-                    .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?
             {
                 let name: String = row
                     .get(0)
@@ -1964,20 +1978,66 @@ impl DuckDbAdapter {
     }
 
     pub async fn drop_secret(&self, name: String, persistent: bool) -> Result<()> {
+        let sql = Self::build_drop_secret_sql(&name, persistent)?;
         self.execute_blocking(move |conn| {
-            Self::validate_identifier(&name, "Secret name")?;
-
-            let sql = if persistent {
-                format!("DROP PERSISTENT SECRET {}", Self::quote_identifier(&name))
-            } else {
-                format!("DROP SECRET {}", Self::quote_identifier(&name))
-            };
-
-            conn.execute_batch(&sql).map_err(|e| {
-                AppError::DatabaseError(format!("Failed to drop secret: {}", e))
-            })?;
-
+            conn.execute_batch(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to drop secret: {}", e)))?;
             Ok(())
+        })
+        .await
+    }
+
+    pub fn build_drop_secret_sql(name: &str, persistent: bool) -> Result<String> {
+        Self::validate_identifier(name, "Secret name")?;
+        if persistent {
+            Ok(format!(
+                "DROP PERSISTENT SECRET {}",
+                Self::quote_identifier(name)
+            ))
+        } else {
+            Ok(format!("DROP SECRET {}", Self::quote_identifier(name)))
+        }
+    }
+
+    pub fn build_create_secret_sql(
+        payload: &crate::types::DecryptedSecretPayload,
+    ) -> Result<String> {
+        Self::validate_identifier(&payload.name, "Secret name")?;
+        Self::validate_sql_key(&payload.secret_type, "Secret type")?;
+        let mut parts: Vec<String> = Vec::new();
+        parts.push(format!("TYPE {}", payload.secret_type.to_uppercase()));
+        if let Some(provider) = &payload.provider {
+            Self::validate_sql_key(provider, "Provider")?;
+            parts.push(format!("PROVIDER {}", Self::quote_string_literal(provider)));
+        }
+        // Stable order for deterministic SQL (sort keys alphabetically).
+        let mut keys: Vec<&String> = payload.params.keys().collect();
+        keys.sort();
+        for key in keys {
+            let value = &payload.params[key];
+            if value.is_empty() {
+                continue;
+            }
+            Self::validate_sql_key(key, "Secret parameter key")?;
+            parts.push(format!(
+                "{} {}",
+                key.to_uppercase(),
+                Self::quote_string_literal(value)
+            ));
+        }
+        // Space-separated — NOT comma-joined.
+        Ok(format!(
+            "CREATE OR REPLACE SECRET {} ({})",
+            Self::quote_identifier(&payload.name),
+            parts.join(" ")
+        ))
+    }
+
+    pub async fn issue_secret(&self, payload: crate::types::DecryptedSecretPayload) -> Result<()> {
+        let sql = Self::build_create_secret_sql(&payload)?;
+        self.execute_blocking(move |conn| {
+            conn.execute_batch(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to issue secret: {}", e)))
         })
         .await
     }
@@ -1989,10 +2049,7 @@ impl DuckDbAdapter {
             self.disconnect().await?;
         }
 
-        let token = profile
-            .password
-            .clone()
-            .unwrap_or_default();
+        let token = profile.password.clone().unwrap_or_default();
         let database = profile.database.clone();
 
         let conn = tokio::task::spawn_blocking(move || {
@@ -2028,10 +2085,7 @@ impl DuckDbAdapter {
             } else {
                 format!("md:{}", database)
             };
-            let attach_sql = format!(
-                "ATTACH {}",
-                Self::quote_string_literal(&attach_target)
-            );
+            let attach_sql = format!("ATTACH {}", Self::quote_string_literal(&attach_target));
             conn.execute_batch(&attach_sql).map_err(|e| {
                 AppError::DatabaseError(format!("Failed to attach MotherDuck database: {}", e))
             })?;
@@ -2046,6 +2100,11 @@ impl DuckDbAdapter {
         }
         *self.connection.lock().await = Some(conn);
         *self.db_path.lock().await = None;
+
+        // Same reason as the standard connect() path: tab-scoped reconnects
+        // need to replay profile-declared attachments.
+        self.replay_profile_attachments_non_secret(profile).await;
+
         Ok(())
     }
 }
@@ -2132,6 +2191,15 @@ impl BaseCapability for DuckDbAdapter {
         }
         *self.connection.lock().await = Some(conn);
         *self.db_path.lock().await = Some(db_path);
+
+        // ATTACH state lives per-connection in DuckDB. Streaming queries use a
+        // tab-scoped connection key ({conn_id}:{tab_id}), so every new tab
+        // creates a fresh adapter that would otherwise lack the catalogs the
+        // user already attached on the base connection. Replay non-secret
+        // attachments from the profile here so these per-tab connections can
+        // resolve three-part identifiers like `"pg"."public"."t"`.
+        self.replay_profile_attachments_non_secret(profile).await;
+
         Ok(())
     }
 
@@ -2174,10 +2242,15 @@ impl BaseCapability for DuckDbAdapter {
     }
 
     fn is_connected(&self) -> bool {
-        self.connection
-            .try_lock()
-            .map(|guard| guard.is_some())
-            .unwrap_or(false)
+        // Contention (another query holds the mutex) is NOT evidence that the
+        // connection is dead — quite the opposite. Treat `try_lock` failure as
+        // "still connected" so the manager's health path doesn't tear down a
+        // live adapter that happens to be mid-query, which would drop its
+        // ATTACH state and force a re-replay.
+        match self.connection.try_lock() {
+            Ok(guard) => guard.is_some(),
+            Err(_) => true,
+        }
     }
 
     fn get_capabilities(&self) -> Vec<AdapterCapability> {
@@ -2380,6 +2453,8 @@ pub struct DuckDbAttachCatalogRequest {
     pub alias: String,
     pub catalog_uri: String,
     pub extra_options: HashMap<String, String>,
+    #[serde(default)]
+    pub read_only: bool,
 }
 
 impl DuckDbAdapter {
@@ -2418,6 +2493,11 @@ impl DuckDbAdapter {
             }
 
             for (key, value) in &request.extra_options {
+                // READ_ONLY is a bare token in DuckDB's ATTACH grammar, not a
+                // quoted string — surface it via `read_only` on the request.
+                if key.eq_ignore_ascii_case("READ_ONLY") {
+                    continue;
+                }
                 if !value.is_empty() {
                     Self::validate_sql_key(key, "Catalog option key")?;
                     options.push(format!(
@@ -2426,6 +2506,9 @@ impl DuckDbAdapter {
                         Self::quote_string_literal(value)
                     ));
                 }
+            }
+            if request.read_only {
+                options.push("READ_ONLY".into());
             }
 
             let attach_path = if ext_name == "ducklake" {
@@ -2441,13 +2524,370 @@ impl DuckDbAdapter {
                 options.join(", ")
             );
 
-            conn.execute_batch(&sql).map_err(|e| {
-                AppError::DatabaseError(format!("Failed to attach catalog: {}", e))
-            })?;
+            conn.execute_batch(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to attach catalog: {}", e)))?;
 
             Ok(request.alias)
         })
         .await
+    }
+}
+
+// ── Phase 3: DuckDB persistence — attach, replay ─────────────────────────────
+
+/// A step in the replay plan.
+#[derive(Debug)]
+pub enum ReplayStep {
+    Extension(String),
+    Secret(String),
+    Attach(String),
+}
+
+impl DuckDbAdapter {
+    /// Returns the DuckDB extension name required to handle a given attachment kind.
+    pub fn required_extension(kind: crate::types::AttachmentKind) -> Option<String> {
+        use crate::types::AttachmentKind;
+        match kind {
+            AttachmentKind::Iceberg => Some("iceberg".into()),
+            AttachmentKind::Delta => Some("delta".into()),
+            AttachmentKind::Ducklake => Some("ducklake".into()),
+            AttachmentKind::Postgres => Some("postgres".into()),
+            AttachmentKind::Mysql => Some("mysql".into()),
+            AttachmentKind::Sqlite => Some("sqlite".into()),
+            AttachmentKind::Duckdb => None,
+        }
+    }
+
+    /// Build an ATTACH SQL statement for the given attachment.
+    pub fn build_attach_sql(
+        att: &crate::types::Attachment,
+        secret_name: Option<&str>,
+    ) -> Result<String> {
+        use crate::types::AttachmentKind;
+        Self::validate_attach_alias(&att.alias)?;
+
+        let mut options: Vec<String> = Vec::new();
+
+        let type_upper = match &att.kind {
+            AttachmentKind::Iceberg => "ICEBERG",
+            AttachmentKind::Delta => "DELTA",
+            AttachmentKind::Ducklake => "DUCKLAKE",
+            AttachmentKind::Postgres => "POSTGRES",
+            AttachmentKind::Mysql => "MYSQL",
+            AttachmentKind::Sqlite => "SQLITE",
+            AttachmentKind::Duckdb => "DUCKDB",
+        };
+        options.push(format!("TYPE {}", type_upper));
+
+        if let Some(sn) = secret_name {
+            Self::validate_identifier(sn, "Secret name")?;
+            options.push(format!("SECRET {}", Self::quote_identifier(sn)));
+        }
+
+        if att.read_only == Some(true) {
+            options.push("READ_ONLY".into());
+        }
+
+        if let Some(ref extra) = att.options {
+            let mut keys: Vec<&String> = extra.keys().collect();
+            keys.sort();
+            for key in keys {
+                let value = &extra[key];
+                if value.is_empty() {
+                    continue;
+                }
+                Self::validate_sql_key(key, "Attachment option key")?;
+                options.push(format!(
+                    "{} {}",
+                    key.to_uppercase(),
+                    Self::quote_string_literal(value)
+                ));
+            }
+        }
+
+        // For ducklake, prepend the scheme
+        let attach_path = if att.kind == AttachmentKind::Ducklake {
+            format!("ducklake:{}", att.uri)
+        } else {
+            att.uri.clone()
+        };
+
+        Ok(format!(
+            "ATTACH {} AS {} ({})",
+            Self::quote_string_literal(&attach_path),
+            Self::quote_identifier(&att.alias),
+            options.join(", "),
+        ))
+    }
+
+    /// Execute an ATTACH for the given attachment, pre-loading required extensions.
+    pub async fn attach(
+        &self,
+        att: &crate::types::Attachment,
+        secret_name: Option<&str>,
+    ) -> Result<String> {
+        // Pre-load required extension
+        if let Some(ext) = Self::required_extension(att.kind.clone()) {
+            self.install_extension(&ext).await?;
+            self.load_extension(&ext).await?;
+        }
+        let sql = Self::build_attach_sql(att, secret_name)?;
+        let alias = att.alias.clone();
+        self.execute_blocking(move |conn| {
+            conn.execute_batch(&sql)
+                .map_err(|e| AppError::DatabaseError(format!("Failed to attach: {}", e)))?;
+            Ok(alias)
+        })
+        .await
+    }
+
+    /// Re-run extensions and non-secret attachments from the profile on a freshly
+    /// opened connection. DuckDB ATTACH state lives per-connection, so tab-scoped
+    /// or idle-reaper-reconnected adapter instances need to replay the catalogs
+    /// already persisted on the profile, otherwise queries like
+    /// `SELECT * FROM "pg"."public"."t"` fail with `Binder Error: Catalog "pg"
+    /// does not exist` even though the base connection has it attached.
+    ///
+    /// Secret-backed attachments are skipped because decrypted secrets only
+    /// exist in the frontend vault and must be replayed via `duckdb_replay_setup`.
+    /// All errors are non-fatal — logged and discarded so connect() still
+    /// succeeds on a partial replay.
+    async fn replay_profile_attachments_non_secret(&self, profile: &ConnectionProfile) {
+        let Some(db0) = profile.databases.first() else {
+            return;
+        };
+        let attachments: &[crate::types::Attachment] = db0.attachments.as_deref().unwrap_or(&[]);
+        let extensions: &[String] = db0.extensions.as_deref().unwrap_or(&[]);
+
+        if attachments.is_empty() && extensions.is_empty() {
+            return;
+        }
+
+        let already_attached: std::collections::HashSet<String> = self
+            .list_attached_databases()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| d.database_name.to_ascii_lowercase())
+            .collect();
+
+        // Install + load extensions first (profile-declared + derived from attachments).
+        let mut needed_exts: std::collections::BTreeSet<String> = Default::default();
+        for ext in extensions {
+            needed_exts.insert(ext.clone());
+        }
+        for att in attachments {
+            if let Some(ext) = Self::required_extension(att.kind.clone()) {
+                needed_exts.insert(ext);
+            }
+        }
+        for ext in &needed_exts {
+            if let Err(e) = self.install_extension(ext).await {
+                tracing::warn!(
+                    "DuckDB connect replay: install extension '{}' failed: {}",
+                    ext,
+                    e
+                );
+            }
+            if let Err(e) = self.load_extension(ext).await {
+                tracing::warn!(
+                    "DuckDB connect replay: load extension '{}' failed: {}",
+                    ext,
+                    e
+                );
+            }
+        }
+
+        for att in attachments {
+            if already_attached.contains(&att.alias.to_ascii_lowercase()) {
+                continue;
+            }
+            if att.secret_ref.is_some() {
+                tracing::debug!(
+                    "DuckDB connect replay: skipping '{}' (needs secret; frontend replay required)",
+                    att.alias
+                );
+                continue;
+            }
+            if let Err(e) = self.attach(att, None).await {
+                tracing::warn!(
+                    "DuckDB connect replay: attach '{}' failed: {}",
+                    att.alias,
+                    e
+                );
+            }
+        }
+    }
+
+    /// Build an ordered list of replay steps (extensions first, then secrets, then attaches).
+    pub fn replay_plan(
+        secrets: &[crate::types::DecryptedSecretPayload],
+        attachments: &[crate::types::Attachment],
+    ) -> Vec<ReplayStep> {
+        let mut steps = Vec::new();
+        let mut seen_ext: std::collections::HashSet<String> = Default::default();
+        for att in attachments {
+            if let Some(ext) = Self::required_extension(att.kind.clone()) {
+                if seen_ext.insert(ext.clone()) {
+                    steps.push(ReplayStep::Extension(ext));
+                }
+            }
+        }
+        for s in secrets {
+            steps.push(ReplayStep::Secret(s.name.clone()));
+        }
+        for a in attachments {
+            steps.push(ReplayStep::Attach(a.alias.clone()));
+        }
+        steps
+    }
+
+    /// Execute the full replay: extensions → secrets → attachments. Continues on
+    /// per-attachment errors (non-fatal), stops on extension/secret errors.
+    pub async fn replay(
+        &self,
+        app: Option<&tauri::AppHandle>,
+        connection_id: &str,
+        secrets: Vec<crate::types::DecryptedSecretPayload>,
+        attachments: Vec<crate::types::Attachment>,
+    ) -> (
+        Vec<crate::types::DatabaseEntry>,
+        Vec<crate::types::AttachmentError>,
+    ) {
+        let mut errors: Vec<crate::types::AttachmentError> = Vec::new();
+        // Snapshot currently-attached catalogs so Attach steps can skip aliases
+        // already present (e.g. when `DuckDbAdapter::connect` ran its own
+        // connect-time replay for non-secret attachments). DuckDB catalog names
+        // are case-insensitive, so normalise.
+        let already_attached: std::collections::HashSet<String> = self
+            .list_attached_databases()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|d| d.database_name.to_ascii_lowercase())
+            .collect();
+        // Track aliases that are live after replay (either skipped-because-
+        // already-attached or freshly attached here). Build the runtime list
+        // positively from this set so an early Extension/Secret failure that
+        // aborts the loop never silently admits unprocessed aliases.
+        let mut live_aliases: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let steps = Self::replay_plan(&secrets, &attachments);
+        for step in &steps {
+            let (kind_label, name) = match step {
+                ReplayStep::Extension(n) => ("extension", n.clone()),
+                ReplayStep::Secret(n) => ("secret", n.clone()),
+                ReplayStep::Attach(n) => ("attach", n.clone()),
+            };
+            if let ReplayStep::Attach(alias) = step {
+                if already_attached.contains(&alias.to_ascii_lowercase()) {
+                    live_aliases.insert(alias.clone());
+                    Self::emit_progress(app, connection_id, kind_label, &name, "ok");
+                    continue;
+                }
+            }
+            Self::emit_progress(app, connection_id, kind_label, &name, "started");
+            let result: Result<()> = match step {
+                ReplayStep::Extension(ext) => match self.install_extension(ext).await {
+                    Ok(()) => self.load_extension(ext).await,
+                    Err(e) => Err(e),
+                },
+                ReplayStep::Secret(sname) => {
+                    match secrets.iter().find(|s| &s.name == sname).cloned() {
+                        Some(payload) => self.issue_secret(payload).await,
+                        None => Err(AppError::Internal("secret missing".into())),
+                    }
+                }
+                ReplayStep::Attach(alias) => {
+                    match attachments.iter().find(|a| &a.alias == alias).cloned() {
+                        Some(att) => {
+                            let secret_ref = att.secret_ref.clone();
+                            self.attach(&att, secret_ref.as_deref()).await.map(|_| ())
+                        }
+                        None => Err(AppError::Internal("attachment missing".into())),
+                    }
+                }
+            };
+            match result {
+                Ok(()) => {
+                    if let ReplayStep::Attach(alias) = step {
+                        live_aliases.insert(alias.clone());
+                    }
+                    Self::emit_progress(app, connection_id, kind_label, &name, "ok");
+                }
+                Err(e) => {
+                    Self::emit_progress(app, connection_id, kind_label, &name, "error");
+                    if matches!(step, ReplayStep::Attach(_)) {
+                        errors.push(crate::types::AttachmentError {
+                            alias: name.clone(),
+                            message: e.to_string(),
+                        });
+                        // continue on attach errors
+                    } else {
+                        errors.push(crate::types::AttachmentError {
+                            alias: name.clone(),
+                            message: format!("{kind_label}: {e}"),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Build runtime DatabaseEntry list positively from aliases that are
+        // actually live now, preserving original declaration order.
+        let runtime = attachments
+            .iter()
+            .filter(|a| live_aliases.contains(&a.alias))
+            .map(|a| crate::types::DatabaseEntry {
+                name: a.alias.clone(),
+                visible_schemas: Self::default_visible_schemas_for(&a.kind),
+                attachments: None,
+                extensions: None,
+                secret_refs: None,
+            })
+            .collect();
+        (runtime, errors)
+    }
+
+    /// Sensible default `visible_schemas` for a freshly attached catalog so
+    /// the sidebar surfaces the conventional schema immediately instead of
+    /// collapsing to an empty catalog node. Kinds whose schema namespace is
+    /// data-defined (Iceberg/Delta/Ducklake, MySQL databases-as-schemas)
+    /// default to empty and let discovery populate the tree.
+    pub(crate) fn default_visible_schemas_for(
+        kind: &crate::types::AttachmentKind,
+    ) -> Vec<String> {
+        use crate::types::AttachmentKind;
+        match kind {
+            AttachmentKind::Duckdb | AttachmentKind::Sqlite => vec!["main".into()],
+            AttachmentKind::Postgres => vec!["public".into()],
+            AttachmentKind::Mysql
+            | AttachmentKind::Iceberg
+            | AttachmentKind::Delta
+            | AttachmentKind::Ducklake => Vec::new(),
+        }
+    }
+
+    fn emit_progress(
+        app: Option<&tauri::AppHandle>,
+        connection_id: &str,
+        step: &str,
+        name: &str,
+        status: &str,
+    ) {
+        if let Some(app) = app {
+            use tauri::Emitter;
+            let _ = app.emit(
+                "duckdb-replay-progress",
+                serde_json::json!({
+                    "connection_id": connection_id,
+                    "step": step,
+                    "name": name,
+                    "status": status,
+                }),
+            );
+        }
     }
 }
 
@@ -2470,16 +2910,23 @@ impl DuckDbAdapter {
                      FROM duckdb_settings() \
                      ORDER BY name",
                 )
-                .map_err(|e| AppError::DatabaseError(format!("Failed to prepare settings query: {}", e)))?;
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to prepare settings query: {}", e))
+                })?;
 
             let mut rows = stmt
                 .query([])
                 .map_err(|e| AppError::DatabaseError(format!("Failed to query settings: {}", e)))?;
 
             let mut settings = Vec::new();
-            while let Some(row) = rows.next().map_err(|e| AppError::DatabaseError(e.to_string()))? {
+            while let Some(row) = rows
+                .next()
+                .map_err(|e| AppError::DatabaseError(e.to_string()))?
+            {
                 settings.push(DuckDbSetting {
-                    name: row.get(0).map_err(|e| AppError::DatabaseError(e.to_string()))?,
+                    name: row
+                        .get(0)
+                        .map_err(|e| AppError::DatabaseError(e.to_string()))?,
                     value: row
                         .get::<_, Option<String>>(1)
                         .map_err(|e| AppError::DatabaseError(e.to_string()))?
@@ -2623,23 +3070,20 @@ impl DuckDbAdapter {
 
             let plan_text = lines.join("\n");
 
-            let total_time_ms = plan_text
-                .lines()
-                .rev()
-                .find_map(|line| {
-                    let trimmed = line.trim().to_lowercase();
-                    if !trimmed.starts_with("total time:") && !trimmed.starts_with("run time:") {
-                        return None;
-                    }
-                    let after_colon = trimmed.split(':').nth(1)?;
-                    after_colon
-                        .trim()
-                        .trim_end_matches('s')
-                        .trim()
-                        .parse::<f64>()
-                        .ok()
-                        .map(|secs| secs * 1000.0)
-                });
+            let total_time_ms = plan_text.lines().rev().find_map(|line| {
+                let trimmed = line.trim().to_lowercase();
+                if !trimmed.starts_with("total time:") && !trimmed.starts_with("run time:") {
+                    return None;
+                }
+                let after_colon = trimmed.split(':').nth(1)?;
+                after_colon
+                    .trim()
+                    .trim_end_matches('s')
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .map(|secs| secs * 1000.0)
+            });
 
             Ok(DuckDbQueryPlan {
                 plan_text,

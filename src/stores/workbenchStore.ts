@@ -58,7 +58,17 @@ interface WorkbenchStore {
     tabId: string,
     updates: Partial<TabMetadata>,
   ) => void;
-  
+
+  setTabSchemaOverride: (
+    tabId: string,
+    schemas: string[] | null,
+    effectiveDatabase?: string,
+  ) => void;
+  getTabSchemaOverride: (
+    tabId: string,
+  ) => { visibleSchemas: string[]; effectiveDatabase?: string } | undefined;
+  duplicateTab: (panelId: string, tabId: string, newTabId: string) => void;
+
   // Workspace layout persistence
   setLayoutTree: (tree: GridNode) => void;
   restorePanelContents: (contents: Map<string, PanelContent>) => void;
@@ -668,6 +678,71 @@ const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
         layoutTree: updatedTree,
         panelContents: newContents,
       });
+    },
+
+    setTabSchemaOverride: (tabId, schemas, effectiveDatabase) => {
+      if (schemas !== null && schemas.length === 0) {
+        throw new Error("schemaOverride.visibleSchemas must not be empty");
+      }
+      const { panelContents, layoutTree } = get();
+      if (!layoutTree) return;
+      for (const [panelId, panel] of panelContents) {
+        if (!panel.tabIds.includes(tabId)) continue;
+        const panelMetadata: Record<string, TabMetadata | undefined> = {
+          ...(panel.metadata ?? {}),
+        };
+        const current = panelMetadata[tabId] ?? {};
+        const next: TabMetadata = { ...current };
+        if (schemas === null) {
+          Reflect.deleteProperty(next, "schemaOverride");
+        } else {
+          next.schemaOverride = {
+            visibleSchemas: [...schemas],
+            ...(effectiveDatabase !== undefined ? { effectiveDatabase } : {}),
+          };
+        }
+        panelMetadata[tabId] = next;
+        const updatedPanel = { ...panel, metadata: panelMetadata };
+        const newContents = new Map(panelContents);
+        newContents.set(panelId, updatedPanel);
+        const updatedTree = updateSinglePanel(layoutTree, panelId, updatedPanel);
+        set({ layoutTree: updatedTree, panelContents: newContents });
+        return;
+      }
+    },
+
+    getTabSchemaOverride: (tabId) => {
+      const { panelContents } = get();
+      for (const panel of panelContents.values()) {
+        const meta = panel.metadata?.[tabId];
+        if (meta?.schemaOverride) return meta.schemaOverride as { visibleSchemas: string[]; effectiveDatabase?: string };
+      }
+      return undefined;
+    },
+
+    duplicateTab: (panelId, tabId, newTabId) => {
+      const { panelContents, layoutTree } = get();
+      if (!layoutTree) return;
+      const panel = panelContents.get(panelId);
+      if (!panel || !panel.tabIds.includes(tabId)) return;
+      const meta = panel.metadata?.[tabId];
+      const cloned: TabMetadata | undefined = meta
+        ? structuredClone(meta)
+        : undefined;
+      const newMetadata = {
+        ...(panel.metadata ?? {}),
+        ...(cloned ? { [newTabId]: cloned } : {}),
+      };
+      const updatedPanel = {
+        ...panel,
+        tabIds: [...panel.tabIds, newTabId],
+        activeTabId: newTabId,
+        metadata: newMetadata,
+      };
+      const newContents = new Map(panelContents);
+      newContents.set(panelId, updatedPanel);
+      const updatedTree = updateSinglePanel(layoutTree, panelId, updatedPanel);
+      set({ layoutTree: updatedTree, panelContents: newContents });
     },
 
     // Workspace layout persistence methods

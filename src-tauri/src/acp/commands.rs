@@ -786,7 +786,12 @@ pub async fn acp_install_package(
                 "yarn" => vec!["global", "add", &package_name],
                 _ => vec!["install", "-g", &package_name],
             };
-            tracing::info!("Installing {} via {} {:?}", package_name, package_manager, sub_args);
+            tracing::info!(
+                "Installing {} via {} {:?}",
+                package_name,
+                package_manager,
+                sub_args
+            );
             run_pm_command(&package_manager, &sub_args)
                 .map_err(|e| format!("Failed to run {}: {}", package_manager, e))?
         }

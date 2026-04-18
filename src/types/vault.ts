@@ -1,4 +1,14 @@
 import type { StoredConnection, GroupTag } from "./connection";
+
+export interface VaultSecretRecord {
+  name: string;
+  /** "s3" | "gcs" | "azure" | "http" | "huggingface" | ... */
+  type: string;
+  provider?: string;
+  persistent?: boolean;
+  params: Record<string, string>;
+  connection_id: string;
+}
 import type { AuthProfile, TunnelProfile } from "./tunnel";
 import type { WorkspaceConfig } from "./workspace";
 
@@ -22,10 +32,12 @@ export interface VaultData {
   tunnel_profiles?: TunnelProfile[];
   /** BYOK provider API keys (provider ID → key) */
   apiKeys?: Record<string, string>;
+  /** DuckDB-scoped vault secret records (used by Phase 3 replay) */
+  secrets?: VaultSecretRecord[];
   /** Timestamp when data was migrated to this format */
   migratedAt?: string;
   /** Source of migration (for debugging) */
   migratedFrom?: 'localStorage' | 'legacy_vault';
 }
 
-export const VAULT_VERSION = 1;
+export const VAULT_VERSION = 2;

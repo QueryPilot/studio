@@ -296,7 +296,7 @@ export const getLanguageExtension = (
         const defaultSchema = schema || fallbackSchemaForDialect(dialect) || "public";
         const provider = createSqlMetadataProvider(
           connectionId,
-          defaultSchema,
+          [defaultSchema],
           dialect || "postgresql",
         );
 

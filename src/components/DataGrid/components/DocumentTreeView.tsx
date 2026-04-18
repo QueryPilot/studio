@@ -718,7 +718,7 @@ const TreeValueNode = memo(function TreeValueNode({
               </span>
               {!expanded && (
                 <span
-                  className={cn("font-mono text-xs truncate", colorClass)}
+                  className={cn("font-mono text-xs truncate min-w-0", colorClass)}
                 >
                   {formatValuePreview(value)}
                 </span>
@@ -812,7 +812,12 @@ const TreeValueNode = memo(function TreeValueNode({
           />
         ) : (
           <>
-            <span className={cn("font-mono text-xs truncate", colorClass)}>
+            <span
+              className={cn(
+                "font-mono text-xs min-w-0 flex-1 whitespace-pre-wrap break-words",
+                colorClass,
+              )}
+            >
               {type === "objectId"
                 ? `ObjectId("${formatObjectId(value)}")`
                 : formatValuePreview(value)}

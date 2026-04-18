@@ -10,10 +10,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-#[cfg(unix)]
-use tokio::net::UnixListener;
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::ServerOptions;
+#[cfg(unix)]
+use tokio::net::UnixListener;
 use tokio::sync::Notify;
 use tracing::{error, info, warn};
 
@@ -84,10 +84,10 @@ fn default_socket_path() -> PathBuf {
 
     #[cfg(unix)]
     {
-    dirs::home_dir()
-        .expect("Could not determine home directory")
-        .join(".querypilot")
-        .join(socket_filename())
+        dirs::home_dir()
+            .expect("Could not determine home directory")
+            .join(".querypilot")
+            .join(socket_filename())
     }
 }
 
@@ -133,83 +133,83 @@ impl AgentSocketServer {
     ) -> Result<(), String> {
         #[cfg(unix)]
         {
-        // Ensure parent directory exists
-        if let Some(parent) = socket_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                format!(
-                    "Failed to create socket directory {}: {}",
-                    parent.display(),
-                    e
-                )
-            })?;
-        }
+            // Ensure parent directory exists
+            if let Some(parent) = socket_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "Failed to create socket directory {}: {}",
+                        parent.display(),
+                        e
+                    )
+                })?;
+            }
 
-        // Remove stale socket file (leftover from unclean shutdown)
-        if socket_path.exists() {
-            std::fs::remove_file(&socket_path).map_err(|e| {
-                format!(
-                    "Failed to remove stale socket {}: {}",
-                    socket_path.display(),
-                    e
-                )
-            })?;
-        }
+            // Remove stale socket file (leftover from unclean shutdown)
+            if socket_path.exists() {
+                std::fs::remove_file(&socket_path).map_err(|e| {
+                    format!(
+                        "Failed to remove stale socket {}: {}",
+                        socket_path.display(),
+                        e
+                    )
+                })?;
+            }
 
-        let listener = UnixListener::bind(&socket_path)
-            .map_err(|e| format!("Failed to bind socket {}: {}", socket_path.display(), e))?;
+            let listener = UnixListener::bind(&socket_path)
+                .map_err(|e| format!("Failed to bind socket {}: {}", socket_path.display(), e))?;
 
-        // Set permissions to 0600 (owner-only)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(&socket_path, perms).map_err(|e| {
-                format!(
-                    "Failed to set socket permissions on {}: {}",
-                    socket_path.display(),
-                    e
-                )
-            })?;
-        }
+            // Set permissions to 0600 (owner-only)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o600);
+                std::fs::set_permissions(&socket_path, perms).map_err(|e| {
+                    format!(
+                        "Failed to set socket permissions on {}: {}",
+                        socket_path.display(),
+                        e
+                    )
+                })?;
+            }
 
-        info!("Agent socket server listening on {}", socket_path.display());
+            info!("Agent socket server listening on {}", socket_path.display());
 
-        let shutdown = self.shutdown.clone();
-        let path_for_cleanup = socket_path.clone();
+            let shutdown = self.shutdown.clone();
+            let path_for_cleanup = socket_path.clone();
 
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    accept_result = listener.accept() => {
-                        match accept_result {
-                            Ok((stream, _addr)) => {
-                                let store = context_store.clone();
-                                let cm = connection_manager.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = handle_connection(stream, store, cm).await {
-                                        warn!("Socket connection error: {}", e);
-                                    }
-                                });
-                            }
-                            Err(e) => {
-                                error!("Failed to accept socket connection: {}", e);
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        accept_result = listener.accept() => {
+                            match accept_result {
+                                Ok((stream, _addr)) => {
+                                    let store = context_store.clone();
+                                    let cm = connection_manager.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = handle_connection(stream, store, cm).await {
+                                            warn!("Socket connection error: {}", e);
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    error!("Failed to accept socket connection: {}", e);
+                                }
                             }
                         }
-                    }
-                    _ = shutdown.notified() => {
-                        info!("Agent socket server shutting down");
-                        break;
+                        _ = shutdown.notified() => {
+                            info!("Agent socket server shutting down");
+                            break;
+                        }
                     }
                 }
-            }
 
-            // Clean up socket file
-            if path_for_cleanup.exists() {
-                let _ = std::fs::remove_file(&path_for_cleanup);
-            }
-        });
+                // Clean up socket file
+                if path_for_cleanup.exists() {
+                    let _ = std::fs::remove_file(&path_for_cleanup);
+                }
+            });
 
-        Ok(())
+            Ok(())
         }
 
         #[cfg(windows)]

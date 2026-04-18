@@ -1,4 +1,6 @@
 pub mod adapter;
+#[cfg(test)]
+mod adapter_test;
 pub mod backup;
 
 pub use adapter::{
@@ -7,4 +9,5 @@ pub use adapter::{
     DuckDbCreateSecretRequest, DuckDbExportRequest, DuckDbExportResult, DuckDbExportSource,
     DuckDbExtensionInfo, DuckDbManagedObjectLineage, DuckDbManagedObjectSummary, DuckDbQueryPlan,
     DuckDbQueryProgress, DuckDbReplaceManagedObjectRequest, DuckDbSecretInfo, DuckDbSetting,
+    ReplayStep,
 };

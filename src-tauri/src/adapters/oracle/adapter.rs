@@ -3,7 +3,6 @@ use oracle::pool::{CloseMode, Pool, PoolBuilder};
 use oracle::sql_type::{OracleType, Timestamp};
 use oracle::SqlValue;
 use serde_json::Value;
-use std::borrow::ToOwned;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Once};
 use std::time::Duration;
@@ -18,14 +17,12 @@ use crate::types::ConnectionProfile;
 #[derive(Clone)]
 pub struct OracleAdapter {
     pool: Arc<Mutex<Option<Pool>>>,
-    session_schema: Arc<Mutex<Option<String>>>,
 }
 
 impl OracleAdapter {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(Mutex::new(None)),
-            session_schema: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -45,11 +42,6 @@ impl OracleAdapter {
         F: FnOnce(&oracle::Connection) -> Result<T, AppError> + Send + 'static,
     {
         let pool = Arc::clone(&self.pool);
-        let schema = self
-            .session_schema
-            .lock()
-            .map_err(|_| AppError::Internal("Oracle session schema lock poisoned".into()))?
-            .clone();
 
         self.run_blocking(move || {
             let guard = pool
@@ -60,9 +52,6 @@ impl OracleAdapter {
                 .ok_or_else(|| AppError::ConnectionClosed("Not connected".into()))?;
             let mut conn = pool.get().map_err(map_oracle_error)?;
             conn.set_autocommit(true);
-            if let Some(schema) = schema.as_deref() {
-                conn.set_current_schema(schema).map_err(map_oracle_error)?;
-            }
             op(&conn)
         })
         .await
@@ -88,15 +77,6 @@ impl OracleAdapter {
         })?;
 
         conn.set_autocommit(true);
-
-        // Apply session schema if set
-        if let Ok(schema_guard) = self.session_schema.lock() {
-            if let Some(schema) = schema_guard.as_deref() {
-                conn.set_current_schema(schema).map_err(|e| {
-                    AppError::DatabaseError(format!("Failed to set schema '{}': {}", schema, e))
-                })?;
-            }
-        }
 
         Ok(conn)
     }
@@ -260,16 +240,6 @@ fn row_to_json(row: &oracle::Row) -> Result<Vec<Value>, AppError> {
     Ok(values)
 }
 
-fn resolve_session_schema(options: &HashMap<String, String>) -> Option<String> {
-    options
-        .get("oracle_current_schema")
-        .or_else(|| options.get("current_schema"))
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
 fn apply_oracle_environment(options: &HashMap<String, String>) {
     if let Some(tns_admin) = options
         .get("oracle_wallet_dir")
@@ -332,8 +302,8 @@ fn find_oracle_lib_dir() -> Option<String> {
         "/opt/oracle/instantclient_21_0",
         "/opt/oracle/instantclient_19_8",
         "/opt/oracle/instantclient",
-        "/usr/lib/x86_64-linux-gnu",  // Debian/Ubuntu multiarch
-        "/usr/lib64",                  // RHEL/Fedora/CentOS
+        "/usr/lib/x86_64-linux-gnu", // Debian/Ubuntu multiarch
+        "/usr/lib64",                // RHEL/Fedora/CentOS
         "/usr/local/lib",
         "/snap/oracle-instantclient/current", // Snap package
     ];
@@ -442,7 +412,6 @@ impl BaseCapability for OracleAdapter {
     async fn connect(&self, profile: &ConnectionProfile) -> Result<(), AppError> {
         let profile = profile.clone();
         let pool = Arc::clone(&self.pool);
-        let session_schema = Arc::clone(&self.session_schema);
 
         self.run_blocking(move || {
             apply_oracle_environment(&profile.options);
@@ -461,17 +430,6 @@ impl BaseCapability for OracleAdapter {
             builder.stmt_cache_size(20);
 
             let pool_instance = builder.build().map_err(map_oracle_error)?;
-            let schema = resolve_session_schema(&profile.options);
-            let conn = pool_instance.get().map_err(map_oracle_error)?;
-            if let Some(schema_name) = schema.as_deref() {
-                conn.set_current_schema(schema_name)
-                    .map_err(map_oracle_error)?;
-            }
-
-            *session_schema
-                .lock()
-                .map_err(|_| AppError::Internal("Oracle session schema lock poisoned".into()))? =
-                schema;
             *pool
                 .lock()
                 .map_err(|_| AppError::Internal("Oracle pool lock poisoned".into()))? =
@@ -483,17 +441,12 @@ impl BaseCapability for OracleAdapter {
 
     async fn disconnect(&self) -> Result<(), AppError> {
         let pool = Arc::clone(&self.pool);
-        let session_schema = Arc::clone(&self.session_schema);
 
         self.run_blocking(move || {
             let maybe_pool = pool
                 .lock()
                 .map_err(|_| AppError::Internal("Oracle pool lock poisoned".into()))?
                 .take();
-            *session_schema
-                .lock()
-                .map_err(|_| AppError::Internal("Oracle session schema lock poisoned".into()))? =
-                None;
 
             if let Some(pool) = maybe_pool {
                 pool.close(&CloseMode::Force).map_err(map_oracle_error)?;

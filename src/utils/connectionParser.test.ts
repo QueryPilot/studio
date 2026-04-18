@@ -1050,6 +1050,7 @@ DB_PORT=5432`;
         database: "/tmp/analytics.duckdb",
         username: "",
         options: {},
+        databases: [],
       });
 
       expect(uri).toBe("/tmp/analytics.duckdb");
@@ -1074,6 +1075,7 @@ DB_PORT=5432`;
         password: "secret",
         default_schema: "tiny",
         options: {},
+        databases: [],
       });
 
       expect(uri).toBe("trino://analyst@localhost:8080/tpch/tiny");

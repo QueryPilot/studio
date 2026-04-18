@@ -21,6 +21,7 @@ import type { EditorDiagnosticsStatus } from "@/components/CodeEditor/types";
 
 interface UseRustSchemaSyncOptions {
   connectionId: string;
+  database?: string;
   schema: string;
   enabled?: boolean;
 }
@@ -59,7 +60,8 @@ export function getRustSchemaSyncStatus(
  */
 export async function syncSchemaToRust(
   connectionId: string,
-  schema: string
+  schema: string,
+  database = ""
 ): Promise<void> {
   if (!isRustSchemaSyncAvailable()) {
     return;
@@ -132,6 +134,7 @@ export async function syncSchemaToRust(
     // Push to Rust
     const result = await SqlEngineService.setSchema(
       connectionId,
+      database,
       schema,
       tableInputs,
       foreignKeys,
@@ -206,7 +209,7 @@ export async function clearRustSchema(
  * Use in SqlEditor or other components that need Rust completion.
  */
 export function useRustSchemaSync(options: UseRustSchemaSyncOptions): void {
-  const { connectionId, schema, enabled = true } = options;
+  const { connectionId, database = "", schema, enabled = true } = options;
   const syncInProgress = useRef(false);
 
   useEffect(() => {
@@ -216,10 +219,10 @@ export function useRustSchemaSync(options: UseRustSchemaSyncOptions): void {
 
     syncInProgress.current = true;
 
-    void syncSchemaToRust(connectionId, schema).finally(() => {
+    void syncSchemaToRust(connectionId, schema, database).finally(() => {
       syncInProgress.current = false;
     });
-  }, [connectionId, schema, enabled]);
+  }, [connectionId, database, schema, enabled]);
 
   // Cleanup on unmount - don't clear schema, just reset state
   useEffect(() => {

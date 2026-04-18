@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlparser::ast::Statement;
 
 use super::{
-    outline::TextSpan,
+    span::TextSpan,
     symbol_finder::{SymbolFinder, SymbolKind, SymbolReferences},
 };
 

@@ -44,6 +44,7 @@ describe("SidebarConnectionList refresh button", () => {
                 database: "todoapp",
                 username: "postgres",
                 options: {},
+                databases: [],
               },
             },
           ],

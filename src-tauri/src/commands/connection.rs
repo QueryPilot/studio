@@ -188,13 +188,14 @@ pub async fn update_safe_mode(
 }
 
 #[tauri::command]
-pub async fn update_active_schema(
+pub async fn update_connection_schemas(
     conn_id: String,
-    schema: String,
+    database_name: String,
+    visible_schemas: Vec<String>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> std::result::Result<(), String> {
     manager
-        .update_active_schema(&conn_id, schema)
+        .update_connection_schemas(&conn_id, &database_name, visible_schemas)
         .map_err(|e| e.to_string())
 }
 

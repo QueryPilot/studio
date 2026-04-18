@@ -53,10 +53,15 @@ const CATALOG_TYPES: CatalogTypeOption[] = [
 
 const ALIAS_PATTERN = /^[a-zA-Z0-9_]+$/;
 
+export interface DuckDbAttachCatalogSubmitOptions {
+  request: DuckDbAttachCatalogRequest;
+  saveToConnection: boolean;
+}
+
 interface DuckDbAttachCatalogDialogProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (request: DuckDbAttachCatalogRequest) => void | Promise<void>;
+  onSubmit: (options: DuckDbAttachCatalogSubmitOptions) => void | Promise<void>;
 }
 
 function buildPreviewSql(
@@ -126,6 +131,7 @@ function DuckDbAttachCatalogForm({
   const [deltaToken, setDeltaToken] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveToConnection, setSaveToConnection] = useState(true);
 
   const aliasError =
     alias.length > 0 && !ALIAS_PATTERN.test(alias)
@@ -172,17 +178,16 @@ function DuckDbAttachCatalogForm({
     setIsSubmitting(true);
     setError(null);
 
-    const allOptions = { ...extraOptions };
-    if (readOnly) {
-      allOptions["READ_ONLY"] = "true";
-    }
-
     try {
       await onSubmit({
-        catalogType,
-        alias: alias.trim(),
-        catalogUri: catalogUri.trim(),
-        extraOptions: allOptions,
+        request: {
+          catalogType,
+          alias: alias.trim(),
+          catalogUri: catalogUri.trim(),
+          extraOptions: { ...extraOptions },
+          readOnly,
+        },
+        saveToConnection,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -196,6 +201,7 @@ function DuckDbAttachCatalogForm({
     catalogUri,
     readOnly,
     extraOptions,
+    saveToConnection,
     onSubmit,
   ]);
 
@@ -381,6 +387,16 @@ function DuckDbAttachCatalogForm({
           <pre className="rounded-md bg-muted p-3 text-xs font-mono overflow-x-auto whitespace-pre-wrap">
             {previewSql}
           </pre>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="catalog-save-to-connection"
+              checked={saveToConnection}
+              onCheckedChange={(checked) => { setSaveToConnection(checked === true); }}
+            />
+            <Label htmlFor="catalog-save-to-connection" className="text-sm font-normal">
+              Save to this connection (replays on reconnect)
+            </Label>
+          </div>
           {error && (
             <p className="text-xs text-destructive bg-destructive/10 rounded-md p-2">
               {error}

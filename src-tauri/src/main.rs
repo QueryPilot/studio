@@ -34,7 +34,9 @@ fn main() {
     let auth_manager = Arc::new(query_pilot::tunnel::auth::AuthManager::new());
 
     // Create tunnel manager (depends on auth_manager)
-    let tunnel_manager = Arc::new(query_pilot::tunnel::TunnelManager::new(auth_manager.clone()));
+    let tunnel_manager = Arc::new(query_pilot::tunnel::TunnelManager::new(
+        auth_manager.clone(),
+    ));
 
     // Create connection manager (with tunnel manager wired in)
     let mut manager = query_pilot::core::manager::ConnectionManager::new();
@@ -95,6 +97,19 @@ fn main() {
                 let tm = tm.inner().clone();
                 tauri::async_runtime::spawn(async move {
                     tm.set_app_handle(handle).await;
+                });
+            }
+
+            // Set app handle on connection manager so it can emit reconnect
+            // events (needed for DuckDB secret-aware replay after idle-reaper
+            // or tunnel-driven reconnects).
+            if let Some(cm) =
+                app.try_state::<Arc<query_pilot::core::manager::ConnectionManager>>()
+            {
+                let handle = app.handle().clone();
+                let cm = cm.inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    cm.set_app_handle(handle).await;
                 });
             }
 
@@ -199,7 +214,7 @@ fn main() {
             commands::test_connection,
             commands::test_ssh_connection,
             commands::update_safe_mode,
-            commands::update_active_schema,
+            commands::update_connection_schemas,
             commands::duckdb_add_file,
             commands::duckdb_replace_managed_object,
             commands::duckdb_list_managed_objects,
@@ -222,6 +237,12 @@ fn main() {
             commands::duckdb_reset_setting,
             commands::duckdb_query_progress,
             commands::duckdb_interrupt_query,
+            // Phase 3: DuckDB persistence
+            commands::duckdb_replay_setup,
+            commands::duckdb_run_attach,
+            commands::duckdb_run_detach,
+            commands::duckdb_install_load_extension,
+            commands::duckdb_issue_secret,
             // Query execution
             commands::query,
             commands::execute_query,
@@ -231,7 +252,6 @@ fn main() {
             sql_engine::commands::sql_parse,
             sql_engine::commands::sql_validate,
             sql_engine::commands::sql_complete,
-            sql_engine::commands::sql_get_outline,
             // SQL Refactoring commands
             sql_engine::commands::sql_get_refactor_actions,
             sql_engine::commands::sql_apply_refactor,

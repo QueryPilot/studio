@@ -33,6 +33,7 @@ import {
   type NodePosition,
   type ViewportState,
 } from "@/stores/erdStore";
+import { ERDSchemaLegend } from "./ERDSchemaLegend";
 import {
   ConstraintType,
   type Constraint,
@@ -60,6 +61,13 @@ interface ERDPanelProps {
   connectionId: string;
   tabId: string;
   database?: string;
+  /**
+   * Phase 5: ordered list of schemas to render. Primary (for initial
+   * centering) is `schemas[0]`. When omitted, falls back to single-schema
+   * `schema` prop for back-compat; empty array yields the empty state.
+   */
+  schemas?: string[];
+  /** Legacy single-schema prop, retained for callers still on Phase 4. */
   schema?: string;
 }
 
@@ -68,6 +76,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   tabId,
   database,
   schema,
+  schemas: schemasProp,
 }) => {
   const [isCodeVisible, setIsCodeVisible] = useState(false);
   const [dbmlDocument, setDbmlDocument] = useState<string>("");
@@ -77,12 +86,16 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const [relationships, setRelationships] = useState<DBMLRelationship[]>([]);
   const [tables, setTables] = useState<TableStructure[]>([]);
   const [layoutDirection, setLayoutDirection] = useState<LayoutDirection>("TB");
-  const [_schemas, setSchemas] = useState<string[]>(() =>
-    schema ? [schema] : [DEFAULT_SCHEMA],
-  );
-  const [selectedSchema, setSelectedSchema] = useState<string>(
-    schema ?? DEFAULT_SCHEMA,
-  );
+  const [allSchemas, setAllSchemas] = useState<string[]>([]);
+
+  // Resolve initial schemas from prop or legacy schema field
+  const initialSchemas = React.useMemo(() => {
+    if (schemasProp && schemasProp.length > 0) return schemasProp.slice();
+    if (schema) return [schema];
+    return [];
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [selectedSchemas, setSelectedSchemasState] = useState<string[]>(initialSchemas);
   const [searchQuery, setSearchQuery] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const lastConnectionRef = useRef<string | null>(connectionId);
@@ -104,6 +117,17 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const updateView = useErdStore((state) => state.updateView);
   const saveNodePosition = useErdStore((state) => state.saveNodePosition);
   const saveViewport = useErdStore((state) => state.saveViewport);
+  const setViewSchemas = useErdStore((state) => state.setViewSchemas);
+
+  // Sync selectedSchemas from store (e.g. restored from persistence)
+  const viewSchemasFromStore = useErdStore(
+    (s) => (localViewId ? s.views[localViewId]?.selectedSchemas : undefined),
+  );
+  useEffect(() => {
+    if (viewSchemasFromStore && viewSchemasFromStore.length > 0) {
+      setSelectedSchemasState(viewSchemasFromStore);
+    }
+  }, [viewSchemasFromStore]);
 
   const storedConnection = useConnectionStore(
     (state) =>
@@ -142,9 +166,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   useEffect(() => {
     if (lastConnectionRef.current !== connectionId) {
       lastConnectionRef.current = connectionId;
-      const initialSchema = schema ?? DEFAULT_SCHEMA;
-      setSelectedSchema(initialSchema);
-      setSchemas([initialSchema]);
+      const resetSchemas = schemasProp?.length ? schemasProp.slice() : schema ? [schema] : [];
+      setSelectedSchemasState(resetSchemas);
       skipParseNextRef.current = true;
       setDbmlDocument("");
       setParseError(null);
@@ -152,61 +175,45 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       setTables([]);
       setRelationships([]);
     }
-  }, [connectionId, schema]);
+  }, [connectionId, schema, schemasProp]);
 
   useEffect(() => {
     let cancelled = false;
-
-    const fetchSchemas = async () => {
-      if (!connectionId) return;
-      if (!targetDatabase) {
-        setSchemas((prev) => (prev.length ? prev : [selectedSchema]));
-        return;
-      }
-
+    const fetchAll = async () => {
+      if (!connectionId || !targetDatabase) return;
       try {
-        const result = await databaseService.listSchemas(
-          connectionId,
-          targetDatabase,
-        );
+        const result = await databaseService.listSchemas(connectionId, targetDatabase);
         if (cancelled) return;
-        if (result.length > 0) {
-          setSchemas(result);
-          if (!result.includes(selectedSchema)) {
-            setSelectedSchema(result[0] ?? DEFAULT_SCHEMA);
-          }
-        } else {
-          setSchemas((prev) => (prev.length ? prev : [selectedSchema]));
-        }
+        setAllSchemas(result);
       } catch (err) {
         logger.error("Failed to load schemas for ERD", err);
-        if (!cancelled) {
-          setSchemas((prev) => (prev.length ? prev : [selectedSchema]));
-        }
       }
     };
+    void fetchAll();
+    return () => { cancelled = true; };
+  }, [connectionId, targetDatabase]);
 
-    void fetchSchemas();
-    return () => {
-      cancelled = true;
-    };
-  }, [connectionId, targetDatabase, selectedSchema]);
-
-  const loadSchemaData = useCallback(
-    async (schemaName: string, options?: { force?: boolean }) => {
+  const loadSchemasData = useCallback(
+    async (schemaList: string[], options?: { force?: boolean }) => {
       if (!connectionId) return;
+      if (schemaList.length === 0) {
+        setTables([]);
+        setRelationships([]);
+        setDbmlDocument("// Pick schemas to render");
+        return;
+      }
 
       const viewId = ensureView({
         connectionId,
         database: targetDatabase,
-        schema: schemaName,
-        name: `${schemaName} schema`,
+        schema: schemaList[0] ?? DEFAULT_SCHEMA,
+        name: `${schemaList.join(", ")} @ ${targetDatabase}`,
       });
       setLocalViewId(viewId);
 
       const cacheHit = options?.force
         ? null
-        : erdCache.get(connectionId, targetDatabase, schemaName);
+        : erdCache.getSchemas(connectionId, targetDatabase, schemaList);
 
       if (cacheHit) {
         skipParseNextRef.current = true;
@@ -231,20 +238,17 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       setRelationships([]);
 
       try {
-        const tableMetas = await databaseService.listTables(
-          connectionId,
-          targetDatabase,
-          schemaName,
+        // 1. List tables across all schemas in parallel.
+        const perSchema = await Promise.all(
+          schemaList.map((s) => databaseService.listTables(connectionId, targetDatabase, s)),
         );
-
-        // Filter to only regular tables, excluding partitioned tables and views
-        const baseTables = tableMetas.filter(
-          (table) => table.kind === "Table" && !table.isPartitioned
-        );
+        const baseTables = perSchema
+          .flat()
+          .filter((t) => t.kind === "Table" && !t.isPartitioned);
 
         if (baseTables.length === 0) {
-          const emptySchema: DBMLSchema = {
-            dbml: "// No tables found for schema",
+          const empty: DBMLSchema = {
+            dbml: "// No tables found",
             ast: null,
             metadata: {
               tableCount: 0,
@@ -256,28 +260,27 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             relationships: [],
             tables: [],
           };
-
           skipParseNextRef.current = true;
-          setDbmlDocument(emptySchema.dbml);
+          setDbmlDocument(empty.dbml);
           setTables([]);
           setRelationships([]);
           setError(null);
           updateView(viewId, {
-            dbml: emptySchema.dbml,
+            dbml: empty.dbml,
             tableCount: 0,
             relationshipCount: 0,
           });
-          erdCache.set(connectionId, targetDatabase, schemaName, emptySchema);
+          erdCache.setSchemas(connectionId, targetDatabase, schemaList, empty);
           return;
         }
 
-        // Fetch table structures with limited concurrency to avoid overwhelming
-        // the database connection pool (especially for MySQL/MariaDB with many tables).
-        // ERD only needs columns and constraints, not triggers or stats.
-        const structures = await batchWithConcurrency(
+        // 2. Fetch table structures with GLOBAL concurrency cap of 5
+        //    (not per-schema — that would fan out N*5 requests).
+        const collected: TableStructure[] = [];
+        await batchWithConcurrency(
           baseTables,
-          (table) =>
-            databaseService.getTableStructure(
+          async (table) => {
+            const struct = await databaseService.getTableStructure(
               connectionId,
               targetDatabase,
               table.schema,
@@ -289,52 +292,46 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                 includeTriggers: false,
                 includeStatistics: false,
               },
-            ),
-          5, // Limit to 5 concurrent table fetches
+            );
+            collected.push(struct);
+            // Progressive render: append as each arrives.
+            setTables((prev) => [...prev, struct]);
+            return struct;
+          },
+          5,
         );
 
-        const result = await dbmlService.schemaToDBML(structures, {
+        const result = await dbmlService.schemaToDBML(collected, {
           databaseType: connection?.db_type,
         });
 
         skipParseNextRef.current = true;
         setDbmlDocument(result.dbml);
-        // Use tables from result which have the properly marked columns
         setTables(result.tables);
         setRelationships(result.relationships);
         setError(null);
-        erdCache.set(connectionId, targetDatabase, schemaName, result);
+        erdCache.setSchemas(connectionId, targetDatabase, schemaList, result);
         updateView(viewId, {
           dbml: result.dbml,
           tableCount: result.metadata.tableCount,
           relationshipCount: result.metadata.relationshipCount,
         });
       } catch (err) {
-        logger.error("Failed to load ERD schema", err);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load schema metadata.",
-        );
+        logger.error("Failed to load ERD schemas", err);
+        setError(err instanceof Error ? err.message : "Failed to load schema metadata.");
         setTables([]);
         setRelationships([]);
       } finally {
         setLoading(false);
       }
     },
-    [
-      connectionId,
-      targetDatabase,
-      ensureView,
-      connection?.db_type,
-      updateView,
-    ],
+    [connectionId, targetDatabase, ensureView, connection?.db_type, updateView],
   );
 
   useEffect(() => {
-    if (!connectionId || !selectedSchema) return;
-    void loadSchemaData(selectedSchema);
-  }, [connectionId, selectedSchema, loadSchemaData]);
+    if (!connectionId) return;
+    void loadSchemasData(selectedSchemas);
+  }, [connectionId, selectedSchemas, loadSchemasData]);
 
   useEffect(() => {
     if (
@@ -347,7 +344,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   }, [localView?.dbml, dbmlDocument]);
 
   const handleRefresh = () => {
-    void loadSchemaData(selectedSchema, { force: true });
+    void loadSchemasData(selectedSchemas, { force: true });
   };
 
   const handleExportImage = useCallback(async (format: "png" | "svg") => {
@@ -399,7 +396,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         },
       });
 
-      const filename = `erd-${selectedSchema}.${format}`;
+      const filename = `erd-${selectedSchemas[0] ?? "erd"}.${format}`;
 
       if (isTauri()) {
         const filePath = await save({
@@ -434,7 +431,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     } finally {
       setIsExporting(false);
     }
-  }, [selectedSchema]);
+  }, [selectedSchemas]);
 
   const handleExportSQL = useCallback(async (format: "postgres" | "mysql" | "mssql" | "oracle") => {
     if (!dbmlDocument.trim()) {
@@ -454,7 +451,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
       if (isTauri()) {
         const filePath = await save({
-          defaultPath: `erd-${selectedSchema}.sql`,
+          defaultPath: `erd-${selectedSchemas[0] ?? "erd"}.sql`,
           filters: [
             { name: "SQL Files", extensions: ["sql"] },
             { name: "All Files", extensions: ["*"] },
@@ -474,7 +471,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       logger.error("Failed to export SQL", err);
       toast.error(`Failed to export ${formatLabels[format]} SQL - check DBML syntax`);
     }
-  }, [dbmlDocument, selectedSchema]);
+  }, [dbmlDocument, selectedSchemas]);
 
   const handleNodePositionsChange = useCallback(
     (positions: Record<string, NodePosition>) => {
@@ -839,7 +836,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
               tableCount: parsedTables.length,
               relationshipCount: parsedRelationships.length,
             });
-            erdCache.set(connectionId, targetDatabase, selectedSchema, {
+            erdCache.setSchemas(connectionId, targetDatabase, selectedSchemas, {
               dbml: dbmlDocument,
               ast: null,
               metadata: {
@@ -872,7 +869,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     updateView,
     connectionId,
     targetDatabase,
-    selectedSchema,
+    selectedSchemas,
   ]);
 
   const handleEditorChange = useCallback(
@@ -958,6 +955,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     [isCodeVisible, dbmlDocument],
   );
 
+  const tableCounts = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const t of tables) acc[t.schema] = (acc[t.schema] ?? 0) + 1;
+    return acc;
+  }, [tables]);
+
   return (
     <div
       className="relative flex h-full flex-col"
@@ -969,6 +972,9 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           {parseError}
         </div>
       ) : null}
+      {selectedSchemas.length > 1 && !loading && !error && tables.length > 0 && (
+        <ERDSchemaLegend schemas={selectedSchemas} tableCounts={tableCounts} />
+      )}
 
       <ResizablePanelGroup orientation="horizontal" className="flex-1" autoSaveId="erd-panel-split">
         {/* Code Editor Panel - LEFT side */}
@@ -1047,6 +1053,12 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                   onExportSVG={() => { void handleExportImage("svg"); }}
                   onExportSQL={(fmt) => { void handleExportSQL(fmt); }}
                   isExporting={isExporting}
+                  selectedSchemas={selectedSchemas}
+                  allSchemas={allSchemas}
+                  onSchemasChange={(next) => {
+                    setSelectedSchemasState(next);
+                    if (localViewId) setViewSchemas(localViewId, next);
+                  }}
                 />
               </div>
             )}
@@ -1085,7 +1097,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
                 error={error}
                 tableCount={tables.length}
                 relationshipCount={relationships.length}
-                schema={selectedSchema}
+                schema={selectedSchemas[0] ?? DEFAULT_SCHEMA}
               />
             )}
           </ReactFlowProvider>

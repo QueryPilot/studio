@@ -501,7 +501,7 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 mod tests {
     use super::*;
     use crate::sql_engine::schema_store::{CachedSchemaBuilder, ColumnInfo, TableInfo, TableType};
-    use crate::sql_engine::{parse_document, SqlDialect};
+    use crate::sql_engine::{SqlDialect, parse_document};
 
     fn test_schema() -> CachedSchema {
         let schema = CachedSchemaBuilder::new()
@@ -763,6 +763,123 @@ mod tests {
     }
 
     #[test]
+    fn test_create_view_cte_definition_is_not_reported_as_missing_table() {
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "sales".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .build();
+        let doc = parse_document(
+            "CREATE OR REPLACE VIEW vw_sales_data_comparison AS \
+             WITH old_codes AS (SELECT s.code FROM sales s) \
+             SELECT code FROM old_codes",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_table_references(stmt, &schema);
+
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("old_codes") && e.message.contains("does not exist")),
+            "CTE name should not be treated as a missing physical table: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_derived_table_output_alias_is_not_reported_as_missing_column() {
+        let schema = CachedSchemaBuilder::new()
+            .add_table(TableInfo {
+                name: "sales_info".to_string(),
+                schema: Some("public".to_string()),
+                table_type: TableType::Table,
+                comment: None,
+                row_count: None,
+            })
+            .add_columns(
+                "sales_info",
+                vec![
+                    ColumnInfo {
+                        name: "id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: true,
+                        is_unique: true,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 1,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "client_info_id".to_string(),
+                        data_type: "integer".to_string(),
+                        nullable: true,
+                        default_value: None,
+                        is_primary_key: false,
+                        is_unique: false,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 2,
+                        precision: None,
+                        scale: None,
+                    },
+                    ColumnInfo {
+                        name: "created_at".to_string(),
+                        data_type: "timestamp".to_string(),
+                        nullable: false,
+                        default_value: None,
+                        is_primary_key: false,
+                        is_unique: false,
+                        comment: None,
+                        enum_values: None,
+                        ordinal: 3,
+                        precision: None,
+                        scale: None,
+                    },
+                ],
+            )
+            .build();
+        let doc = parse_document(
+            "DELETE FROM sales_info \
+             WHERE id IN ( \
+               SELECT id \
+               FROM ( \
+                 SELECT id, client_info_id, ROW_NUMBER() OVER (PARTITION BY client_info_id ORDER BY created_at DESC, id DESC) AS row_num \
+                 FROM sales_info \
+                 WHERE client_info_id IS NOT NULL \
+               ) ranked \
+               WHERE row_num > 1 \
+             )",
+            SqlDialect::PostgreSQL,
+        );
+        let stmt = doc
+            .statements
+            .first()
+            .expect("expected one parsed statement");
+
+        let errors = validate_column_references(stmt, &schema);
+
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("row_num") && e.message.contains("does not exist")),
+            "Derived table output alias should be visible in its outer query: {:?}",
+            errors
+        );
+    }
+
+    #[test]
     fn test_missing_qualified_column_reports_identifier_span_and_error_severity() {
         let schema = test_schema();
         let doc = parse_document("SELECT u.nonexistent FROM users u", SqlDialect::PostgreSQL);
@@ -834,9 +951,11 @@ mod tests {
             .expect("expected one parsed statement");
 
         let errors = validate_column_references(stmt, &schema);
-        assert!(!errors
-            .iter()
-            .any(|e| e.message.contains("item_count") && e.message.contains("does not exist")));
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e.message.contains("item_count") && e.message.contains("does not exist"))
+        );
     }
 
     #[test]
@@ -958,9 +1077,11 @@ mod tests {
 
         let errors = validate_table_references(stmt, &schema);
         assert!(!errors.is_empty());
-        assert!(errors
-            .iter()
-            .any(|e| e.message.contains("missing_table") && e.severity == ErrorSeverity::Error));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("missing_table") && e.severity == ErrorSeverity::Error)
+        );
     }
 
     #[test]

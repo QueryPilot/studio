@@ -1,7 +1,6 @@
 import type { RefObject } from "react";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
 import type { SqlDialect } from "@/components/CodeEditor/types";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ResizableHandle,
@@ -11,10 +10,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { QueryResult } from "@/stores/tabStateStore";
 import type { ViewMode } from "@/types/viewMode";
-import { IconX } from "@tabler/icons-react";
 import type { QueryVariable, VariableScope, VariableType } from "@/lib/queryVariables/types";
 import { QueryEditor } from "./QueryEditor";
-import { QueryOutline } from "./QueryOutline";
 import { QueryToolbar } from "./QueryToolbar";
 import { ResultViewer } from "./ResultViewer";
 import { VariablePanel } from "./Variables/VariablePanel";
@@ -42,7 +39,6 @@ interface QueryPanelLayoutProps {
   onDialectDetected: (dialect: SqlDialect) => void;
   hasQuery: boolean;
   showResults: boolean;
-  showOutline: boolean;
   focused: boolean;
   detectedDialect: SqlDialect;
   runButtonLabel: string;
@@ -51,10 +47,7 @@ interface QueryPanelLayoutProps {
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
-  onToggleOutline: () => void;
   onDialectChange: (dialect: SqlDialect | "auto") => void;
-  deferredQuery: string;
-  onCloseOutline: () => void;
   batchResults: BatchStatementResult[];
   activeBatchResultIndex: number;
   onActiveBatchResultChange: (index: number) => void;
@@ -89,6 +82,9 @@ interface QueryPanelLayoutProps {
   duckDbQueryProgress?: DuckDbQueryProgress | null;
   duckDbProgressEtaSeconds?: number | null;
   onDuckDbProgressCancel?: () => void;
+
+  /** Optional slot rendered above the query toolbar (e.g. SchemaPill). */
+  schemaPillSlot?: React.ReactNode;
 }
 
 function getStatementKeyword(statement: string): string {
@@ -122,7 +118,6 @@ export function QueryPanelLayout({
   onDialectDetected,
   hasQuery,
   showResults,
-  showOutline,
   focused,
   detectedDialect,
   runButtonLabel,
@@ -131,10 +126,7 @@ export function QueryPanelLayout({
   onCancel,
   onBeautify,
   onToggleResults,
-  onToggleOutline,
   onDialectChange,
-  deferredQuery,
-  onCloseOutline,
   batchResults,
   activeBatchResultIndex,
   onActiveBatchResultChange,
@@ -166,6 +158,7 @@ export function QueryPanelLayout({
   duckDbQueryProgress = null,
   duckDbProgressEtaSeconds = null,
   onDuckDbProgressCancel,
+  schemaPillSlot,
 }: QueryPanelLayoutProps) {
   const hasModeTabs = activeSupportedModes.length > 0;
   const showResultHeader = batchResults.length > 0 || hasModeTabs;
@@ -252,7 +245,6 @@ export function QueryPanelLayout({
                       isExecuting={isExecuting}
                       hasQuery={hasQuery}
                       showResults={showResults}
-                      showOutline={showOutline}
                       showVariables={showVariablePanel}
                       hasVariables={hasVariables}
                       variableScope={variableScope}
@@ -267,11 +259,11 @@ export function QueryPanelLayout({
                       onCancel={onCancel}
                       onBeautify={onBeautify}
                       onToggleResults={onToggleResults}
-                      onToggleOutline={onToggleOutline}
                       onToggleVariables={onToggleVariables}
                       onDialectChange={onDialectChange}
                       showplanMode={showplanMode}
                       inTransaction={inTransaction}
+                      schemaPillSlot={schemaPillSlot}
                     />
                   </ResizablePanel>
 
@@ -297,46 +289,6 @@ export function QueryPanelLayout({
                     </>
                   )}
 
-                  {showOutline && (
-                    <>
-                      <ResizableHandle className="bg-border !w-0.5 hover:bg-primary/50 transition-colors" />
-                      <ResizablePanel
-                        id="qp-outline"
-                        defaultSize="25"
-                        minSize="15"
-                        maxSize="50"
-                      >
-                        <div className="h-full flex flex-col overflow-hidden bg-muted/30">
-                          <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/50 shrink-0">
-                            <span className="text-xs font-medium text-muted-foreground">
-                              Query Outline
-                            </span>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={onCloseOutline}
-                              title="Close Outline"
-                            >
-                              <IconX className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                          <div className="flex-1 min-h-0 overflow-auto">
-                            <QueryOutline
-                              sql={deferredQuery}
-                              dialect={
-                                selectedDialect === "auto"
-                                  ? detectedDialect
-                                  : selectedDialect
-                              }
-                              onNavigate={(position) => {
-                                editorRef.current?.setCursorPosition(position);
-                              }}
-                            />
-                          </div>
-                        </div>
-                      </ResizablePanel>
-                    </>
-                  )}
                 </ResizablePanelGroup>
               </ResizablePanel>
 

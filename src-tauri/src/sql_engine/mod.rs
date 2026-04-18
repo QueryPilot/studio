@@ -40,7 +40,7 @@
 //!
 //! // Use schema cache
 //! let store = SchemaStore::new();
-//! let key = CacheKey::new("conn-123", "public");
+//! let key = CacheKey::new("conn-123", "mydb", "public");
 //! if let Some(schema) = store.get(&key) {
 //!     println!("Cached tables: {:?}", schema.tables);
 //! }
@@ -55,8 +55,8 @@ pub mod dialect;
 // TODO: formatter has API compat issues with sqlparser 0.52 - fix in separate PR
 // pub mod formatter;
 pub mod join_suggester;
-pub mod outline;
 pub mod parser;
+pub mod span;
 // NOTE: schema_queries.rs DELETED - TypeScript adapters are single source of truth
 // Schema data is pushed from frontend via sql_set_schema command
 pub mod refactor;
@@ -103,9 +103,6 @@ pub use join_suggester::{
     suggest_joinable_tables, suggest_joins, JoinSuggestion, JoinableTableSuggestion,
     RelationshipType,
 };
-pub use outline::{
-    CteOutline, OutlineBuilder, OutlineTree, ParseStatus, StatementOutline, TableOutline, TextSpan,
-};
 pub use refactor::{
     Refactor, RefactorAction, RefactorKind, RefactorRequest, RefactorResult, TextEdit,
 };
@@ -117,6 +114,7 @@ pub use sp_params::{
     get_function_signature, suggest_sp_params, BuiltinFunctionHelp, FunctionOverload,
     ParamSuggestion,
 };
+pub use span::TextSpan;
 pub use symbol_finder::{SymbolFinder, SymbolKind, SymbolReferences};
 pub use templates::{
     generate_create_table_template, generate_delete_template, generate_insert_for_columns,
@@ -190,7 +188,7 @@ mod tests {
         for i in 0..10 {
             let store = Arc::clone(&store);
             handles.push(thread::spawn(move || {
-                let key = CacheKey::new(format!("conn-{}", i), "public");
+                let key = CacheKey::new(format!("conn-{}", i), "mydb", "public");
                 store.put(
                     key.clone(),
                     CachedSchemaBuilder::new()

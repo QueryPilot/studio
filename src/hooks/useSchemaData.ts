@@ -9,6 +9,8 @@ import {
 } from "@/services/databaseService";
 import { schemaCache } from "@/services/schemaCache";
 import { useDataInvalidationStore } from "@/stores/dataInvalidationStore";
+import { useConnectionStore } from "@/stores/connectionStoreNew";
+import { DbType } from "@/types/connection";
 
 import { type QueryObserverResult, useQuery } from "@tanstack/react-query";
 import { useWorkspaceSelectionStore } from "@/stores/workspaceSelectionStore";
@@ -66,53 +68,75 @@ const deduplicateFunctions = (functions: FunctionMeta[]): FunctionMeta[] => {
   });
 };
 
+const loadSchemaDataForOne = async (
+  connectionId: string,
+  database: string,
+  schema: string,
+): Promise<SchemaDataResult> => {
+  // Use schemaCache for cached fetches (60% fewer redundant API calls)
+  const [tables, functions, sequences, packages, synonyms] = await Promise.all([
+    schemaCache.getTables(connectionId, schema),
+    schemaCache.getFunctions(connectionId, schema),
+    databaseService.listSequences(connectionId, database, schema).catch(() => []),
+    databaseService.listPackages(connectionId, database, schema).catch(() => []),
+    databaseService.listSynonyms(connectionId, database, schema).catch(() => []),
+  ]);
+
+  const tableList = tables.filter((t) => t.kind === "Table");
+  const viewList = tables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
+
+  return {
+    tables: tableList,
+    views: viewList,
+    functions: filterUserFunctions(functions),
+    allFunctions: deduplicateFunctions(functions),
+    sequences,
+    packages,
+    synonyms,
+  };
+};
+
 const loadSchemaData = async (
   connectionId: string,
   database?: string,
-  schema?: string,
+  schemas?: string[],
 ): Promise<SchemaDataResult> => {
-  if (!connectionId || !database || !schema) {
-    logger.warn(`[useSchemaData] Missing required params - connectionId: ${connectionId}, database: ${database}, schema: ${schema}`);
-    throw new Error("Connection ID, database, and schema are required");
+  if (!connectionId || !database || !schemas || schemas.length === 0) {
+    logger.warn(`[useSchemaData] Missing required params - connectionId: ${connectionId}, database: ${database}, schemas: ${schemas}`);
+    throw new Error("Connection ID, database, and schemas are required");
   }
 
   try {
-    logger.info(`[useSchemaData] Loading schema data for ${database}.${schema}`);
-    
+    logger.info(`[useSchemaData] Loading schema data for ${database} schemas: [${schemas.join(", ")}]`);
+
     // Ensure connection mapping is established
     await databaseService.connectById(connectionId);
 
     // Set connection context for cache prefetching
     schemaCache.setConnection(connectionId);
 
-    // Use schemaCache for cached fetches (60% fewer redundant API calls)
-    const [tables, functions, sequences, packages, synonyms] = await Promise.all([
-      schemaCache.getTables(connectionId, schema),
-      schemaCache.getFunctions(connectionId, schema),
-      databaseService.listSequences(connectionId, database, schema).catch(() => []),
-      databaseService.listPackages(connectionId, database, schema).catch(() => []),
-      databaseService.listSynonyms(connectionId, database, schema).catch(() => []),
-    ]);
+    // Fetch all visible schemas in parallel
+    const results = await Promise.all(
+      schemas.map((s) => loadSchemaDataForOne(connectionId, database, s)),
+    );
 
-    // Separate tables and views
-    const tableList = tables.filter((t) => t.kind === "Table");
-    const viewList = tables.filter((t) => t.kind === "View" || t.kind === "MaterializedView");
-
-    const allFunctions = deduplicateFunctions(functions);
-    logger.info(`[useSchemaData] Loaded ${tableList.length} tables, ${viewList.length} views, ${allFunctions.length} functions`);
-
-    return {
-      tables: tableList,
-      views: viewList,
-      functions: filterUserFunctions(functions),
-      allFunctions,
-      sequences,
-      packages,
-      synonyms,
+    // Merge results from all schemas
+    const merged: SchemaDataResult = {
+      tables: results.flatMap((r) => r.tables),
+      views: results.flatMap((r) => r.views),
+      functions: results.flatMap((r) => r.functions),
+      allFunctions: deduplicateFunctions(results.flatMap((r) => r.allFunctions)),
+      sequences: results.flatMap((r) => r.sequences),
+      packages: results.flatMap((r) => r.packages),
+      synonyms: results.flatMap((r) => r.synonyms),
     };
+
+    logger.info(`[useSchemaData] Loaded ${merged.tables.length} tables, ${merged.views.length} views, ${merged.allFunctions.length} functions across ${schemas.length} schemas`);
+
+    return merged;
   } catch (err: unknown) {
     logger.error("Failed to load schema data:", err);
-    throw new Error("Failed to load schema data");
+    throw new Error("Failed to load schema data", { cause: err });
   }
 };
 
@@ -187,36 +211,76 @@ export function useSchemaData(overrideConnectionId?: string): SchemaData {
     schema = legacySchema;
   }
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["useSchemaData.SchemaData", connectionId, database, schema],
-    queryFn: async () => {
-      if (!connectionId || !database || !schema) {
-        throw new Error("Connection ID, database, and schema are required");
+  // Resolve all visible schemas for this connection+database.
+  // Returns a stable JSON string to avoid Zustand re-render loops from new array references.
+  const visibleSchemasKey = useConnectionStore((s) => {
+    if (!connectionId) return null;
+    let vs: string[] = [];
+    // Try workspace database first, then fall back to connection profile's database
+    if (database) {
+      vs = s.getVisibleSchemas(connectionId, database);
+    }
+    if (vs.length === 0) {
+      // Fallback: try the connection profile's database field (handles DuckDB file paths, etc.)
+      const conn = s.getConnection(connectionId);
+      if (conn?.profile.database) {
+        vs = s.getVisibleSchemas(connectionId, conn.profile.database);
       }
-      return await loadSchemaData(connectionId, database, schema);
+      // Last resort: check if there's exactly one database entry with visible schemas
+      if (vs.length === 0) {
+        const dbs = conn?.profile.databases;
+        const singleDb = dbs?.[0];
+        if (dbs?.length === 1 && singleDb && singleDb.visible_schemas.length > 0) {
+          vs = singleDb.visible_schemas;
+        }
+      }
+    }
+    if (vs.length === 0) return null;
+    // For DuckDB/MotherDuck, filter out attached database schemas (e.g. "pg.public")
+    // — those are loaded separately by DuckDbAttachedDatabaseSection
+    const conn = s.getConnection(connectionId);
+    if (conn && (conn.profile.db_type === DbType.DuckDB || conn.profile.db_type === DbType.MotherDuck)) {
+      vs = vs.filter((name) => !name.includes("."));
+    }
+    // Return a stable primitive (string) instead of a new array to prevent infinite re-renders
+    return vs.length > 0 ? vs.join("\0") : null;
+  });
+  // Parse the stable key back into an array
+  const visibleSchemas = visibleSchemasKey ? visibleSchemasKey.split("\0") : null;
+  const schemas = visibleSchemas ?? (schema ? [schema] : null);
+  // Stable key for react-query: sorted copy so order changes don't refetch
+  const schemasKey = schemas ? [...schemas].sort().join(",") : null;
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["useSchemaData.SchemaData", connectionId, database, schemasKey],
+    queryFn: async () => {
+      if (!connectionId || !database || !schemas || schemas.length === 0) {
+        throw new Error("Connection ID, database, and schemas are required");
+      }
+      return await loadSchemaData(connectionId, database, schemas);
     },
-    enabled: !!connectionId && !!database && !!schema,
+    enabled: !!connectionId && !!database && !!schemasKey,
   });
 
   // Subscribe to schema invalidations (table create/drop/duplicate)
   useEffect(() => {
-    if (!connectionId || !database || !schema) return;
+    if (!connectionId || !database || !schemas) return;
 
-    const unsubscribe = useDataInvalidationStore.getState().subscribeSchema(
-      connectionId,
-      database,
-      schema,
-      () => {
-        logger.info(`[useSchemaData] Schema invalidated, refreshing: ${database}.${schema}`);
-        // Clear the schema cache so refetch gets fresh data from the database
-        // Without this, schemaCache.getTables() returns stale cached data
-        schemaCache.invalidateSchema(connectionId, schema);
-        void refetch();
-      }
+    const unsubs = schemas.map((s) =>
+      useDataInvalidationStore.getState().subscribeSchema(
+        connectionId,
+        database,
+        s,
+        () => {
+          logger.info(`[useSchemaData] Schema invalidated, refreshing: ${database}.${s}`);
+          schemaCache.invalidateSchema(connectionId, s);
+          void refetch();
+        },
+      ),
     );
 
-    return unsubscribe;
-  }, [connectionId, database, schema, refetch]);
+    return () => { unsubs.forEach((u) => { u(); }); };
+  }, [connectionId, database, schemasKey, refetch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stable empty arrays — avoids creating new [] references on every render
   // when data is undefined (which would cause downstream useMemo/useEffect churn)

@@ -59,6 +59,7 @@ const createConnection = (
     database: `${id}-db`,
     username: "postgres",
     options: {},
+    databases: [],
   },
 });
 

@@ -1,6 +1,7 @@
 import { type TableMeta, type FunctionMeta } from '@/services/databaseService';
 import useWorkbenchStore from '@/stores/workbenchStore';
 import { usePanelFocusStore } from '@/stores/panelFocusStore';
+import { useConnectionStore } from '@/stores/connectionStoreNew';
 import { nanoid } from 'nanoid';
 import { DbType } from '@/types/connection';
 import { buildMongoCollectionMetadataQuery } from '@/screens/workspace/components/sidebarContextMenuHelpers';
@@ -785,7 +786,16 @@ interface OpenErdParams {
   connectionId: string;
   connectionName: string;
   database?: string;
+  /**
+   * Legacy single-schema input. When omitted (or alongside the new
+   * visible-schemas model), the opener seeds from
+   * `connectionStoreNew.getVisibleSchemas(connectionId, database)`.
+   */
   schema?: string;
+  /**
+   * Explicit multi-schema seed. Overrides the derived set when provided.
+   */
+  schemas?: string[];
 }
 
 /**
@@ -793,12 +803,8 @@ interface OpenErdParams {
  * is already open in the focused panel (per-panel dedup). Otherwise creates
  * a new tab in the focused panel.
  */
-export function openErdView({
-  connectionId,
-  connectionName,
-  database,
-  schema,
-}: OpenErdParams): void {
+export function openErdView(params: OpenErdParams): void {
+  const { connectionId, connectionName, database, schema } = params;
   const {
     addTab,
     panelContents,
@@ -807,6 +813,16 @@ export function openErdView({
     updateTabMetadata,
   } = useWorkbenchStore.getState();
 
+  const seededSchemas: string[] = (() => {
+    if (params.schemas) return params.schemas.slice();
+    if (database) {
+      const fromStore = useConnectionStore.getState().getVisibleSchemas(connectionId, database);
+      if (fromStore.length > 0) return fromStore;
+    }
+    if (schema) return [schema];
+    return [];
+  })();
+
   const objectKey = `erd-${connectionId}`;
 
   const erdMetadata = {
@@ -814,7 +830,7 @@ export function openErdView({
     title: `${connectionName} ERD`,
     connectionId,
     database,
-    schema,
+    schemas: seededSchemas,
     objectKey,
   };
 
@@ -853,12 +869,8 @@ export function openErdView({
  * Open an ERD in a new split panel to the right. Always creates a new tab
  * with a unique ID so it does not conflict with existing ERD tabs.
  */
-export function openErdInSplitRight({
-  connectionId,
-  connectionName,
-  database,
-  schema,
-}: OpenErdParams): void {
+export function openErdInSplitRight(params: OpenErdParams): void {
+  const { connectionId, connectionName, database, schema } = params;
   const { splitPanelAction, panelContents, focusPanel } =
     useWorkbenchStore.getState();
 
@@ -867,6 +879,16 @@ export function openErdInSplitRight({
     targetPanelId = Array.from(panelContents.keys())[0] ?? null;
   }
   if (!targetPanelId) return;
+
+  const seededSchemas: string[] = (() => {
+    if (params.schemas) return params.schemas.slice();
+    if (database) {
+      const fromStore = useConnectionStore.getState().getVisibleSchemas(connectionId, database);
+      if (fromStore.length > 0) return fromStore;
+    }
+    if (schema) return [schema];
+    return [];
+  })();
 
   const objectKey = `erd-${connectionId}`;
   const tabId = `${objectKey}:::${nanoid(6)}`;
@@ -886,7 +908,7 @@ export function openErdInSplitRight({
           title: `${connectionName} ERD`,
           connectionId,
           database,
-          schema,
+          schemas: seededSchemas,
           objectKey,
         },
       },

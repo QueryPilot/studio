@@ -16,6 +16,7 @@ export interface UseDuckDbQueryProgressResult {
 export function useDuckDbQueryProgress(
   connId: string | undefined,
   isRunning: boolean,
+  tabId?: string,
 ): UseDuckDbQueryProgressResult {
   const [progress, setProgress] = useState<DuckDbQueryProgress | null>(null);
   const [estimatedSecondsRemaining, setEstimatedSecondsRemaining] = useState<
@@ -26,8 +27,8 @@ export function useDuckDbQueryProgress(
 
   const cancel = useCallback(() => {
     if (!connId) return;
-    void BackendAPI.duckdbInterruptQuery(connId);
-  }, [connId]);
+    void BackendAPI.duckdbInterruptQuery(connId, tabId);
+  }, [connId, tabId]);
 
   useEffect(() => {
     if (!connId || !isRunning) {
@@ -35,13 +36,14 @@ export function useDuckDbQueryProgress(
     }
 
     const stableConnId = connId;
+    const stableTabId = tabId;
     const myGeneration = ++pollGenerationRef.current;
 
     startedAtRef.current = Date.now();
 
     const tick = async () => {
       try {
-        const p = await BackendAPI.duckdbQueryProgress(stableConnId);
+        const p = await BackendAPI.duckdbQueryProgress(stableConnId, stableTabId);
         if (pollGenerationRef.current !== myGeneration) {
           return;
         }
@@ -77,7 +79,7 @@ export function useDuckDbQueryProgress(
       setEstimatedSecondsRemaining(null);
       startedAtRef.current = null;
     };
-  }, [connId, isRunning]);
+  }, [connId, isRunning, tabId]);
 
   return { progress, estimatedSecondsRemaining, cancel };
 }

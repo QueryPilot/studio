@@ -155,6 +155,7 @@ export interface DuckDbAttachCatalogRequest {
   alias: string;
   catalogUri: string;
   extraOptions?: Record<string, string>;
+  readOnly?: boolean;
 }
 
 export interface DuckDbAutocompleteSuggestion {
@@ -531,8 +532,16 @@ export class BackendAPI {
     return invoke("test_connection", { connId });
   }
 
-  static async updateActiveSchema(connId: string, schema: string): Promise<void> {
-    return invoke("update_active_schema", { connId, schema });
+  static async updateActiveSchema(
+    connId: string,
+    databaseName: string,
+    schema: string,
+  ): Promise<void> {
+    return invoke("update_connection_schemas", {
+      connId,
+      databaseName,
+      visibleSchemas: [schema],
+    });
   }
 
   static async getConnectionHealth(connId: string): Promise<ConnectionHealth> {
@@ -695,12 +704,16 @@ export class BackendAPI {
 
   static async duckdbQueryProgress(
     connId: string,
+    tabId?: string,
   ): Promise<DuckDbQueryProgress> {
-    return invoke("duckdb_query_progress", { connId });
+    return invoke("duckdb_query_progress", { connId, tabId });
   }
 
-  static async duckdbInterruptQuery(connId: string): Promise<void> {
-    await invoke("duckdb_interrupt_query", { connId });
+  static async duckdbInterruptQuery(
+    connId: string,
+    tabId?: string,
+  ): Promise<void> {
+    await invoke("duckdb_interrupt_query", { connId, tabId });
   }
 
   // Streaming query
@@ -787,6 +800,8 @@ export class BackendAPI {
     connectionId: string,
     sql: string,
     timeoutSecs?: number,
+    _effectiveSchemas?: string[],
+    _effectiveDatabase?: string,
   ): Promise<RawQueryResult> {
     logger.info(
       `[BackendAPI] query called for ${connectionId}, sql length: ${sql.length}`,

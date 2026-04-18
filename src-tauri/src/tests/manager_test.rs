@@ -35,6 +35,10 @@ async fn test_connection_manager_empty_id_error() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let result = manager.get_or_create_connection(&profile).await;
@@ -151,6 +155,10 @@ async fn test_connection_profile_types() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let _result = manager.get_or_create_connection(&postgres_profile).await;
@@ -188,6 +196,10 @@ async fn test_connection_with_options() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -218,6 +230,10 @@ async fn test_connection_with_no_password() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -248,6 +264,10 @@ async fn test_connection_different_ports() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let profile2 = ConnectionProfile {
@@ -271,6 +291,10 @@ async fn test_connection_different_ports() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let _id1 = manager.get_or_create_connection(&profile1).await;
@@ -304,6 +328,10 @@ async fn test_connection_special_characters_in_name() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -334,6 +362,10 @@ async fn test_connection_unicode_in_fields() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let _result = manager.get_or_create_connection(&profile).await;
@@ -406,6 +438,10 @@ async fn test_connection_color_codes() {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let _result = manager.get_or_create_connection(&profile).await;
@@ -435,5 +471,9 @@ fn create_test_profile(id: &str) -> ConnectionProfile {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     }
 }

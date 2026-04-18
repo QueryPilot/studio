@@ -23,7 +23,6 @@ use crate::types::*;
 pub struct PostgresAdapter {
     pool: Arc<RwLock<Option<Pool>>>,
     pooler_mode: Arc<StdRwLock<Option<bool>>>,
-    current_schema: Arc<StdRwLock<Option<String>>>,
 }
 
 impl PostgresAdapter {
@@ -31,36 +30,6 @@ impl PostgresAdapter {
         Self {
             pool: Arc::new(RwLock::new(None)),
             pooler_mode: Arc::new(StdRwLock::new(None)),
-            current_schema: Arc::new(StdRwLock::new(None)),
-        }
-    }
-
-    fn current_schema_from_profile(profile: &ConnectionProfile) -> Option<String> {
-        profile
-            .options
-            .get("postgres_current_schema")
-            .cloned()
-            .filter(|schema| !schema.trim().is_empty())
-    }
-
-    fn quote_identifier(identifier: &str) -> String {
-        format!("\"{}\"", identifier.replace('"', "\"\""))
-    }
-
-    pub(crate) fn search_path_sql(schema: &str) -> String {
-        let quoted_schema = Self::quote_identifier(schema);
-        if schema.eq_ignore_ascii_case("public") {
-            format!("SET search_path TO {}", quoted_schema)
-        } else {
-            format!("SET search_path TO {}, public", quoted_schema)
-        }
-    }
-
-    pub fn decorate_simple_query_sql(&self, sql: &str) -> String {
-        let schema = self.current_schema();
-        match schema {
-            Some(schema) => format!("{}; {}", Self::search_path_sql(&schema), sql),
-            None => sql.to_string(),
         }
     }
 
@@ -77,23 +46,6 @@ impl PostgresAdapter {
 
     pub fn pooler_mode(&self) -> Option<bool> {
         self.pooler_mode.read().ok().and_then(|guard| *guard)
-    }
-
-    pub fn current_schema(&self) -> Option<String> {
-        self.current_schema
-            .read()
-            .ok()
-            .and_then(|guard| guard.clone())
-    }
-
-    pub fn set_current_schema(&self, schema: Option<String>) {
-        if let Ok(mut guard) = self.current_schema.write() {
-            *guard = schema.filter(|value| !value.trim().is_empty());
-        }
-    }
-
-    pub async fn get_client_with_schema(&self) -> Result<deadpool_postgres::Client, AppError> {
-        self.get_client().await
     }
 
     fn create_pool(cfg: &Config, profile: &ConnectionProfile) -> Result<Pool, AppError> {
@@ -176,7 +128,7 @@ impl PostgresAdapter {
         self.pool.read().await.clone()
     }
 
-    async fn get_client(&self) -> Result<deadpool_postgres::Client, AppError> {
+    pub async fn get_client(&self) -> Result<deadpool_postgres::Client, AppError> {
         let pool = self
             .get_pool()
             .await
@@ -195,22 +147,6 @@ impl PostgresAdapter {
                 )
             })?
             .map_err(|e| AppError::Internal(format!("Failed to get connection: {}", e)))?;
-
-        // Set search_path on every connection checkout.
-        // In pooler mode (PgBouncer transaction pooling), each connection may have been
-        // used by another client, so session state must be re-applied every time.
-        let schema = self.current_schema();
-        if let Some(schema) = schema {
-            client
-                .batch_execute(Self::search_path_sql(&schema).as_str())
-                .await
-                .map_err(|e| {
-                    AppError::DatabaseError(format!(
-                        "Failed to apply PostgreSQL search_path: {}",
-                        e
-                    ))
-                })?;
-        }
 
         Ok(client)
     }
@@ -240,7 +176,6 @@ impl PostgresAdapter {
 
     async fn execute_simple_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
         let client = self.get_client().await?;
-        let sql = self.decorate_simple_query_sql(sql);
         let messages = client
             .simple_query(&sql)
             .await
@@ -290,7 +225,6 @@ impl PostgresAdapter {
     }
 
     async fn execute_typed_query(&self, sql: &str) -> Result<CapabilityQueryResult, AppError> {
-        // get_client() sets search_path on every checkout
         let client = self.get_client().await?;
 
         let typed_params: Vec<(&(dyn ToSql + Sync), Type)> = Vec::new();
@@ -312,7 +246,6 @@ impl PostgresAdapter {
 
     async fn execute_simple_statement(&self, sql: &str) -> Result<u64, AppError> {
         let client = self.get_client().await?;
-        let sql = self.decorate_simple_query_sql(sql);
         let messages = client
             .simple_query(&sql)
             .await
@@ -518,7 +451,6 @@ impl BaseCapability for PostgresAdapter {
             cfg.pool = Some(PoolConfig::new(1));
         }
 
-        self.set_current_schema(Self::current_schema_from_profile(profile));
         if let Ok(mut guard) = self.pooler_mode.write() {
             *guard = profile.pooler_mode;
         }
@@ -718,6 +650,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: Some(true),
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         // Pooler mode should NOT pin to single session — allows parallel queries

@@ -1,6 +1,7 @@
 import { logger } from "@/lib/logger";
 import { queryStreamClient } from "./queryStreamClient";
 import { isTauri } from "@/utils/tauri";
+import { appendOverrideHint } from "./effectiveSchemas";
 import type { TableDataRow } from "./tableDataTypes";
 import type { ColumnMeta } from "@/types/database";
 import { DbType } from "@/types";
@@ -47,6 +48,8 @@ export interface StreamEntityPageParams {
   onProgress?: (progress: StreamProgress) => void;
   onBatch?: (batch: TableDataRow[], rowOffset: number) => void;
   tabId?: string; // Optional: for query tabs. If not provided, uses table-specific ID
+  effectiveSchemas?: string[];
+  effectiveDatabase?: string;
 }
 
 export interface StreamEntityPageResult {
@@ -296,6 +299,8 @@ export async function streamEntityPage(
         sql,
         batchSize: fetchLimit,
         signal,
+        effectiveSchemas: params.effectiveSchemas,
+        effectiveDatabase: params.effectiveDatabase,
       },
       {
         onStarted: (columns, estimatedRows) => {
@@ -548,6 +553,8 @@ class TableStreamingService {
     options?: {
       collectRows?: boolean;
       pinSession?: boolean;
+      effectiveSchemas?: string[];
+      effectiveDatabase?: string;
     },
   ): Promise<StreamingTableResult> {
     this.cancel(); // Abort any previous query
@@ -578,6 +585,8 @@ class TableStreamingService {
             timeoutSecs,
             pinSession: options?.pinSession,
             signal: controller.signal,
+            effectiveSchemas: options?.effectiveSchemas,
+            effectiveDatabase: options?.effectiveDatabase,
           },
           {
             onStarted: (columns, estimatedRows) => {
@@ -643,7 +652,12 @@ class TableStreamingService {
               if (gen !== this.generation) return; // stale — ignore
               controller.signal.removeEventListener("abort", onAbort);
               this.isStreaming = false;
-              reject(err);
+              // appendOverrideHint always throws — catches the enriched error
+              try {
+                appendOverrideHint(err, tabId);
+              } catch (enriched) {
+                reject(enriched);
+              }
             },
           },
         );

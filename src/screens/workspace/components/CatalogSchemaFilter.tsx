@@ -63,16 +63,28 @@ export function CatalogSchemaFilter({
   const storedConn = useConnectionStore((s) => s.getConnection(connectionId));
   const updateConnection = useConnectionStore((s) => s.updateConnection);
 
-  // Parse persisted schema filters from profile (only needed as fallback when Zustand is empty)
+  // Derive persisted schema filters from databases[] (Phase 4) or legacy trino_schema_filters
   const persistedSchemaFilters: Record<string, string[]> = (() => {
+    const dbs = storedConn?.profile.databases;
+    if (dbs && dbs.length > 0) {
+      return Object.fromEntries(dbs.map((d) => [d.name, d.visible_schemas]));
+    }
+    // Fall back to deprecated legacy field during migration window
     const raw = storedConn?.profile.trino_schema_filters;
     if (!raw) return {};
     try { return JSON.parse(raw) as Record<string, string[]>; } catch { return {}; }
   })();
 
+  // Derive visible catalogs: prefer databases[] names (Phase 4); fall back to legacy
+  const persistedVisibleCatalogs: string[] = (() => {
+    const dbs = storedConn?.profile.databases;
+    if (dbs && dbs.length > 0) return dbs.map((d) => d.name);
+    return storedConn?.profile.trino_catalogs ?? catalogs;
+  })();
+
   // Default to showing all catalogs
   const visibleCatalogs: string[] =
-    trinoCatalogFilter?.visibleCatalogs ?? catalogs;
+    trinoCatalogFilter?.visibleCatalogs ?? persistedVisibleCatalogs;
   const schemaFilters: Record<string, string[]> =
     trinoCatalogFilter?.schemaFilters ?? persistedSchemaFilters;
 
@@ -110,12 +122,23 @@ export function CatalogSchemaFilter({
         schemaFilters: newSchemaFilters,
       });
 
-      // Persist to profile
+      // Persist to profile — write to databases[] (Phase 4)
       if (storedConn) {
+        const existing = storedConn.profile.databases;
+        // Keep original catalog order where possible; append any new ones.
+        const keep = existing.filter((d) => newVisibleCatalogs.includes(d.name));
+        const added = newVisibleCatalogs
+          .filter((name) => !existing.some((d) => d.name === name))
+          .map((name) => ({ name, visible_schemas: newSchemaFilters[name] ?? [] }));
         const updatedProfile = {
           ...storedConn.profile,
-          trino_catalogs: newVisibleCatalogs,
-          trino_schema_filters: JSON.stringify(newSchemaFilters),
+          databases: [
+            ...keep.map((d) => ({
+              ...d,
+              visible_schemas: newSchemaFilters[d.name] ?? d.visible_schemas,
+            })),
+            ...added,
+          ],
         };
         await updateConnection(connectionId, updatedProfile);
       }
@@ -147,13 +170,10 @@ export function CatalogSchemaFilter({
         currentSet.add(schema);
       }
       const nextArr = Array.from(currentSet);
-      const nextFilters = { ...schemaFilters };
       // If all schemas visible, remove the filter entry (undefined = all)
-      if (nextArr.length === allSchemas.length) {
-        delete nextFilters[catalog];
-      } else {
-        nextFilters[catalog] = nextArr;
-      }
+      const nextFilters: Record<string, string[]> = nextArr.length === allSchemas.length
+        ? Object.fromEntries(Object.entries(schemaFilters).filter(([k]) => k !== catalog))
+        : { ...schemaFilters, [catalog]: nextArr };
       void applyFilter(visibleCatalogs, nextFilters);
     },
     [visibleCatalogs, schemaFilters, applyFilter],

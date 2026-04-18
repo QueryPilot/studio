@@ -1496,11 +1496,94 @@ fn extract_output_aliases(stmt: &Statement) -> Vec<String> {
     let mut output_aliases = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    if let Statement::Query(query) = unwrap_statement(stmt) {
-        extract_output_aliases_from_set_expr(query.body.as_ref(), &mut output_aliases, &mut seen);
+    match unwrap_statement(stmt) {
+        Statement::Query(query) | Statement::CreateView { query, .. } => {
+            extract_output_aliases_from_query(query, &mut output_aliases, &mut seen);
+        }
+        Statement::Insert(insert) => {
+            if let Some(source) = &insert.source {
+                extract_output_aliases_from_query(source, &mut output_aliases, &mut seen);
+            }
+        }
+        Statement::Update {
+            from,
+            selection,
+            returning,
+            ..
+        } => {
+            if let Some(source) = from {
+                extract_output_aliases_from_table_with_joins(
+                    source,
+                    &mut output_aliases,
+                    &mut seen,
+                );
+            }
+            if let Some(selection) = selection {
+                extract_output_aliases_from_expr(selection, &mut output_aliases, &mut seen);
+            }
+            if let Some(items) = returning {
+                for item in items {
+                    extract_output_aliases_from_select_item(item, &mut output_aliases, &mut seen);
+                }
+            }
+        }
+        Statement::Delete(delete) => {
+            if let Some(selection) = &delete.selection {
+                extract_output_aliases_from_expr(selection, &mut output_aliases, &mut seen);
+            }
+            if let Some(using) = &delete.using {
+                for table in using {
+                    extract_output_aliases_from_table_with_joins(
+                        table,
+                        &mut output_aliases,
+                        &mut seen,
+                    );
+                }
+            }
+        }
+        _ => {}
     }
 
     output_aliases
+}
+
+fn push_output_alias(
+    alias_name: String,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    if seen.insert(alias_name.to_lowercase()) {
+        output_aliases.push(alias_name);
+    }
+}
+
+fn extract_output_aliases_from_query(
+    query: &ast::Query,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    if let Some(with) = &query.with {
+        for cte in &with.cte_tables {
+            extract_output_aliases_from_query(&cte.query, output_aliases, seen);
+        }
+    }
+
+    extract_output_aliases_from_set_expr(query.body.as_ref(), output_aliases, seen);
+
+    if let Some(order_by) = &query.order_by {
+        for item in &order_by.exprs {
+            extract_output_aliases_from_expr(&item.expr, output_aliases, seen);
+        }
+    }
+    if let Some(limit) = &query.limit {
+        extract_output_aliases_from_expr(limit, output_aliases, seen);
+    }
+    for expr in &query.limit_by {
+        extract_output_aliases_from_expr(expr, output_aliases, seen);
+    }
+    if let Some(offset) = &query.offset {
+        extract_output_aliases_from_expr(&offset.value, output_aliases, seen);
+    }
 }
 
 fn extract_output_aliases_from_set_expr(
@@ -1512,21 +1595,250 @@ fn extract_output_aliases_from_set_expr(
         SetExpr::Select(select) => {
             for item in &select.projection {
                 if let ast::SelectItem::ExprWithAlias { alias, .. } = item {
-                    let alias_name = alias.value.clone();
-                    if seen.insert(alias_name.to_lowercase()) {
-                        output_aliases.push(alias_name);
-                    }
+                    push_output_alias(alias.value.clone(), output_aliases, seen);
+                }
+                extract_output_aliases_from_select_item(item, output_aliases, seen);
+            }
+            for table_with_joins in &select.from {
+                extract_output_aliases_from_table_with_joins(
+                    table_with_joins,
+                    output_aliases,
+                    seen,
+                );
+            }
+            if let Some(selection) = &select.selection {
+                extract_output_aliases_from_expr(selection, output_aliases, seen);
+            }
+            if let Some(prewhere) = &select.prewhere {
+                extract_output_aliases_from_expr(prewhere, output_aliases, seen);
+            }
+            if let Some(having) = &select.having {
+                extract_output_aliases_from_expr(having, output_aliases, seen);
+            }
+            if let Some(qualify) = &select.qualify {
+                extract_output_aliases_from_expr(qualify, output_aliases, seen);
+            }
+            if let ast::GroupByExpr::Expressions(exprs, _) = &select.group_by {
+                for expr in exprs {
+                    extract_output_aliases_from_expr(expr, output_aliases, seen);
                 }
             }
         }
         SetExpr::Query(query) => {
-            extract_output_aliases_from_set_expr(query.body.as_ref(), output_aliases, seen);
+            extract_output_aliases_from_query(query, output_aliases, seen);
         }
         SetExpr::SetOperation { left, right, .. } => {
             extract_output_aliases_from_set_expr(left, output_aliases, seen);
             extract_output_aliases_from_set_expr(right, output_aliases, seen);
         }
-        SetExpr::Values(_) | SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Table(_) => {}
+        SetExpr::Values(values) => {
+            for row in &values.rows {
+                for expr in row {
+                    extract_output_aliases_from_expr(expr, output_aliases, seen);
+                }
+            }
+        }
+        SetExpr::Insert(statement) | SetExpr::Update(statement) => {
+            extract_output_aliases_from_statement(statement, output_aliases, seen);
+        }
+        SetExpr::Table(_) => {}
+    }
+}
+
+fn extract_output_aliases_from_statement(
+    stmt: &Statement,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match stmt {
+        Statement::Query(query) | Statement::CreateView { query, .. } => {
+            extract_output_aliases_from_query(query, output_aliases, seen);
+        }
+        _ => {}
+    }
+}
+
+fn extract_output_aliases_from_table_with_joins(
+    table_with_joins: &ast::TableWithJoins,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    extract_output_aliases_from_table_factor(&table_with_joins.relation, output_aliases, seen);
+    for join in &table_with_joins.joins {
+        extract_output_aliases_from_table_factor(&join.relation, output_aliases, seen);
+        extract_output_aliases_from_join(join, output_aliases, seen);
+    }
+}
+
+fn extract_output_aliases_from_join(
+    join: &ast::Join,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    use ast::{JoinConstraint, JoinOperator};
+
+    let constraint = match &join.join_operator {
+        JoinOperator::Inner(constraint)
+        | JoinOperator::LeftOuter(constraint)
+        | JoinOperator::RightOuter(constraint)
+        | JoinOperator::FullOuter(constraint)
+        | JoinOperator::LeftSemi(constraint)
+        | JoinOperator::RightSemi(constraint)
+        | JoinOperator::LeftAnti(constraint)
+        | JoinOperator::RightAnti(constraint) => Some(constraint),
+        JoinOperator::AsOf {
+            match_condition,
+            constraint,
+        } => {
+            extract_output_aliases_from_expr(match_condition, output_aliases, seen);
+            Some(constraint)
+        }
+        JoinOperator::CrossJoin | JoinOperator::CrossApply | JoinOperator::OuterApply => None,
+    };
+
+    if let Some(JoinConstraint::On(expr)) = constraint {
+        extract_output_aliases_from_expr(expr, output_aliases, seen);
+    }
+}
+
+fn extract_output_aliases_from_table_factor(
+    factor: &TableFactor,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match factor {
+        TableFactor::Derived { subquery, .. } => {
+            extract_output_aliases_from_query(subquery, output_aliases, seen);
+        }
+        TableFactor::TableFunction { expr, .. } => {
+            extract_output_aliases_from_expr(expr, output_aliases, seen);
+        }
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
+            extract_output_aliases_from_table_with_joins(table_with_joins, output_aliases, seen);
+        }
+        TableFactor::Pivot { table, .. } | TableFactor::Unpivot { table, .. } => {
+            extract_output_aliases_from_table_factor(table, output_aliases, seen);
+        }
+        _ => {}
+    }
+}
+
+fn extract_output_aliases_from_select_item(
+    item: &ast::SelectItem,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match item {
+        ast::SelectItem::UnnamedExpr(expr) | ast::SelectItem::ExprWithAlias { expr, .. } => {
+            extract_output_aliases_from_expr(expr, output_aliases, seen);
+        }
+        ast::SelectItem::QualifiedWildcard(_, _) | ast::SelectItem::Wildcard(_) => {}
+    }
+}
+
+fn extract_output_aliases_from_expr(
+    expr: &ast::Expr,
+    output_aliases: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    match expr {
+        ast::Expr::BinaryOp { left, right, .. }
+        | ast::Expr::Like {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::ILike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::SimilarTo {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::RLike {
+            expr: left,
+            pattern: right,
+            ..
+        }
+        | ast::Expr::AtTimeZone {
+            timestamp: left,
+            time_zone: right,
+        }
+        | ast::Expr::Position {
+            expr: left,
+            r#in: right,
+        }
+        | ast::Expr::IsDistinctFrom(left, right)
+        | ast::Expr::IsNotDistinctFrom(left, right)
+        | ast::Expr::AnyOp { left, right, .. }
+        | ast::Expr::AllOp { left, right, .. } => {
+            extract_output_aliases_from_expr(left, output_aliases, seen);
+            extract_output_aliases_from_expr(right, output_aliases, seen);
+        }
+        ast::Expr::UnaryOp { expr, .. }
+        | ast::Expr::Nested(expr)
+        | ast::Expr::Cast { expr, .. }
+        | ast::Expr::IsNull(expr)
+        | ast::Expr::IsNotNull(expr)
+        | ast::Expr::IsTrue(expr)
+        | ast::Expr::IsNotTrue(expr)
+        | ast::Expr::IsFalse(expr)
+        | ast::Expr::IsNotFalse(expr)
+        | ast::Expr::IsUnknown(expr)
+        | ast::Expr::IsNotUnknown(expr) => {
+            extract_output_aliases_from_expr(expr, output_aliases, seen);
+        }
+        ast::Expr::Case {
+            operand,
+            conditions,
+            results,
+            else_result,
+            ..
+        } => {
+            if let Some(operand) = operand {
+                extract_output_aliases_from_expr(operand, output_aliases, seen);
+            }
+            for condition in conditions {
+                extract_output_aliases_from_expr(condition, output_aliases, seen);
+            }
+            for result in results {
+                extract_output_aliases_from_expr(result, output_aliases, seen);
+            }
+            if let Some(else_result) = else_result {
+                extract_output_aliases_from_expr(else_result, output_aliases, seen);
+            }
+        }
+        ast::Expr::InList { expr, list, .. } => {
+            extract_output_aliases_from_expr(expr, output_aliases, seen);
+            for item in list {
+                extract_output_aliases_from_expr(item, output_aliases, seen);
+            }
+        }
+        ast::Expr::InSubquery { expr, subquery, .. } => {
+            extract_output_aliases_from_expr(expr, output_aliases, seen);
+            extract_output_aliases_from_query(subquery, output_aliases, seen);
+        }
+        ast::Expr::Between {
+            expr, low, high, ..
+        } => {
+            extract_output_aliases_from_expr(expr, output_aliases, seen);
+            extract_output_aliases_from_expr(low, output_aliases, seen);
+            extract_output_aliases_from_expr(high, output_aliases, seen);
+        }
+        ast::Expr::Exists { subquery, .. } | ast::Expr::Subquery(subquery) => {
+            extract_output_aliases_from_query(subquery, output_aliases, seen);
+        }
+        ast::Expr::Tuple(exprs) => {
+            for expr in exprs {
+                extract_output_aliases_from_expr(expr, output_aliases, seen);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -2023,7 +2335,7 @@ fn infer_cte_projection_columns(query: &ast::Query) -> Vec<String> {
 fn extract_ctes(stmt: &Statement) -> Vec<CteDefinition> {
     let mut ctes = Vec::new();
 
-    if let Statement::Query(query) = unwrap_statement(stmt) {
+    if let Statement::Query(query) | Statement::CreateView { query, .. } = unwrap_statement(stmt) {
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
                 let columns = if cte.alias.columns.is_empty() {
@@ -2103,10 +2415,12 @@ mod tests {
         assert!(doc.errors.is_empty(), "Parse errors: {:?}", doc.errors);
         assert_eq!(doc.statements.len(), 1);
         assert_eq!(doc.statements[0].statement_type, Some("SELECT".to_string()));
-        assert!(doc.statements[0]
-            .tables
-            .iter()
-            .any(|table| table.name == "client_sales_contexts"));
+        assert!(
+            doc.statements[0]
+                .tables
+                .iter()
+                .any(|table| table.name == "client_sales_contexts")
+        );
     }
 
     #[test]
@@ -2218,12 +2532,14 @@ mod tests {
         );
         let cols = &doc.statements[0].columns;
 
-        assert!(cols
-            .iter()
-            .any(|c| c.name == "customer_id" && c.table.as_deref() == Some("r")));
-        assert!(cols
-            .iter()
-            .any(|c| c.name == "vuiver" && c.table.as_deref() == Some("c")));
+        assert!(
+            cols.iter()
+                .any(|c| c.name == "customer_id" && c.table.as_deref() == Some("r"))
+        );
+        assert!(
+            cols.iter()
+                .any(|c| c.name == "vuiver" && c.table.as_deref() == Some("c"))
+        );
     }
 
     #[test]

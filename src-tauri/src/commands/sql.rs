@@ -388,25 +388,87 @@ async fn execute_single_fetch_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    effective_schemas: Option<&[String]>,
+    effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     // Dispatch to database-specific streaming implementation
     match adapter.db_type() {
         DbType::PostgreSQL => {
-            execute_postgres_stream(sql, metadata_channel, data_channel, adapter).await
+            execute_postgres_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
         }
         DbType::MySQL | DbType::MariaDB => {
-            execute_mysql_stream(sql, metadata_channel, data_channel, adapter).await
+            execute_mysql_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
         }
         DbType::SQLite => {
-            execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
+            execute_generic_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
         }
-        DbType::Oracle => execute_oracle_stream(sql, metadata_channel, data_channel, adapter).await,
-        DbType::DuckDB | DbType::MotherDuck => execute_duckdb_stream(sql, metadata_channel, data_channel, adapter).await,
+        DbType::Oracle => {
+            execute_oracle_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
+        }
+        DbType::DuckDB | DbType::MotherDuck => {
+            execute_duckdb_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
+        }
         DbType::SQLServer => {
-            execute_mssql_stream(sql, metadata_channel, data_channel, adapter).await
+            execute_mssql_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
         }
         DbType::Trino => {
-            execute_generic_stream(sql, metadata_channel, data_channel, adapter).await
+            execute_trino_stream(
+                sql,
+                metadata_channel,
+                data_channel,
+                adapter,
+                effective_schemas,
+                effective_database,
+            )
+            .await
         }
         // Non-SQL databases don't use SQL streaming - handled by their own commands
         DbType::MongoDB | DbType::Redis => {
@@ -435,6 +497,8 @@ async fn execute_generic_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    _effective_schemas: Option<&[String]>,
+    _effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     let start_time = std::time::Instant::now();
 
@@ -453,6 +517,54 @@ async fn execute_generic_stream(
         "  ⏱ Query execution: {}ms, {} rows",
         query_elapsed,
         result.rows.len()
+    );
+
+    send_query_results(
+        &result,
+        start_time,
+        query_elapsed,
+        metadata_channel,
+        data_channel,
+    )
+}
+
+/// Trino-specific streaming with per-query catalog/schema routing via HTTP headers.
+///
+/// Phase 4: When `effective_database` (catalog) or `effective_schemas[0]` (schema) is
+/// provided, overrides the `X-Trino-Catalog` / `X-Trino-Schema` headers for this request.
+/// Falls back to connect-time defaults when no override is present.
+async fn execute_trino_stream(
+    sql: &str,
+    metadata_channel: &tauri::ipc::Channel<StreamMessage>,
+    data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
+    adapter: &crate::core::manager::UnifiedAdapter,
+    effective_schemas: Option<&[String]>,
+    effective_database: Option<&str>,
+) -> std::result::Result<(), String> {
+    let start_time = std::time::Instant::now();
+
+    let trino_adapter = adapter
+        .as_trino()
+        .ok_or_else(|| "execute_trino_stream requires a Trino connection".to_string())?;
+
+    let effective_schema = effective_schemas
+        .and_then(|s| s.first())
+        .map(String::as_str);
+
+    let cap_result = trino_adapter
+        .execute_query_with_session(sql, effective_database, effective_schema)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let result = capability_result_to_query_result(cap_result);
+
+    let query_elapsed = start_time.elapsed().as_millis();
+    tracing::info!(
+        "  ⏱ Trino query execution: {}ms, {} rows (catalog={:?}, schema={:?})",
+        query_elapsed,
+        result.rows.len(),
+        effective_database,
+        effective_schema,
     );
 
     send_query_results(
@@ -524,12 +636,32 @@ async fn execute_duckdb_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    effective_schemas: Option<&[String]>,
+    effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     let start_time = std::time::Instant::now();
 
     let duckdb_adapter = adapter
         .as_duckdb()
         .ok_or_else(|| "execute_duckdb_stream requires a DuckDB connection".to_string())?;
+
+    // DuckDB: stateless re-apply on every query; no RESET.
+    if let Some(db) = effective_database {
+        let use_sql = format!("USE \"{}\"", db.replace('"', "\"\""));
+        duckdb_adapter
+            .execute_query_chunked(&use_sql)
+            .await
+            .map_err(|e| format!("Failed to set database context: {e}"))?;
+    }
+    if let Some(schemas) = effective_schemas {
+        let set_sql = crate::adapters::postgres::search_path::build_set_search_path_sql(schemas);
+        if !set_sql.is_empty() {
+            duckdb_adapter
+                .execute_query_chunked(&set_sql)
+                .await
+                .map_err(|e| format!("Failed to set search_path: {e}"))?;
+        }
+    }
 
     let (columns, chunks) = duckdb_adapter
         .execute_query_chunked(sql)
@@ -617,6 +749,8 @@ async fn execute_mysql_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    _effective_schemas: Option<&[String]>,
+    effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     use crate::adapters::mysql::DirectMsgPackEncoder;
     use mysql_async::prelude::*;
@@ -634,6 +768,18 @@ async fn execute_mysql_stream(
         .get_conn()
         .await
         .map_err(|e| format!("Failed to get MySQL connection: {}", e))?;
+
+    // Apply effective_database: USE `<db>` if provided.
+    if let Some(db) = effective_database {
+        if db.is_empty() || db.contains('\0') {
+            return Err("effective_database contains invalid characters".to_string());
+        }
+        let use_sql = format!("USE `{}`", db.replace('`', "``"));
+        query_conn
+            .query_drop(use_sql)
+            .await
+            .map_err(|e| format!("Failed to apply effective_database: {}", e))?;
+    }
 
     let conn_id: u32 = query_conn
         .query_first("SELECT CONNECTION_ID()")
@@ -867,6 +1013,8 @@ async fn execute_oracle_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    effective_schemas: Option<&[String]>,
+    _effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     use crate::adapters::oracle::oracle_type_to_cell_type;
 
@@ -877,6 +1025,15 @@ async fn execute_oracle_stream(
     // Clone the adapter so we can move it into spawn_blocking
     let oracle_adapter = oracle_adapter.clone();
     let sql_owned = sql.to_string();
+    // Capture effective schema (first element) for per-query ALTER SESSION.
+    let alter_session_sql = effective_schemas
+        .and_then(|schemas| schemas.first())
+        .map(|schema| {
+            format!(
+                "ALTER SESSION SET CURRENT_SCHEMA = \"{}\"",
+                schema.replace('"', "\"\"")
+            )
+        });
     let start_time = std::time::Instant::now();
 
     // Use mpsc to stream encoded batches out of spawn_blocking
@@ -888,18 +1045,37 @@ async fn execute_oracle_stream(
             .get_connection_blocking()
             .map_err(|e| e.to_string())?;
 
-        let mut stmt = conn
-            .statement(&sql_owned)
-            .build()
-            .map_err(|e| e.to_string())?;
+        // Apply per-query CURRENT_SCHEMA if provided.
+        if let Some(ref alter_sql) = alter_session_sql {
+            conn.execute(alter_sql, &[])
+                .map_err(|e| format!("Failed to apply effective_schemas (ALTER SESSION): {}", e))?;
+        }
+
+        let mut stmt = match conn.statement(&sql_owned).build() {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
+                return Err(e.to_string());
+            }
+        };
 
         if !stmt.is_query() {
-            stmt.execute(&[]).map_err(|e| e.to_string())?;
+            if let Err(e) = stmt.execute(&[]) {
+                let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
+                return Err(e.to_string());
+            }
             let _ = batch_tx.blocking_send(OracleBatchMessage::Metadata { columns: vec![] });
+            let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
             return Ok::<_, String>(());
         }
 
-        let result_set = stmt.query(&[]).map_err(|e| e.to_string())?;
+        let result_set = match stmt.query(&[]) {
+            Ok(rs) => rs,
+            Err(e) => {
+                let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
+                return Err(e.to_string());
+            }
+        };
 
         // Extract column metadata
         let columns: Vec<ColumnMeta> = result_set
@@ -931,6 +1107,7 @@ async fn execute_oracle_stream(
             .blocking_send(OracleBatchMessage::Metadata { columns })
             .is_err()
         {
+            let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
             return Ok(());
         }
 
@@ -955,8 +1132,10 @@ async fn execute_oracle_stream(
 
             // Encode the row directly into the batch buffer
             let row_start = batch_buf.len();
-            rmp::encode::write_array_len(&mut batch_buf, column_count as u32)
-                .map_err(|e| e.to_string())?;
+            if let Err(e) = rmp::encode::write_array_len(&mut batch_buf, column_count as u32) {
+                let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
+                return Err(e.to_string());
+            }
             for i in 0..column_count {
                 if let Err(e) = crate::adapters::oracle::direct_msgpack::encode_oracle_cell(
                     &mut batch_buf,
@@ -981,8 +1160,12 @@ async fn execute_oracle_stream(
             if rows_in_batch >= target_batch_size {
                 // Wrap accumulated rows in an outer array header
                 let mut final_buf = Vec::with_capacity(5 + batch_buf.len());
-                rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
-                    .map_err(|e| e.to_string())?;
+                if let Err(e) =
+                    rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
+                {
+                    let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
+                    return Err(e.to_string());
+                }
                 final_buf.extend_from_slice(&batch_buf);
 
                 if batch_tx
@@ -990,6 +1173,7 @@ async fn execute_oracle_stream(
                     .is_err()
                 {
                     // Channel closed (user cancelled)
+                    let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
                     return Ok(());
                 }
 
@@ -1002,14 +1186,19 @@ async fn execute_oracle_stream(
         // Send remaining rows
         if rows_in_batch > 0 {
             let mut final_buf = Vec::with_capacity(5 + batch_buf.len());
-            rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
-                .map_err(|e| e.to_string())?;
+            if let Err(e) = rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32) {
+                let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
+                return Err(e.to_string());
+            }
             final_buf.extend_from_slice(&batch_buf);
             let _ = batch_tx.blocking_send(OracleBatchMessage::Data(final_buf));
         }
 
         // Signal completion with total row count
         let _ = batch_tx.blocking_send(OracleBatchMessage::Done { total_rows });
+
+        // Best-effort reset of CURRENT_SCHEMA so the connection returns to pool in a clean state.
+        let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
 
         Ok(())
     });
@@ -1126,6 +1315,8 @@ async fn execute_mssql_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    _effective_schemas: Option<&[String]>,
+    effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     use crate::adapters::mssql::DirectMsgPackEncoder;
     use futures::FutureExt;
@@ -1144,6 +1335,23 @@ async fn execute_mssql_stream(
         .get()
         .await
         .map_err(|e| format!("Failed to get MSSQL connection: {}", e))?;
+
+    // Apply effective_database: run USE [<db>] as a separate batch before user SQL.
+    // If we switch, we must restore the original database before returning the connection to the pool.
+    let reset_database: Option<String> = if let Some(db) = effective_database {
+        if db.is_empty() || db.contains('\0') {
+            return Err("effective_database contains invalid characters".to_string());
+        }
+        let original_db = mssql_adapter.get_default_database().await;
+        let use_sql = format!("USE [{}]", db.replace(']', "]]"));
+        query_conn
+            .simple_query(use_sql)
+            .await
+            .map_err(|e| format!("Failed to apply effective_database: {}", e))?;
+        original_db
+    } else {
+        None
+    };
 
     let is_showplan = crate::adapters::mssql::MssqlAdapter::is_showplan_batch(sql);
 
@@ -1180,6 +1388,8 @@ async fn execute_mssql_stream(
 
     // Execute the query on the SAME connection we got the SPID from.
     // Collect rows eagerly (tiberius limitation) then process in progressive batches.
+    // The query_future returns the connection alongside results so we can
+    // reset the database context on the same pooled connection afterward.
     let query_future = async {
         let query_result = AssertUnwindSafe(async {
             if is_showplan {
@@ -1263,7 +1473,7 @@ async fn execute_mssql_stream(
                     let _ = off_result.into_first_result().await;
                 }
 
-                Ok::<_, String>((columns, column_count, plan_rows))
+                Ok::<_, String>((columns, column_count, plan_rows, query_conn))
             } else {
                 // Standard path: use columns() + into_first_result()
                 let mut result = query_conn
@@ -1312,7 +1522,7 @@ async fn execute_mssql_stream(
                     .await
                     .map_err(|e| format!("Failed to collect rows: {}", e))?;
 
-                Ok::<_, String>((columns, column_count, rows))
+                Ok::<_, String>((columns, column_count, rows, query_conn))
             }
         })
         .catch_unwind()
@@ -1327,9 +1537,11 @@ async fn execute_mssql_stream(
         }
     };
 
-    let (columns, column_count, rows) = tokio::select! {
+    let (columns, column_count, rows, mut query_conn) = tokio::select! {
         result = query_future => result?,
         _ = wait_for_channel_close(data_channel) => {
+            // KILL terminates the entire MSSQL session; the pooled connection is dead,
+            // so no database reset is needed on this path.
             tracing::info!("  ⚠️  Channel closed (user cancelled MSSQL query)");
             if spid > 0 {
                 tracing::info!("  🛑 Sending KILL {} to MSSQL", spid);
@@ -1477,6 +1689,19 @@ async fn execute_mssql_stream(
     );
     tracing::info!("  └─ Batch sizes: 16→64→256→1024→2048 (progressive)");
     tracing::info!("==========================================");
+
+    // Best-effort reset of the database context so the pooled connection returns clean.
+    // On cancellation paths the KILL destroys the session, so reset is only needed here.
+    if let Some(ref orig_db) = reset_database {
+        let reset_sql = format!("USE [{}]", orig_db.replace(']', "]]"));
+        if let Err(e) = query_conn.simple_query(&reset_sql).await {
+            tracing::warn!(
+                "Failed to reset MSSQL database context to '{}': {}",
+                orig_db,
+                e
+            );
+        }
+    }
 
     let _ = metadata_channel.send(StreamMessage::Success {
         total_rows,
@@ -1679,11 +1904,10 @@ fn postgres_typed_columns(columns: &[tokio_postgres::Column]) -> Vec<ColumnMeta>
 
 async fn fetch_zero_row_postgres_headers(
     client: &deadpool_postgres::Client,
-    postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+    _postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
     sql: &str,
 ) -> Option<Vec<ColumnMeta>> {
-    let header_sql = postgres_adapter.decorate_simple_query_sql(sql);
-    let messages = client.simple_query(&header_sql).await.ok()?;
+    let messages = client.simple_query(sql).await.ok()?;
 
     for message in messages {
         match message {
@@ -1715,6 +1939,7 @@ async fn execute_postgres_pooler_simple_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+    effective_schemas: Option<&[String]>,
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
 
@@ -1724,15 +1949,23 @@ async fn execute_postgres_pooler_simple_stream(
         .await
         .ok_or_else(|| "PostgreSQL pool not available".to_string())?;
     let client = postgres_adapter
-        .get_client_with_schema()
+        .get_client()
         .await
         .map_err(|e| e.to_string())?;
 
+    // Phase 1: per-query search_path application.
+    if let Some(schemas) = effective_schemas {
+        let set_sql = crate::adapters::postgres::search_path::build_set_search_path_sql(schemas);
+        if !set_sql.is_empty() {
+            client
+                .batch_execute(&set_sql)
+                .await
+                .map_err(|e| format!("Failed to apply search_path: {}", e))?;
+        }
+    }
+
     // Prepend pg_backend_pid() to the query stream SQL so it's fetched in the same round trip.
-    // decorate_simple_query_sql prepends SET search_path, so final SQL is:
-    //   SELECT pg_backend_pid(); SET search_path TO ...; <actual query>
-    let decorated_sql = postgres_adapter.decorate_simple_query_sql(sql);
-    let stream_sql = format!("SELECT pg_backend_pid(); {}", decorated_sql);
+    let stream_sql = format!("SELECT pg_backend_pid(); {}", sql);
     let query_start = std::time::Instant::now();
     let mut row_stream = Box::pin(
         client
@@ -1776,10 +2009,7 @@ async fn execute_postgres_pooler_simple_stream(
                 // First row is pg_backend_pid() result — extract and skip
                 if !pid_extracted {
                     pid_extracted = true;
-                    backend_pid = row
-                        .get(0)
-                        .and_then(|v| v.parse::<i32>().ok())
-                        .unwrap_or(0);
+                    backend_pid = row.get(0).and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
                     continue;
                 }
 
@@ -1829,6 +2059,9 @@ async fn execute_postgres_pooler_simple_stream(
                             resumable: false,
                             message: "Query cancelled by user".to_string(),
                         });
+                        let _ = client
+                            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                            .await;
                         return Err("Query cancelled by user".to_string());
                     }
                     send_time_ms += send_start.elapsed().as_millis() as u64;
@@ -1870,6 +2103,9 @@ async fn execute_postgres_pooler_simple_stream(
                 resumable: false,
                 message: "Query cancelled by user".to_string(),
             });
+            let _ = client
+                .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                .await;
             return Err("Query cancelled by user".to_string());
         }
         send_time_ms += send_start.elapsed().as_millis() as u64;
@@ -1891,6 +2127,10 @@ async fn execute_postgres_pooler_simple_stream(
         ipc_send_ms: Some(send_time_ms),
     });
 
+    let _ = client
+        .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+        .await;
+
     Ok(())
 }
 
@@ -1899,17 +2139,26 @@ async fn execute_postgres_pooler_typed_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+    effective_schemas: Option<&[String]>,
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
 
     let start_time = std::time::Instant::now();
     let client = postgres_adapter
-        .get_client_with_schema()
+        .get_client()
         .await
         .map_err(|e| e.to_string())?;
 
-    // search_path is set by get_client_with_schema() on every connection checkout.
-    // query_typed_raw pipelines Parse+Bind+Execute in a single TCP write (1 RTT).
+    // Phase 1: per-query search_path application.
+    if let Some(schemas) = effective_schemas {
+        let set_sql = crate::adapters::postgres::search_path::build_set_search_path_sql(schemas);
+        if !set_sql.is_empty() {
+            client
+                .batch_execute(&set_sql)
+                .await
+                .map_err(|e| format!("Failed to apply search_path: {}", e))?;
+        }
+    }
 
     let query_start = std::time::Instant::now();
     let typed_params: Vec<(&(dyn ToSql + Sync), PgType)> = Vec::new();
@@ -1944,6 +2193,9 @@ async fn execute_postgres_pooler_typed_stream(
                 resumable: false,
                 message: "Query cancelled by user".to_string(),
             });
+            let _ = client
+                .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                .await;
             return Err("Query cancelled by user".to_string());
         }
 
@@ -1985,11 +2237,17 @@ async fn execute_postgres_pooler_typed_stream(
                             resumable: false,
                             message: "Query cancelled by user".to_string(),
                         });
+                        let _ = client
+                            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                            .await;
                         return Err("Query cancelled by user".to_string());
                     }
                 }
             }
             Err(error) => {
+                let _ = client
+                    .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                    .await;
                 return Err(extract_db_error_message(&error));
             }
         }
@@ -2017,6 +2275,9 @@ async fn execute_postgres_pooler_typed_stream(
                 resumable: false,
                 message: "Query cancelled by user".to_string(),
             });
+            let _ = client
+                .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                .await;
             return Err("Query cancelled by user".to_string());
         }
         send_time_ms += send_start.elapsed().as_millis() as u64;
@@ -2051,6 +2312,10 @@ async fn execute_postgres_pooler_typed_stream(
         ipc_send_ms: Some(send_time_ms),
     });
 
+    let _ = client
+        .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+        .await;
+
     Ok(())
 }
 
@@ -2059,6 +2324,7 @@ async fn execute_postgres_pooler_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     postgres_adapter: &crate::adapters::postgres::PostgresAdapter,
+    effective_schemas: Option<&[String]>,
 ) -> std::result::Result<(), String> {
     let is_select = is_select_query(sql);
     let has_returning = sql.to_uppercase().contains(" RETURNING ");
@@ -2069,12 +2335,19 @@ async fn execute_postgres_pooler_stream(
             metadata_channel,
             data_channel,
             postgres_adapter,
+            effective_schemas,
         )
         .await;
     }
 
-    execute_postgres_pooler_typed_stream(sql, metadata_channel, data_channel, postgres_adapter)
-        .await
+    execute_postgres_pooler_typed_stream(
+        sql,
+        metadata_channel,
+        data_channel,
+        postgres_adapter,
+        effective_schemas,
+    )
+    .await
 }
 
 async fn execute_postgres_stream(
@@ -2082,6 +2355,8 @@ async fn execute_postgres_stream(
     metadata_channel: &tauri::ipc::Channel<StreamMessage>,
     data_channel: &tauri::ipc::Channel<tauri::ipc::Response>,
     adapter: &crate::core::manager::UnifiedAdapter,
+    effective_schemas: Option<&[String]>,
+    _effective_database: Option<&str>,
 ) -> std::result::Result<(), String> {
     use futures::StreamExt;
 
@@ -2096,6 +2371,7 @@ async fn execute_postgres_stream(
             metadata_channel,
             data_channel,
             postgres_adapter,
+            effective_schemas,
         )
         .await;
     }
@@ -2113,11 +2389,22 @@ async fn execute_postgres_stream(
     // Get connection from pool FIRST
     let conn_start = std::time::Instant::now();
     let pool_conn = postgres_adapter
-        .get_client_with_schema()
+        .get_client()
         .await
         .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
     let conn_elapsed = conn_start.elapsed().as_millis();
     tracing::info!("  ⏱ Got connection from pool: {}ms", conn_elapsed);
+
+    // Phase 1: per-query search_path application. No pool-checkout SET anymore.
+    if let Some(schemas) = effective_schemas {
+        let set_sql = crate::adapters::postgres::search_path::build_set_search_path_sql(schemas);
+        if !set_sql.is_empty() {
+            pool_conn
+                .batch_execute(&set_sql)
+                .await
+                .map_err(|e| format!("Failed to apply search_path: {}", e))?;
+        }
+    }
 
     // Check if this is a multi-statement query (transactions, multiple commands)
     // Do this BEFORE getting backend PID since batch_execute doesn't need it
@@ -2130,7 +2417,11 @@ async fn execute_postgres_stream(
 
         if let Err(e) = &batch_result {
             tracing::error!("❌ batch_execute failed: {:?}", e);
-            return Err(extract_db_error_message(e));
+            let err_msg = extract_db_error_message(e);
+            let _ = pool_conn
+                .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                .await;
+            return Err(err_msg);
         }
         let exec_elapsed = simple_start.elapsed().as_millis();
         tracing::info!("  ⏱ Executed multi-statement batch: {}ms", exec_elapsed);
@@ -2153,6 +2444,9 @@ async fn execute_postgres_stream(
             ipc_send_ms: Some(0),
         });
 
+        let _ = pool_conn
+            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+            .await;
         return Ok(());
     }
 
@@ -2162,10 +2456,16 @@ async fn execute_postgres_stream(
         tracing::info!("  🔀 Non-SELECT query, using execute() for affected rows count");
 
         let exec_start = std::time::Instant::now();
-        let rows_affected = pool_conn.execute(sql, &[]).await.map_err(|e| {
-            tracing::error!("❌ execute failed: {:?}", e);
-            extract_db_error_message(&e)
-        })?;
+        let rows_affected = match pool_conn.execute(sql, &[]).await {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::error!("❌ execute failed: {:?}", e);
+                let _ = pool_conn
+                    .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                    .await;
+                return Err(extract_db_error_message(&e));
+            }
+        };
         let exec_elapsed = exec_start.elapsed().as_millis();
 
         tracing::info!(
@@ -2191,6 +2491,9 @@ async fn execute_postgres_stream(
             ipc_send_ms: Some(0),
         });
 
+        let _ = pool_conn
+            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+            .await;
         return Ok(());
     }
 
@@ -2213,24 +2516,34 @@ async fn execute_postgres_stream(
 
     // PREPARE statement - this is where the slowness happens on remote connections!
     let prepare_start = std::time::Instant::now();
-    let stmt = pool_conn.prepare(sql).await.map_err(|e| {
-        // Log the full error details for debugging
-        tracing::error!("❌ PREPARE failed: {:?}", e);
-        // Return clean error message
-        extract_db_error_message(&e)
-    })?;
+    let stmt = match pool_conn.prepare(sql).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("❌ PREPARE failed: {:?}", e);
+            let _ = pool_conn
+                .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                .await;
+            return Err(extract_db_error_message(&e));
+        }
+    };
     let prepare_elapsed = prepare_start.elapsed().as_millis();
     tracing::info!("  ⏱ PREPARE statement: {}ms ⚠️", prepare_elapsed);
 
     // Execute query with prepared statement
     let query_start = std::time::Instant::now();
-    let row_stream = pool_conn
+    let row_stream = match pool_conn
         .query_raw(&stmt, std::iter::empty::<i32>())
         .await
-        .map_err(|e| {
+    {
+        Ok(s) => s,
+        Err(e) => {
             tracing::error!("❌ query_raw failed: {:?}", e);
-            extract_db_error_message(&e)
-        })?;
+            let _ = pool_conn
+                .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                .await;
+            return Err(extract_db_error_message(&e));
+        }
+    };
     let exec_elapsed = query_start.elapsed().as_millis();
     tracing::info!("  ⏱ Started query_raw: {}ms", exec_elapsed);
 
@@ -2318,6 +2631,9 @@ async fn execute_postgres_stream(
                     resumable: false,
                     message: "Query cancelled by user".to_string(),
                 });
+                let _ = pool_conn
+                    .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                    .await;
                 return Err("Query cancelled by user".to_string());
             }
             next_row = row_stream.next() => match next_row {
@@ -2343,6 +2659,9 @@ async fn execute_postgres_stream(
                     resumable: false,
                     message: "Query cancelled by user".to_string(),
                 });
+                let _ = pool_conn
+                    .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                    .await;
                 return Err("Query cancelled by user".to_string());
             }
         }
@@ -2396,6 +2715,9 @@ async fn execute_postgres_stream(
                             resumable: false,
                             message: "Query cancelled by user".to_string(),
                         });
+                        let _ = pool_conn
+                            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                            .await;
                         return Err("Query cancelled by user".to_string());
                     }
                 }
@@ -2405,6 +2727,9 @@ async fn execute_postgres_stream(
                     code: "FETCH_ERROR".to_string(),
                     message: e.to_string(),
                 });
+                let _ = pool_conn
+                    .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                    .await;
                 return Err(e.to_string());
             }
         }
@@ -2434,6 +2759,9 @@ async fn execute_postgres_stream(
                     resumable: false,
                     message: "Query cancelled by user".to_string(),
                 });
+                let _ = pool_conn
+                    .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                    .await;
                 return Err("Query cancelled by user".to_string());
             }
         }
@@ -2491,8 +2819,15 @@ async fn execute_postgres_stream(
         tracing::info!("  ⚠️  Channel closed before sending success (user cancelled)");
         cancel_backend(backend_pid);
 
+        let _ = pool_conn
+            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+            .await;
         return Err("Query cancelled by user".to_string());
     }
+
+    let _ = pool_conn
+        .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+        .await;
 
     Ok(())
 }
@@ -2538,6 +2873,8 @@ pub async fn execute_query(
     _batch_size: Option<usize>,
     timeout_secs: Option<u64>,
     pin_session: Option<bool>,
+    effective_schemas: Option<Vec<String>>,
+    effective_database: Option<String>,
     metadata_channel: tauri::ipc::Channel<StreamMessage>,
     data_channel: tauri::ipc::Channel<tauri::ipc::Response>,
     manager: State<'_, Arc<ConnectionManager>>,
@@ -2598,7 +2935,14 @@ pub async fn execute_query(
                 // PostgreSQL and other databases use the streaming path
                 tokio::time::timeout(
                     timeout_duration,
-                    execute_single_fetch_stream(&sql, &metadata_channel, &data_channel, &adapter),
+                    execute_single_fetch_stream(
+                        &sql,
+                        &metadata_channel,
+                        &data_channel,
+                        &adapter,
+                        effective_schemas.as_deref(),
+                        effective_database.as_deref(),
+                    ),
                 )
                 .await
                 .map_err(|_| {

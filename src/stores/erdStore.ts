@@ -43,6 +43,7 @@ export interface ErdView {
   nodePositions: Record<string, NodePosition>;
   viewport?: ViewportState;
   layoutDirection: "LR" | "RL" | "TB" | "BT";
+  selectedSchemas?: string[];
   hasManualPositions: boolean;
   isTemporary?: boolean;
   createdAt: string;
@@ -72,6 +73,7 @@ interface ErdStoreState {
     position: NodePosition,
   ) => void;
   saveViewport: (viewId: string, viewport: ViewportState) => void;
+  setViewSchemas: (viewId: string, schemas: string[]) => void;
   clearConnectionViews: (connectionId: string, database?: string) => void;
 }
 
@@ -110,6 +112,7 @@ export const useErdStore = create<ErdStoreState>()(
           nodePositions: {},
           viewport: undefined,
           layoutDirection: DEFAULT_LAYOUT_DIRECTION,
+          selectedSchemas: undefined,
           hasManualPositions: false,
           isTemporary,
           createdAt: timestamp,
@@ -295,6 +298,25 @@ export const useErdStore = create<ErdStoreState>()(
         });
       },
 
+      setViewSchemas: (viewId, schemas) => {
+        if (schemas.length === 0) return;
+        set((state) => {
+          const view = state.views[viewId];
+          if (!view) return state;
+          return {
+            ...state,
+            views: {
+              ...state.views,
+              [viewId]: {
+                ...view,
+                selectedSchemas: schemas.slice(),
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          };
+        });
+      },
+
       clearConnectionViews: (connectionId, database) => {
         set((state) => {
           const connectionKey = makeConnectionKey(connectionId, database);
@@ -322,7 +344,7 @@ export const useErdStore = create<ErdStoreState>()(
     {
       name: "erd-store",
       storage: createJSONStorage(() => localStorage),
-      version: 1,
+      version: 2,
     },
   ),
 );

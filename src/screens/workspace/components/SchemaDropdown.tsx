@@ -1,329 +1,120 @@
 /**
  * SchemaDropdown.tsx
  *
- * A compact schema dropdown for use within ConnectionSection.
- * Displays a simple select dropdown to switch schemas for a specific connection.
- * Supports creating new schemas and setting a default schema per connection.
+ * Multi-select checklist dropdown for choosing which schemas are "visible"
+ * for a given connection + database.  The first selected schema is the
+ * primary one (shown with a PrimaryBadge).  Ordering can be changed with
+ * drag-and-drop (@dnd-kit/sortable).
+ *
+ * Changes are auto-applied immediately (no Apply button).
+ * Click a schema label in the Visible list to set it as primary.
  */
 
 import { logger } from "@/lib/logger";
-import { useEffect, useCallback, useState } from "react";
-import {
-  IconCheck,
-  IconChevronDown,
-  IconLoader2,
-  IconStar,
-  IconStarFilled,
-  IconPlus,
-} from "@tabler/icons-react";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { useState, useCallback } from "react";
+import { IconChevronDown } from "@tabler/icons-react";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { databaseService } from "@/services/databaseService";
-import { BackendAPI } from "@/services/backend";
-import { cn } from "@/lib/utils";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
 import { DbType } from "@/types/connection";
 import { toast } from "sonner";
+import { SchemaMultiSelectContent } from "@/components/schemas/SchemaMultiSelectContent";
 
 interface SchemaDropdownProps {
   connectionId: string;
-  selectedSchema: string;
-  onSchemaChange: (schema: string) => void;
+  databaseName: string;
+  /** Controlled open state. When provided, the popover is controlled externally. */
+  open?: boolean;
+  /** Called when the popover requests an open-state change. */
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function SchemaDropdown({
-  connectionId,
-  selectedSchema,
-  onSchemaChange,
-}: SchemaDropdownProps) {
-  const [open, setOpen] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false);
-  const [searchValue, setSearchValue] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const queryClient = useQueryClient();
+// ---------------------------------------------------------------------------
+// Main component — now delegates popover body to SchemaMultiSelectContent
+// ---------------------------------------------------------------------------
 
-  // Get connection from workspace bundle store
-  const connection = useWorkspaceBundleStore(
-    (s) => s.activeWorkspace?.connections.get(connectionId)
+export function SchemaDropdown({ connectionId, databaseName, open: openProp, onOpenChange }: SchemaDropdownProps) {
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : openInternal;
+  const setOpen = (value: boolean) => {
+    if (isControlled) {
+      onOpenChange?.(value);
+    } else {
+      setOpenInternal(value);
+    }
+  };
+
+  const storedVisible = useConnectionStore((s) =>
+    s.getVisibleSchemas(connectionId, databaseName),
   );
-  const database = connection?.database ?? "";
+  const setVisibleSchemas = useConnectionStore((s) => s.setVisibleSchemas);
 
-  // Get connection profile to check db_type and default_schema
-  const stored = useConnectionStore((state) => state.getConnection(connectionId));
-  const setDefaultSchema = useConnectionStore((state) => state.setDefaultSchema);
+  // Determine db_type to decide if schemas are supported
+  const stored = useConnectionStore((s) => s.getConnection(connectionId));
   const dbType = stored?.profile.db_type;
-  const defaultSchema = stored?.profile.default_schema;
-
-  // Check if database supports schemas (not MySQL/SQLite)
   const supportsSchemas =
     dbType === DbType.PostgreSQL ||
     dbType === DbType.SQLServer ||
     dbType === DbType.Oracle ||
     dbType === DbType.Trino ||
     dbType === DbType.DuckDB;
-  const canCreateSchema =
-    dbType === DbType.PostgreSQL || dbType === DbType.SQLServer;
 
-  // Track connection active state
-  const [isConnectionActive, setIsConnectionActive] = useState(() =>
-    databaseService.isConnectionActive(connectionId)
-  );
-
-  useEffect(() => {
-    const unsubscribe = databaseService.onHealthChange(
-      connectionId,
-      (health) => {
-        const nowActive =
-          health.status === "ready" || health.status === "degraded";
-        setIsConnectionActive(nowActive);
-      }
-    );
-
-    setIsConnectionActive(databaseService.isConnectionActive(connectionId));
-
-    return unsubscribe;
-  }, [connectionId]);
-
-  // Query for schemas list
-  const { data: schemas = [], isLoading: isLoadingSchemas } = useQuery({
-    queryKey: ["schemas", connectionId, database],
-    queryFn: async () => {
-      if (!database) return [];
-      if (!databaseService.isConnectionActive(connectionId)) {
-        throw new Error("Connection is not active");
-      }
-      return await databaseService.listSchemas(connectionId, database);
-    },
-    enabled: !!connectionId && !!database && isConnectionActive && supportsSchemas,
-    staleTime: 60_000,
-    retry: 2,
-  });
-
-  // Auto-select schema when schemas are loaded
-  useEffect(() => {
-    if (!schemas.length || isLoadingSchemas) return;
-    if (selectedSchema && schemas.includes(selectedSchema)) return;
-
-    // First try the default_schema from profile
-    if (defaultSchema && schemas.includes(defaultSchema)) {
-      onSchemaChange(defaultSchema);
-      return;
-    }
-
-    const publicSchema = schemas.find((s) => s.toLowerCase() === "public");
-    const dboSchema = schemas.find((s) => s.toLowerCase() === "dbo");
-    const fallback = publicSchema || dboSchema || schemas[0];
-
-    if (fallback && fallback !== selectedSchema) {
-      onSchemaChange(fallback);
-    }
-  }, [schemas, selectedSchema, isLoadingSchemas, onSchemaChange, defaultSchema]);
-
-  // Check if search value matches any existing schema
-  const searchLower = searchValue.toLowerCase().trim();
-  const matchingSchemas = schemas.filter((s) =>
-    s.toLowerCase().includes(searchLower)
-  );
-  const exactMatch = schemas.some((s) => s.toLowerCase() === searchLower);
-  const showCreateOption =
-    canCreateSchema && searchValue.trim() && !exactMatch && !isLoadingSchemas;
-
-  const handleSelect = useCallback(
-    async (schema: string) => {
-      if (schema === selectedSchema) {
-        setOpen(false);
-        return;
-      }
-
-      setIsSwitching(true);
+  const handleApply = useCallback(
+    async (schemas: string[]) => {
       try {
-        await databaseService.switchSchema(connectionId, schema);
-        onSchemaChange(schema);
+        await setVisibleSchemas(connectionId, databaseName, schemas);
       } catch (err) {
-        logger.error("Failed to switch schema:", err);
-      } finally {
-        setIsSwitching(false);
-        setOpen(false);
-        setSearchValue("");
-      }
-    },
-    [connectionId, selectedSchema, onSchemaChange]
-  );
-
-  const handleCreateSchema = useCallback(
-    async (schemaName: string) => {
-      if (!schemaName.trim()) return;
-
-      setIsCreating(true);
-      try {
-        // Generate CREATE SCHEMA SQL based on db type
-        let sql: string;
-        if (dbType === DbType.PostgreSQL) {
-          sql = `CREATE SCHEMA "${schemaName}"`;
-        } else if (dbType === DbType.SQLServer) {
-          sql = `CREATE SCHEMA [${schemaName}]`;
-        } else {
-          sql = `CREATE SCHEMA ${schemaName}`;
-        }
-
-        await BackendAPI.query(connectionId, sql);
-        toast.success(`Schema "${schemaName}" created`);
-
-        // Invalidate schemas query to refresh the list
-        await queryClient.invalidateQueries({
-          queryKey: ["schemas", connectionId, database],
-        });
-
-        // Select the newly created schema
-        await handleSelect(schemaName);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to create schema";
-        logger.error("Failed to create schema:", err);
-        toast.error(message);
-      } finally {
-        setIsCreating(false);
-        setSearchValue("");
-      }
-    },
-    [connectionId, dbType, database, queryClient, handleSelect]
-  );
-
-  const handleSetDefault = useCallback(
-    async (schema: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      try {
-        const newDefault = defaultSchema === schema ? undefined : schema;
-        await setDefaultSchema(connectionId, newDefault);
-        toast.success(
-          newDefault
-            ? `"${schema}" set as default schema`
-            : "Default schema cleared"
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to set default schema";
+        const message = err instanceof Error ? err.message : "Failed to apply schemas";
+        logger.error("SchemaDropdown: failed to apply", err);
         toast.error(message);
       }
     },
-    [connectionId, defaultSchema, setDefaultSchema]
+    [connectionId, databaseName, setVisibleSchemas],
   );
 
-  // Hide for databases that don't support schemas
-  if (!supportsSchemas) {
-    return null;
-  }
+  // Trigger label
+  const primary = storedVisible[0] ?? "";
+  const extra = Math.max(0, storedVisible.length - 1);
+  const label =
+    extra > 0 ? `${primary} (+${extra} more)` : primary || "Select schemas…";
 
-  if (!schemas.length && !isLoadingSchemas) {
-    return null;
-  }
+  if (!supportsSchemas) return null;
 
   return (
-    <Popover open={open} onOpenChange={(isOpen) => {
-      setOpen(isOpen);
-      if (!isOpen) setSearchValue("");
-    }}>
+    <Popover
+      open={open}
+      onOpenChange={(isOpen) => {
+        setOpen(isOpen);
+      }}
+    >
       <PopoverTrigger
         render={
           <Button
             variant="ghost"
-            role="combobox"
             aria-expanded={open}
-            disabled={isSwitching || isLoadingSchemas || isCreating}
-            className="text-xs h-5 px-1.5 justify-between min-w-[60px] max-w-[100px] border-0 hover:bg-muted/80 bg-muted/50 rounded"
+            aria-label={label}
+            className="text-xs h-5 px-1.5 justify-between min-w-[60px] max-w-[160px] border-0 hover:bg-muted/80 bg-muted/50 rounded"
           >
-            {isLoadingSchemas || isCreating ? (
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <>
-                <span className="truncate text-muted-foreground">
-                  {selectedSchema || "..."}
-                </span>
-                <IconChevronDown className="ml-0.5 h-3 w-3 shrink-0 opacity-50" />
-              </>
-            )}
+            <span className="truncate text-muted-foreground">{label}</span>
+            <IconChevronDown className="ml-0.5 h-3 w-3 shrink-0 opacity-50" />
           </Button>
         }
       />
-      <PopoverContent className="w-[200px] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder="Search or create..."
-            className="h-8 text-xs"
-            value={searchValue}
-            onValueChange={setSearchValue}
-          />
-          <CommandList>
-            {matchingSchemas.length === 0 && !showCreateOption && (
-              <CommandEmpty>No schema found.</CommandEmpty>
-            )}
 
-            {/* Create new schema option */}
-            {showCreateOption && (
-              <CommandGroup>
-                <CommandItem
-                  value={`create-${searchValue}`}
-                  onSelect={() => void handleCreateSchema(searchValue.trim())}
-                  className="text-xs text-primary"
-                >
-                  <IconPlus className="mr-2 h-3 w-3" />
-                  <span>Create "{searchValue.trim()}"</span>
-                </CommandItem>
-              </CommandGroup>
-            )}
-
-            {/* Existing schemas */}
-            {matchingSchemas.length > 0 && (
-              <CommandGroup>
-                {matchingSchemas.map((schema) => (
-                  <CommandItem
-                    key={schema}
-                    value={schema}
-                    onSelect={() => void handleSelect(schema)}
-                    className="text-xs group"
-                  >
-                    <IconCheck
-                      className={cn(
-                        "mr-2 h-3 w-3 shrink-0",
-                        selectedSchema === schema ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    <span className="truncate flex-1">{schema}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => void handleSetDefault(schema, e)}
-                      className={cn(
-                        "ml-1 p-0.5 rounded hover:bg-muted shrink-0",
-                        defaultSchema === schema
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-50 hover:!opacity-100"
-                      )}
-                      title={defaultSchema === schema ? "Remove as default" : "Set as default"}
-                    >
-                      {defaultSchema === schema ? (
-                        <IconStarFilled className="h-3 w-3 text-yellow-500" />
-                      ) : (
-                        <IconStar className="h-3 w-3" />
-                      )}
-                    </button>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+      <PopoverContent className="w-[260px] p-0" align="start">
+        <SchemaMultiSelectContent
+          connectionId={connectionId}
+          database={databaseName}
+          initialSchemas={storedVisible}
+          scopeLabel="Connection"
+          onApply={handleApply}
+          allowEmptySelection={dbType === DbType.Trino}
+        />
       </PopoverContent>
     </Popover>
   );

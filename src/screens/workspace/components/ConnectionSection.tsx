@@ -47,6 +47,8 @@ import {
   IconBuildingWarehouse,
   IconPlugConnectedX,
   IconFileCode,
+  IconChevronDown,
+  IconChevronRight,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -67,6 +69,8 @@ import {
   isMySQLCompatible,
   getParadigm,
   DbType,
+  type Attachment,
+  type AttachmentKind,
   type SafeMode,
 } from "@/types/connection";
 import { useCommandPaletteStore } from "@/stores/ui/commandPaletteStore";
@@ -121,6 +125,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { SchemaDropdown } from "./SchemaDropdown";
+import { PrimaryBadge } from "@/components/badges/PrimaryBadge";
 import { CatalogSection } from "./CatalogSection";
 import { CatalogSchemaFilter } from "./CatalogSchemaFilter";
 import { DatabaseSidebarContextMenu } from "./DatabaseSidebarContextMenu";
@@ -181,10 +186,19 @@ import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
 import { DuckDbGlobHelperDialog } from "./DuckDbGlobHelperDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
-import { DuckDbAttachCatalogDialog } from "./DuckDbAttachCatalogDialog";
+import {
+  DuckDbAttachCatalogDialog,
+  type DuckDbAttachCatalogSubmitOptions,
+} from "./DuckDbAttachCatalogDialog";
 import { DuckDbAttachedDatabaseSection } from "./DuckDbAttachedDatabaseSection";
 import { DuckDbSecretsPanel } from "./DuckDbSecretsPanel";
 import { DuckDbExtensionsPanel } from "./DuckDbExtensionsPanel";
+import { useRuntimeDatabasesStore } from "@/stores/runtimeDatabasesStore";
+import { vaultStorage } from "@/services/vaultStorage";
+import {
+  addDatabaseAttachment,
+  removeAttachment,
+} from "@/services/duckdbAttachmentOrchestrator";
 import {
   DuckDbTablesDropdown,
   type DuckDbConnectedSource,
@@ -256,6 +270,21 @@ const DEFAULT_DUCKDB_TABLE_NAME = "scratchpad_data";
 const REDIS_SCAN_BATCH_SIZE = 200;
 const MONGO_SNAPSHOT_BATCH_SIZE = 500;
 
+function defaultVisibleSchemasFor(kind: AttachmentKind): string[] {
+  switch (kind) {
+    case "duckdb":
+    case "sqlite":
+      return ["main"];
+    case "postgres":
+      return ["public"];
+    case "mysql":
+    case "iceberg":
+    case "delta":
+    case "ducklake":
+      return [];
+  }
+}
+
 function expectSourceSpecRecord(
   value: unknown,
   label: string,
@@ -324,8 +353,15 @@ export const ConnectionSection = forwardRef<
   const isMySQLDb = isMySQLCompatible(dbType);
   const isTrinoDb = dbType === DbType.Trino;
 
-  // Trino: catalogs from profile, filtered by store
-  const trinoCatalogs = profile.trino_catalogs ?? (profile.database ? [profile.database] : []);
+  // Phase 4: Trino catalog list from databases[] (first-class); fall back to
+  // legacy trino_catalogs during the migration window, then database name.
+  const trinoDatabases = isTrinoDb
+    ? profile.databases.length > 0
+      ? profile.databases
+      : (profile.database ? [{ name: profile.database, visible_schemas: [] as string[] }] : [])
+    : undefined;
+  // For backward-compat with remaining trinoCatalogs usages in this file:
+  const trinoCatalogs = trinoDatabases?.map((d) => d.name) ?? [];
   const trinoCatalogFilter = useWorkspaceBundleStore(
     (s) => s.activeWorkspace?.connections.get(connectionId)?.trinoCatalogFilter,
   );
@@ -402,6 +438,27 @@ export const ConnectionSection = forwardRef<
   const [functionFilterMode, setFunctionFilterMode] = useState<"user" | "all">(
     "user",
   );
+  const [schemaDropdownOpen, setSchemaDropdownOpen] = useState(false);
+
+  // Visible schemas for the current database (used for sidebar schema list)
+  const visibleSchemas = useConnectionStore((s) =>
+    s.getVisibleSchemas(connectionId, database),
+  );
+
+  // For DuckDB: split visible schemas into local (e.g. "main") vs attached (e.g. "pg.public")
+  // Attached database schemas are rendered by DuckDbAttachedDatabaseSection, not the schema tree.
+  const duckDbLocalSchemas = dbType === DbType.DuckDB
+    ? visibleSchemas.filter(s => !s.includes("."))
+    : visibleSchemas;
+  // Derive attached database names from dotted schemas (e.g. "pg.public" → "pg")
+  const duckDbAttachedFromSchemas = dbType === DbType.DuckDB
+    ? [...new Set(
+        visibleSchemas
+          .filter((s) => s.includes("."))
+          .map((s) => s.slice(0, s.indexOf(".")))
+          .filter(Boolean),
+      )]
+    : [];
 
   // Get schema data for SQL databases
   const {
@@ -536,7 +593,6 @@ export const ConnectionSection = forwardRef<
     reconnectDisconnectedConnections,
     removeConnectionFromWorkspace,
     setFocusedConnection,
-    updateConnectionState,
   } = useWorkspaceBundleStore(
     useShallow((s) => ({
       getConnectionById: s.getConnectionById,
@@ -544,7 +600,6 @@ export const ConnectionSection = forwardRef<
       reconnectDisconnectedConnections: s.reconnectDisconnectedConnections,
       removeConnectionFromWorkspace: s.removeConnectionFromWorkspace,
       setFocusedConnection: s.setFocusedConnection,
-      updateConnectionState: s.updateConnectionState,
     })),
   );
   const storedConnections = useConnectionStore((s) => s.connections);
@@ -565,6 +620,10 @@ export const ConnectionSection = forwardRef<
     enabled: dbType === DbType.DuckDB && status === "connected",
     staleTime: 30_000,
   });
+
+  // Phase 3: runtime databases from replay (non-persisted)
+  const runtimeDbs = useRuntimeDatabasesStore((s) => s.get(connectionId));
+  const runtimeAttachErrors = runtimeDbs.errors;
 
   // Connected non-DuckDB connections for snapshot dropdown.
   // Selector returns a stable string key (primitives compare by value),
@@ -1301,11 +1360,6 @@ export const ConnectionSection = forwardRef<
     });
   };
 
-  // Handle schema change
-  const handleSchemaChange = (newSchema: string) => {
-    updateConnectionState(connectionId, database, newSchema);
-  };
-
   // Handle open ERD
   const handleOpenErd = () => {
     setFocusedConnection(connectionId);
@@ -1913,12 +1967,18 @@ export const ConnectionSection = forwardRef<
   ) => {
     const toastId = toast.loading("Attaching database...");
     try {
-      await BackendAPI.duckdbAttachDatabase(connectionId, {
+      const attachment = await addDatabaseAttachment({
+        connectionId,
         path,
         alias,
-        dbType: attachDbType ?? null,
+        dbType: attachDbType,
         readOnly,
       });
+      useRuntimeDatabasesStore.getState().appendDatabase(connectionId, {
+        name: attachment.alias,
+        visible_schemas: [],
+      });
+      await useConnectionStore.getState().fetchConnections();
       toast.success(`Database attached as "${alias}"`, { id: toastId });
       refreshConnectionData(connection);
       void queryClient.invalidateQueries({
@@ -1929,7 +1989,9 @@ export const ConnectionSection = forwardRef<
             q.queryKey[0] === "schemas" ||
             q.queryKey[0] === "databases" ||
             q.queryKey[0] === "tables" ||
-            q.queryKey[0] === "useSchemaData.SchemaData"),
+            q.queryKey[0] === "useSchemaData.SchemaData" ||
+            q.queryKey[0] === "attached-db-schemas" ||
+            q.queryKey[0] === "attached-db-objects"),
       });
       setDuckDbAttachDialogOpen(false);
     } catch (error) {
@@ -1941,11 +2003,51 @@ export const ConnectionSection = forwardRef<
   }, [connectionId, connection, queryClient]);
 
   const handleAttachCatalog = useCallback(async (
-    request: import("@/services/backend").DuckDbAttachCatalogRequest,
+    options: DuckDbAttachCatalogSubmitOptions,
   ) => {
+    const { request, saveToConnection } = options;
     const toastId = toast.loading("Attaching catalog...");
     try {
-      await BackendAPI.duckdbAttachCatalog(connectionId, request);
+      if (saveToConnection) {
+        // Phase 3: persist the attachment to the profile via duckdb_run_attach
+        const attachment: Attachment = {
+          alias: request.alias,
+          kind: request.catalogType as AttachmentKind,
+          uri: request.catalogUri,
+          options: request.extraOptions ?? {},
+          ...(request.readOnly ? { read_only: true } : {}),
+        };
+        await invoke("duckdb_run_attach", {
+          connId: connectionId,
+          attachment,
+          secret: null,
+        });
+        // Also persist to profile
+        const stored = await vaultStorage.getConnection(connectionId);
+        if (stored) {
+          const databases = stored.profile.databases;
+          const db0 = databases[0];
+          if (db0) {
+            const existing = db0.attachments ?? [];
+            if (!existing.some((a) => a.alias === attachment.alias)) {
+              await vaultStorage.updateConnection(connectionId, {
+                ...stored.profile,
+                databases: [
+                  { ...db0, attachments: [...existing, attachment] },
+                  ...databases.slice(1),
+                ],
+              });
+            }
+          }
+        }
+        useRuntimeDatabasesStore.getState().appendDatabase(connectionId, {
+          name: request.alias,
+          visible_schemas: defaultVisibleSchemasFor(attachment.kind),
+        });
+      } else {
+        // Session-only: use the existing BackendAPI path
+        await BackendAPI.duckdbAttachCatalog(connectionId, request);
+      }
       toast.success(`Catalog attached as "${request.alias}"`, { id: toastId });
       refreshConnectionData(connection);
       void queryClient.invalidateQueries({
@@ -1970,26 +2072,44 @@ export const ConnectionSection = forwardRef<
   const handleDetachDatabase = useCallback(async (alias: string) => {
     const toastId = toast.loading(`Detaching "${alias}"...`);
     try {
-      await BackendAPI.duckdbDetachDatabase(connectionId, alias);
-      toast.success(`Database "${alias}" detached`, { id: toastId });
-      refreshConnectionData(connection);
-      void queryClient.invalidateQueries({
-        predicate: (q) =>
-          Array.isArray(q.queryKey) &&
-          q.queryKey[1] === connectionId &&
-          (q.queryKey[0] === "attached-databases" ||
-            q.queryKey[0] === "schemas" ||
-            q.queryKey[0] === "databases" ||
-            q.queryKey[0] === "tables" ||
-            q.queryKey[0] === "useSchemaData.SchemaData"),
-      });
+      await removeAttachment(connectionId, alias);
     } catch (error) {
-      toast.error("Failed to detach database", {
-        id: toastId,
-        description: error instanceof Error ? error.message : String(error),
-      });
+      const msg = error instanceof Error ? error.message : String(error);
+      // If the database wasn't actually attached in DuckDB, treat it as success
+      // — we still want to clean up the connection profile below.
+      if (!msg.includes("database not found")) {
+        toast.error("Failed to detach database", {
+          id: toastId,
+          description: msg,
+        });
+        return;
+      }
     }
-  }, [connectionId, connection, queryClient]);
+    useRuntimeDatabasesStore.getState().removeDatabase(connectionId, alias);
+    await useConnectionStore.getState().fetchConnections();
+
+    // Remove attached-db schemas (e.g. "pg.public") from visible_schemas
+    const currentSchemas = useConnectionStore.getState().getVisibleSchemas(connectionId, database);
+    const cleanedSchemas = currentSchemas.filter((s) => !s.startsWith(`${alias}.`));
+    if (cleanedSchemas.length !== currentSchemas.length) {
+      await useConnectionStore.getState().setVisibleSchemas(connectionId, database, cleanedSchemas);
+    }
+
+    toast.success(`Database "${alias}" detached`, { id: toastId });
+    refreshConnectionData(connection);
+    void queryClient.invalidateQueries({
+      predicate: (q) =>
+        Array.isArray(q.queryKey) &&
+        q.queryKey[1] === connectionId &&
+        (q.queryKey[0] === "attached-databases" ||
+          q.queryKey[0] === "schemas" ||
+          q.queryKey[0] === "databases" ||
+          q.queryKey[0] === "tables" ||
+          q.queryKey[0] === "useSchemaData.SchemaData" ||
+          q.queryKey[0] === "attached-db-schemas" ||
+          q.queryKey[0] === "attached-db-objects"),
+    });
+  }, [connectionId, database, connection, queryClient]);
 
   const handleRevealDuckDbFile = async () => {
     if (!duckDbFilePath) {
@@ -2885,8 +3005,9 @@ export const ConnectionSection = forwardRef<
             >
               <SchemaDropdown
                 connectionId={connectionId}
-                selectedSchema={schema}
-                onSchemaChange={handleSchemaChange}
+                databaseName={database}
+                open={schemaDropdownOpen}
+                onOpenChange={setSchemaDropdownOpen}
               />
             </div>
           )}
@@ -3091,18 +3212,26 @@ export const ConnectionSection = forwardRef<
                 <IconFileCode className="h-4 w-4 mr-2" />
                 File Pattern Helper...
               </ContextMenuItem>
-              {attachedDatabases.filter(
-                (db) => db.databaseName !== "memory" && db.databaseName !== "system",
-              ).length > 0 && (
-                <ContextMenuSub>
-                  <ContextMenuSubTrigger>
-                    <IconPlugConnectedX className="h-4 w-4 mr-2" />
-                    Detach Database
-                  </ContextMenuSubTrigger>
-                  <ContextMenuSubContent>
-                    {attachedDatabases
-                      .filter((db) => db.databaseName !== "memory" && db.databaseName !== "system")
-                      .map((db) => (
+              {(() => {
+                const primaryDbName = connection.database
+                  .split(/[/\\]/)
+                  .pop()
+                  ?.replace(/\.duckdb$/i, "");
+                const detachable = attachedDatabases.filter(
+                  (db) => db.databaseName !== "memory" && db.databaseName !== "system" && db.databaseName !== primaryDbName,
+                );
+                const detachableNames = new Set(detachable.map(db => db.databaseName));
+                const extraDetachable = duckDbAttachedFromSchemas.filter(
+                  name => !detachableNames.has(name) && name !== primaryDbName,
+                );
+                return (detachable.length > 0 || extraDetachable.length > 0) ? (
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>
+                      <IconPlugConnectedX className="h-4 w-4 mr-2" />
+                      Detach Database
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                      {detachable.map((db) => (
                         <ContextMenuItem
                           key={db.databaseName}
                           onClick={() => { void handleDetachDatabase(db.databaseName); }}
@@ -3114,9 +3243,18 @@ export const ConnectionSection = forwardRef<
                           </span>
                         </ContextMenuItem>
                       ))}
-                  </ContextMenuSubContent>
-                </ContextMenuSub>
-              )}
+                      {extraDetachable.map((name) => (
+                        <ContextMenuItem
+                          key={name}
+                          onClick={() => { void handleDetachDatabase(name); }}
+                        >
+                          <span className="truncate">{name}</span>
+                        </ContextMenuItem>
+                      ))}
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
+                ) : null;
+              })()}
             </>
           )}
           <ContextMenuSeparator />
@@ -3332,6 +3470,563 @@ export const ConnectionSection = forwardRef<
                 </SidebarSection>
               )}
 
+              {/* Multi-schema grouping: when multiple schemas are visible, group objects under each schema */}
+              {/* For DuckDB, only local schemas (no dots) — attached DB schemas are rendered by DuckDbAttachedDatabaseSection */}
+              {duckDbLocalSchemas.length > 1 && duckDbLocalSchemas.map((schemaName, schemaIdx) => {
+                const schemaNodeKey = `schema:${schemaName}`;
+                const schemaTables = filterItems(tables, "table").filter(t => t.schema === schemaName);
+                const schemaViews = filterItems(views, "view").filter(v => v.schema === schemaName);
+                const schemaFunctions = filterItems(functions, "function").filter(f => f.schema === schemaName);
+                const schemaSequences = filterItems(sequences).filter(s => s.schema === schemaName);
+                const schemaPackages = filterItems(packages).filter(p => p.schema === schemaName);
+                const schemaSynonyms = filterItems(synonyms).filter(s => s.schema === schemaName);
+                const schemaDraftTables = sidebarDraftTables.filter(d => {
+                  const draftSchema = d.schema;
+                  return draftSchema === schemaName;
+                });
+                const schemaTableCount = schemaTables.filter(t => !starredSet.has(`table:${t.schema}.${t.name}`)).length + schemaDraftTables.length;
+                const schemaViewCount = schemaViews.filter(v => !starredSet.has(`view:${v.schema}.${v.name}`)).length;
+                const schemaFunctionCount = schemaFunctions.filter(f => !starredSet.has(`function:${f.schema}.${f.name}`)).length;
+                return (
+                  <div key={schemaName}>
+                    <button
+                      className="flex items-center gap-1 w-full px-2 py-1 text-xs text-foreground/80 hover:bg-muted/50 rounded"
+                      onClick={() => {
+                        toggleNode(schemaNodeKey);
+                      }}
+                    >
+                      {expandedNodes.has(schemaNodeKey) ? (
+                        <IconChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <IconChevronRight className="h-3.5 w-3.5" />
+                      )}
+                      <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="font-medium">{schemaName}</span>
+                      {schemaIdx === 0 && <PrimaryBadge className="ml-1" />}
+                    </button>
+                    {expandedNodes.has(schemaNodeKey) && (
+                      <div className="ml-2">
+                        {/* Tables for this schema */}
+                        {(schemaTableCount > 0 || isLoadingData) && (
+                          <SidebarSection
+                            title="Tables"
+                            count={schemaTableCount}
+                            isExpanded={expandedNodes.has(`tables:${schemaName}`)}
+                            onToggle={() => {
+                              toggleNode(`tables:${schemaName}`);
+                            }}
+                            stickyClass=""
+                            onAdd={
+                              dbType !== DbType.DuckDB ? handleCreateTable : undefined
+                            }
+                            addTooltip={
+                              dbType !== DbType.DuckDB ? "Create new table" : undefined
+                            }
+                            addContent={
+                              dbType === DbType.DuckDB ? (
+                                <DuckDbTablesDropdown
+                                  onNewTable={handleCreateTable}
+                                  onImportFile={() => {
+                                    void handleOpenDuckDbAddFileDialog();
+                                  }}
+                                  onImportUrl={() => {
+                                    setDuckDbImportUrlDialogOpen(true);
+                                  }}
+                                  onFilePatternHelper={() => {
+                                    setDuckDbGlobHelperDialogOpen(true);
+                                  }}
+                                  onExportData={() => {
+                                    setDuckDbExportSource({ type: "query", sql: "" });
+                                    setDuckDbExportDialogOpen(true);
+                                  }}
+                                  onAttachDatabase={() => {
+                                    setDuckDbAttachDialogOpen(true);
+                                  }}
+                                  onAttachCatalog={() => {
+                                    setDuckDbAttachCatalogDialogOpen(true);
+                                  }}
+                                  onManageSecrets={() => {
+                                    setDuckDbSecretsPanelOpen(true);
+                                  }}
+                                  onManageExtensions={() => {
+                                    setDuckDbExtensionsPanelOpen(true);
+                                  }}
+                                  onDetachDatabase={(alias) => {
+                                    void handleDetachDatabase(alias);
+                                  }}
+                                  attachedDatabases={attachedDatabases}
+                                  connections={connectedNonDuckDbSources}
+                                  onSnapshotFromConnection={(_connId, connName) => {
+                                    toast.info(
+                                      `Snapshot from "${connName}" — use the context menu on individual tables to snapshot.`,
+                                    );
+                                  }}
+                                  disabled={isAddingDuckDbFile}
+                                />
+                              ) : undefined
+                            }
+                            onSelectAll={handleSelectAllTables}
+                            onCopyAllNames={handleCopyAllTableNames}
+                          >
+                            {schemaDraftTables.map((draft) => {
+                              const isDraftActive = Boolean(
+                                draft.panelId &&
+                                draft.tabId &&
+                                focusedPanelId === draft.panelId &&
+                                focusedActiveTabSnapshot?.activeTabId === draft.tabId,
+                              );
+                              return (
+                                <SidebarItem
+                                  key={`draft:${draft.key}`}
+                                  icon={
+                                    <IconTable className="h-3.5 w-4 min-w-4 text-emerald-600 shrink-0" />
+                                  }
+                                  name={draft.displayName}
+                                  badge="draft"
+                                  isActive={isDraftActive}
+                                  onClick={() => {
+                                    if (!draft.panelId || !draft.tabId) return;
+                                    focusWorkbenchPanel(draft.panelId);
+                                    setActiveTab(draft.panelId, draft.tabId);
+                                  }}
+                                  className="bg-green-500/10 border-l-green-500"
+                                />
+                              );
+                            })}
+                            {schemaTables.map((table) => {
+                              const tableKey = `${table.schema}.${table.name}`;
+                              const isPartitioned =
+                                table.isPartitioned === true && !isMySQLDb;
+                              const isPartitionExpanded =
+                                expandedPartitionedTables.has(tableKey);
+                              const tableDragData: SidebarItemDragData = {
+                                type: "sidebar-item",
+                                objectType: "table",
+                                name: table.name,
+                                table,
+                                connectionId,
+                                database,
+                                schema: table.schema,
+                                kind: table.kind,
+                              };
+                              return (
+                                <DraggableSidebarItem
+                                  key={tableKey}
+                                  dragId={`sidebar-table-${connectionId}-${tableKey}`}
+                                  dragData={tableDragData}
+                                >
+                                  <SidebarItem
+                                    icon={
+                                      <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
+                                    }
+                                    name={table.name}
+                                    isActive={isTableActive(table.name, table.schema)}
+                                    onClick={() => {
+                                      handleTableClick(table, "data");
+                                    }}
+                                    rowCount={table.row_estimate}
+                                    isStarred={starredSet.has(
+                                      `table:${table.schema}.${table.name}`,
+                                    )}
+                                    onToggleStar={handleToggleStar(
+                                      "table",
+                                      table.name,
+                                      table.schema,
+                                    )}
+                                    hasPendingChanges={pendingChangesSet.has(
+                                      `${table.schema}.${table.name}`,
+                                    )}
+                                    pendingChangeVariant={
+                                      destructivePendingChangesSet.has(
+                                        `${table.schema}.${table.name}`,
+                                      )
+                                        ? "destructive"
+                                        : "standard"
+                                    }
+                                    isExpandable={isPartitioned}
+                                    isExpanded={isPartitionExpanded}
+                                    onToggleExpand={() => {
+                                      togglePartitionedTable(tableKey);
+                                    }}
+                                    isSelected={selectedItems.has(
+                                      `table:${table.schema}.${table.name}`,
+                                    )}
+                                    onContextMenu={(e) => {
+                                      handleContextMenu(
+                                        `table:${table.schema}.${table.name}`,
+                                        e,
+                                      );
+                                    }}
+                                    actions={
+                                      <>
+                                        <ActionButton
+                                          icon={
+                                            <IconAssembly className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleTableClick(table, "structure");
+                                          }}
+                                          title="View Structure"
+                                        />
+                                        <ActionButton
+                                          icon={
+                                            <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleTableClick(table, "indexes");
+                                          }}
+                                          title="View Indexes"
+                                        />
+                                      </>
+                                    }
+                                  />
+                                  {isPartitioned && isPartitionExpanded && (
+                                    <PartitionSubTree
+                                      connectionId={connectionId}
+                                      schema={table.schema}
+                                      tableName={table.name}
+                                      dbType={dbType}
+                                      onPartitionClick={(partition) => {
+                                        if (
+                                          dbType === DbType.SQLServer &&
+                                          partition.partition_function_name &&
+                                          partition.partition_expression
+                                        ) {
+                                          const qi = (n: string) =>
+                                            `[${n.replace(/]/g, "]]")}]`;
+                                          const tableRef = `${qi(partition.schema)}.${qi(partition.table_name)}`;
+                                          const sql = `SELECT TOP 1000 * FROM ${tableRef}\nWHERE $PARTITION.${qi(partition.partition_function_name)}(${qi(partition.partition_expression)}) = ${partition.partition_ordinal_position}`;
+                                          openQueryWithSql({
+                                            connectionId,
+                                            database,
+                                            schema: partition.schema,
+                                            sql,
+                                            title: `${partition.table_name} - ${partition.partition_name}`,
+                                          });
+                                        } else {
+                                          const partitionTable: TableMeta = {
+                                            schema: partition.schema,
+                                            name: partition.partition_name,
+                                            kind: "Table",
+                                          };
+                                          handleTableClick(partitionTable, "data");
+                                        }
+                                      }}
+                                      isPartitionActive={(
+                                        partitionName,
+                                        partitionSchema,
+                                      ) => isTableActive(partitionName, partitionSchema)}
+                                    />
+                                  )}
+                                </DraggableSidebarItem>
+                              );
+                            })}
+                          </SidebarSection>
+                        )}
+
+                        {/* Views for this schema */}
+                        {schemaViewCount > 0 && (
+                          <SidebarSection
+                            title="Views"
+                            count={schemaViewCount}
+                            isExpanded={expandedNodes.has(`views:${schemaName}`)}
+                            onToggle={() => {
+                              toggleNode(`views:${schemaName}`);
+                            }}
+                            onAdd={handleCreateView}
+                            addTooltip="Create new view"
+                            stickyClass=""
+                            onSelectAll={handleSelectAllViews}
+                            onCopyAllNames={handleCopyAllViewNames}
+                          >
+                            {schemaViews.map((view) => {
+                              const viewDragData: SidebarItemDragData = {
+                                type: "sidebar-item",
+                                objectType: "view",
+                                name: view.name,
+                                table: view,
+                                connectionId,
+                                database,
+                                schema: view.schema,
+                                kind: view.kind,
+                              };
+                              return (
+                                <DraggableSidebarItem
+                                  key={`${view.schema}.${view.name}`}
+                                  dragId={`sidebar-view-${connectionId}-${view.schema}.${view.name}`}
+                                  dragData={viewDragData}
+                                >
+                                  <SidebarItem
+                                    icon={
+                                      <IconEye
+                                        className={cn(
+                                          "h-4 min-h-4 w-4 min-w-4 shrink-0",
+                                          view.kind === "MaterializedView"
+                                            ? "text-blue-500"
+                                            : "text-green-500",
+                                        )}
+                                      />
+                                    }
+                                    name={view.name}
+                                    isActive={isTableActive(view.name, view.schema)}
+                                    onClick={() => {
+                                      handleTableClick(view, "data");
+                                    }}
+                                    isStarred={starredSet.has(
+                                      `view:${view.schema}.${view.name}`,
+                                    )}
+                                    onToggleStar={handleToggleStar(
+                                      "view",
+                                      view.name,
+                                      view.schema,
+                                    )}
+                                    hasPendingChanges={pendingChangesSet.has(
+                                      `${view.schema}.${view.name}`,
+                                    )}
+                                    pendingChangeVariant={
+                                      destructivePendingChangesSet.has(
+                                        `${view.schema}.${view.name}`,
+                                      )
+                                        ? "destructive"
+                                        : "standard"
+                                    }
+                                    isSelected={selectedItems.has(
+                                      `view:${view.schema}.${view.name}`,
+                                    )}
+                                    onContextMenu={(e) => {
+                                      handleContextMenu(
+                                        `view:${view.schema}.${view.name}`,
+                                        e,
+                                      );
+                                    }}
+                                    actions={
+                                      <>
+                                        {view.kind === "MaterializedView" && (
+                                          <ActionButton
+                                            icon={
+                                              <IconRefresh className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                            }
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                            }}
+                                            title="Refresh Materialized View"
+                                          />
+                                        )}
+                                        <ActionButton
+                                          icon={
+                                            <IconBolt className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleTableClick(view, "structure");
+                                          }}
+                                          title="View Structure"
+                                        />
+                                        <ActionButton
+                                          icon={
+                                            <IconBookmark className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleTableClick(view, "indexes");
+                                          }}
+                                          title="View Indexes"
+                                        />
+                                      </>
+                                    }
+                                  />
+                                </DraggableSidebarItem>
+                              );
+                            })}
+                          </SidebarSection>
+                        )}
+
+                        {/* Functions for this schema */}
+                        {schemaFunctionCount > 0 && (
+                          <SidebarSection
+                            title="Functions"
+                            count={schemaFunctionCount}
+                            isExpanded={expandedNodes.has(`functions:${schemaName}`)}
+                            onToggle={() => {
+                              toggleNode(`functions:${schemaName}`);
+                            }}
+                            stickyClass=""
+                            onAdd={handleCreateFunction}
+                            addTooltip="Create new function"
+                            headerExtra={
+                              <FunctionFilterDropdown
+                                value={functionFilterMode}
+                                onChange={setFunctionFilterMode}
+                              />
+                            }
+                            onSelectAll={handleSelectAllFunctions}
+                            onCopyAllNames={handleCopyAllFunctionNames}
+                          >
+                            {schemaFunctions.map((func) => {
+                              const funcDragData: SidebarItemDragData = {
+                                type: "sidebar-item",
+                                objectType: isProcedure(func) ? "procedure" : "function",
+                                name: func.name,
+                                func,
+                                connectionId,
+                                database,
+                                schema: func.schema,
+                              };
+                              return (
+                                <DraggableSidebarItem
+                                  key={`${func.schema}.${func.name}`}
+                                  dragId={`sidebar-func-${connectionId}-${func.schema}.${func.name}`}
+                                  dragData={funcDragData}
+                                >
+                                  <SidebarItem
+                                    icon={
+                                      <IconMathFunction
+                                        className={cn(
+                                          "h-3.5 w-4 min-w-4 shrink-0",
+                                          isProcedure(func)
+                                            ? "text-orange-500"
+                                            : "text-purple-500",
+                                        )}
+                                      />
+                                    }
+                                    name={func.name}
+                                    isActive={isFunctionActive(func.name, func.schema)}
+                                    onClick={() => {
+                                      handleFunctionClick(func);
+                                    }}
+                                    isStarred={starredSet.has(
+                                      `function:${func.schema}.${func.name}`,
+                                    )}
+                                    onToggleStar={handleToggleStar(
+                                      "function",
+                                      func.name,
+                                      func.schema,
+                                    )}
+                                    isSelected={selectedItems.has(
+                                      `function:${func.schema}.${func.name}`,
+                                    )}
+                                    onContextMenu={(e) => {
+                                      handleContextMenu(
+                                        `function:${func.schema}.${func.name}`,
+                                        e,
+                                      );
+                                    }}
+                                  />
+                                </DraggableSidebarItem>
+                              );
+                            })}
+                          </SidebarSection>
+                        )}
+
+                        {/* Sequences for this schema */}
+                        {schemaSequences.length > 0 && (
+                          <SidebarSection
+                            title="Sequences"
+                            count={schemaSequences.length}
+                            isExpanded={expandedNodes.has(`sequences:${schemaName}`)}
+                            onToggle={() => {
+                              toggleNode(`sequences:${schemaName}`);
+                            }}
+                            stickyClass=""
+                          >
+                            {schemaSequences.map((sequence) => (
+                              <SidebarItem
+                                key={`${sequence.schema}.${sequence.name}`}
+                                icon={
+                                  <IconHash className="h-3.5 w-4 min-w-4 text-amber-500 shrink-0" />
+                                }
+                                name={sequence.name}
+                                isActive={isObjectDefinitionActive(
+                                  sequence.name,
+                                  sequence.schema,
+                                  "sequence",
+                                )}
+                                onClick={() => {
+                                  handleSqlObjectDefinitionClick(sequence, "sequence");
+                                }}
+                              />
+                            ))}
+                          </SidebarSection>
+                        )}
+
+                        {/* Packages for this schema */}
+                        {schemaPackages.length > 0 && (
+                          <SidebarSection
+                            title="Packages"
+                            count={schemaPackages.length}
+                            isExpanded={expandedNodes.has(`packages:${schemaName}`)}
+                            onToggle={() => {
+                              toggleNode(`packages:${schemaName}`);
+                            }}
+                            stickyClass=""
+                          >
+                            {schemaPackages.map((pkg) => (
+                              <SidebarItem
+                                key={`${pkg.schema}.${pkg.name}`}
+                                icon={
+                                  <IconPackage className="h-3.5 w-4 min-w-4 text-indigo-500 shrink-0" />
+                                }
+                                name={pkg.name}
+                                badge={pkg.has_body ? "body" : undefined}
+                                isActive={isObjectDefinitionActive(
+                                  pkg.name,
+                                  pkg.schema,
+                                  "package",
+                                )}
+                                onClick={() => {
+                                  handleSqlObjectDefinitionClick(pkg, "package");
+                                }}
+                              />
+                            ))}
+                          </SidebarSection>
+                        )}
+
+                        {/* Synonyms for this schema */}
+                        {schemaSynonyms.length > 0 && (
+                          <SidebarSection
+                            title="Synonyms"
+                            count={schemaSynonyms.length}
+                            isExpanded={expandedNodes.has(`synonyms:${schemaName}`)}
+                            onToggle={() => {
+                              toggleNode(`synonyms:${schemaName}`);
+                            }}
+                            stickyClass=""
+                          >
+                            {schemaSynonyms.map((synonym) => (
+                              <SidebarItem
+                                key={`${synonym.schema}.${synonym.name}`}
+                                icon={
+                                  <IconLink className="h-3.5 w-4 min-w-4 text-cyan-500 shrink-0" />
+                                }
+                                name={synonym.name}
+                                badge={
+                                  synonym.target_name
+                                    ? `${synonym.target_schema ? `${synonym.target_schema}.` : ""}${synonym.target_name}`
+                                    : undefined
+                                }
+                                isActive={isObjectDefinitionActive(
+                                  synonym.name,
+                                  synonym.schema,
+                                  "synonym",
+                                )}
+                                onClick={() => {
+                                  handleSqlObjectDefinitionClick(synonym, "synonym");
+                                }}
+                              />
+                            ))}
+                          </SidebarSection>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Single-schema layout: flat Tables/Views/Functions sections */}
+              {duckDbLocalSchemas.length <= 1 && (
+              <>
               {/* Tables Section */}
               {(tableSectionCount > 0 || isLoadingData) && (
                 <SidebarSection
@@ -3746,30 +4441,95 @@ export const ConnectionSection = forwardRef<
               )}
 
               {/* Attached Databases (DuckDB only) */}
+              {dbType === DbType.DuckDB && (() => {
+                const primaryDbName = connection.database
+                  .split(/[/\\]/)
+                  .pop()
+                  ?.replace(/\.duckdb$/i, "");
+                // Databases from live query
+                const liveAttached = attachedDatabases.filter((db) => {
+                  if (db.databaseName === "memory" || db.databaseName === "system") return false;
+                  return db.databaseName !== primaryDbName;
+                });
+                const liveNames = new Set(liveAttached.map(db => db.databaseName));
+                // Databases derived from visible schemas (e.g. "pg.public" → "pg")
+                // that aren't already in the live query results
+                const extraFromSchemas = duckDbAttachedFromSchemas.filter(
+                  name => !liveNames.has(name) && name !== primaryDbName,
+                );
+                return (
+                  <>
+                    {liveAttached.map((db) => {
+                      // Derive schema names from visible schemas for this DB
+                      const dbSchemas = visibleSchemas
+                        .filter(s => s.startsWith(db.databaseName + "."))
+                        .map(s => s.slice(db.databaseName.length + 1));
+                      return (
+                        <DuckDbAttachedDatabaseSection
+                          key={`attached-${db.databaseName}`}
+                          connectionId={connectionId}
+                          dbName={db.databaseName}
+                          dbType={db.dbType}
+                          readOnly={db.readOnly}
+                          schemaNames={dbSchemas}
+                          onTableClick={(table) => { handleTableClick(table, "data"); }}
+                          onDetach={(name) => { void handleDetachDatabase(name); }}
+                        />
+                      );
+                    })}
+                    {extraFromSchemas.map((name) => {
+                      // Derive schema names for this attached DB from visible schemas
+                      // e.g. visible ["pg.public", "pg.test"] for dbName "pg" → ["public", "test"]
+                      const dbSchemas = visibleSchemas
+                        .filter(s => s.startsWith(name + "."))
+                        .map(s => s.slice(name.length + 1));
+                      return (
+                        <DuckDbAttachedDatabaseSection
+                          key={`attached-schema-${name}`}
+                          connectionId={connectionId}
+                          dbName={name}
+                          schemaNames={dbSchemas}
+                          onTableClick={(table) => { handleTableClick(table, "data"); }}
+                          onDetach={(dbName) => { void handleDetachDatabase(dbName); }}
+                        />
+                      );
+                    })}
+                  </>
+                );
+              })()}
+
+              {/* Runtime databases from Phase 3 replay (not yet in attachedDatabases live query) */}
               {dbType === DbType.DuckDB &&
-                attachedDatabases
-                  .filter((db) => {
-                    if (db.databaseName === "memory" || db.databaseName === "system") {
-                      return false;
-                    }
-                    // Exclude the primary/current database of this connection
-                    const primaryDbName = connection.database
-                      ?.split(/[/\\]/)
-                      .pop()
-                      ?.replace(/\.duckdb$/i, "");
-                    return db.databaseName !== primaryDbName;
-                  })
-                  .map((db) => (
+                runtimeDbs.databases
+                  .filter(
+                    (rd) =>
+                      !attachedDatabases.some((ad) => ad.databaseName === rd.name),
+                  )
+                  .map((rd) => (
                     <DuckDbAttachedDatabaseSection
-                      key={`attached-${db.databaseName}`}
+                      key={`runtime-${rd.name}`}
                       connectionId={connectionId}
-                      dbName={db.databaseName}
-                      dbType={db.dbType}
-                      readOnly={db.readOnly}
+                      dbName={rd.name}
+                      dbType="DuckDB"
+                      readOnly={false}
+                      className="qp-runtime-only"
+                      schemaNames={rd.visible_schemas}
                       onTableClick={(table) => { handleTableClick(table, "data"); }}
                       onDetach={(name) => { void handleDetachDatabase(name); }}
                     />
                   ))}
+
+              {/* Attach errors from replay — with Retry */}
+              {dbType === DbType.DuckDB &&
+                runtimeAttachErrors.map((err) => (
+                  <div
+                    key={`attach-error-${err.alias}`}
+                    className="px-3 py-1 text-xs text-destructive flex items-center gap-1"
+                    title={err.message}
+                  >
+                    <span className="truncate">⚠ {err.alias}: {err.message}</span>
+                  </div>
+                ))}
 
               {/* Functions Section */}
               {allFunctions.length > 0 && (
@@ -3942,6 +4702,8 @@ export const ConnectionSection = forwardRef<
                     />
                   ))}
                 </SidebarSection>
+              )}
+              </>
               )}
 
               {/* Empty state - SQL */}

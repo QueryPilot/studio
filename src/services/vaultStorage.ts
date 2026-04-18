@@ -5,10 +5,115 @@ import {
   type ConnectionProfile,
   type StoredConnection,
   type GroupTag,
+  DbType,
 } from "@/types/connection";
 import type { AuthProfile, TunnelProfile } from "@/types/tunnel";
 import type { WorkspaceConfig } from "@/types/workspace";
-import { type VaultData, VAULT_VERSION } from "@/types/vault";
+import { type VaultData, type VaultSecretRecord, VAULT_VERSION } from "@/types/vault";
+
+/**
+ * v1→v2 read-path migration.
+ * Returns a NEW profile with `databases[]` synthesized. Does NOT mutate the
+ * input's legacy `default_schema`/`trino_catalogs`/`trino_schema_filters`
+ * fields (rollback window — one release).
+ *
+ * Exported for unit testing.
+ */
+export function synthesizeDatabasesV1ToV2(profile: ConnectionProfile): ConnectionProfile {
+  if (profile.databases?.length > 0) return profile;
+
+  const dialectDefault = (t: DbType, dbName: string): string[] => {
+    switch (t) {
+      case DbType.PostgreSQL:
+        return ["public"];
+      case DbType.SQLServer:
+        return ["dbo"];
+      case DbType.SQLite:
+      case DbType.DuckDB:
+      case DbType.MotherDuck:
+        return ["main"];
+      case DbType.MySQL:
+      case DbType.MariaDB:
+        return dbName ? [dbName] : [];
+      default:
+        return [];
+    }
+  };
+
+  if (profile.db_type === DbType.Trino && profile.trino_catalogs?.length) {
+    let filters: Record<string, string[]> = {};
+    try {
+      filters = profile.trino_schema_filters
+        ? (JSON.parse(profile.trino_schema_filters) as Record<string, string[]>)
+        : {};
+    } catch {
+      filters = {};
+    }
+    const databases = profile.trino_catalogs.map((cat) => ({
+      name: cat,
+      visible_schemas: filters[cat] ?? [],
+    }));
+    return { ...profile, databases };
+  }
+
+  const dbName =
+    profile.options.database ||
+    profile.options.postgres_database ||
+    profile.database ||
+    "";
+
+  const visibleSchemas = profile.default_schema
+    ? [profile.default_schema]
+    : dialectDefault(profile.db_type, dbName);
+
+  return {
+    ...profile,
+    databases: [{ name: dbName || profile.database, visible_schemas: visibleSchemas }],
+  };
+}
+
+/**
+ * In-place Trino legacy-field harmonization (Phase 4).
+ * Kept permanently (not time-boxed) because third-party-edited profiles
+ * may re-introduce the legacy fields.
+ *
+ * Preserves catalog order from trino_catalogs; seeds per-catalog
+ * visible_schemas from the parsed trino_schema_filters JSON.
+ * Empty lists are allowed (Trino only — catalog visible but no pinned schemas).
+ *
+ * Exported for unit testing.
+ */
+export function migrateTrinoLegacyFields(profile: ConnectionProfile): ConnectionProfile {
+  if (profile.db_type !== DbType.Trino) return profile;
+  const legacyCatalogs = profile.trino_catalogs;
+  const legacyFilters = profile.trino_schema_filters;
+  if (!legacyCatalogs && !legacyFilters) return profile;
+
+  let parsedFilters: Record<string, string[]> = {};
+  if (legacyFilters) {
+    try {
+      parsedFilters = JSON.parse(legacyFilters) as Record<string, string[]>;
+    } catch {
+      parsedFilters = {};
+    }
+  }
+
+  const catalogs = legacyCatalogs ?? Object.keys(parsedFilters);
+  const synthesized = catalogs.map((name) => ({
+    name,
+    visible_schemas: parsedFilters[name] ?? [],
+  }));
+
+  // Authoritative overwrite: Phase 4 is the source of truth for Trino shape.
+  const next: ConnectionProfile = {
+    ...profile,
+    databases: synthesized,
+  };
+  // Strip legacy fields from the in-memory copy.
+  delete (next as Partial<ConnectionProfile>).trino_catalogs;
+  delete (next as Partial<ConnectionProfile>).trino_schema_filters;
+  return next;
+}
 
 const OPERATION_TIMEOUT = 15000; // general non-critical ops
 const READ_TIMEOUT = 180000; // 3 minutes for keychain prompt
@@ -49,6 +154,8 @@ class VaultStorageService {
   private authProfilesDirty = false;
   private tunnelProfilesCache: TunnelProfile[] = [];
   private tunnelProfilesDirty = false;
+  private secretsCache: VaultSecretRecord[] = [];
+  private secretsDirty = false;
 
   private scheduleSave(): void {
     if (this.saveScheduled) return;
@@ -71,7 +178,8 @@ class VaultStorageService {
       !this.workspacesDirty &&
       !this.apiKeysDirty &&
       !this.authProfilesDirty &&
-      !this.tunnelProfilesDirty
+      !this.tunnelProfilesDirty &&
+      !this.secretsDirty
     ) {
       this.saveScheduled = false;
       return;
@@ -98,6 +206,7 @@ class VaultStorageService {
       this.apiKeysDirty = false;
       this.authProfilesDirty = false;
       this.tunnelProfilesDirty = false;
+      this.secretsDirty = false;
       this.saveScheduled = false;
     }
   }
@@ -111,6 +220,7 @@ class VaultStorageService {
       auth_profiles: this.authProfilesCache,
       tunnel_profiles: this.tunnelProfilesCache,
       apiKeys: this.apiKeysCache,
+      secrets: this.secretsCache,
       migratedAt: new Date().toISOString(),
     };
 
@@ -351,6 +461,8 @@ class VaultStorageService {
     this.authProfilesDirty = false;
     this.tunnelProfilesCache = [];
     this.tunnelProfilesDirty = false;
+    this.secretsCache = [];
+    this.secretsDirty = false;
   }
 
   private async preloadAllInternal(): Promise<void> {
@@ -375,13 +487,18 @@ class VaultStorageService {
           const vaultData = parsed as VaultData;
           this.connectionCache.clear();
           for (const sc of vaultData.connections) {
-            if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+            if (!sc.profile.id) continue;
+            // Normalize v1 profiles: ensure databases is always an array before migration
+            const normalized = { ...sc.profile, databases: sc.profile.databases ?? [] };
+            const migrated = migrateTrinoLegacyFields(synthesizeDatabasesV1ToV2(normalized));
+            this.connectionCache.set(sc.profile.id, { ...sc, profile: migrated });
           }
           this.groupTagsCache = vaultData.groupTags || [];
           this.workspacesCache = vaultData.workspaces || [];
           this.apiKeysCache = vaultData.apiKeys || {};
           this.authProfilesCache = vaultData.auth_profiles || [];
           this.tunnelProfilesCache = vaultData.tunnel_profiles || [];
+          this.secretsCache = vaultData.secrets ?? [];
           if (!this.indexCache) {
             this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
           }
@@ -431,7 +548,10 @@ class VaultStorageService {
     // Load connections
     this.connectionCache.clear();
     for (const sc of connections) {
-      if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+      if (!sc.profile.id) continue;
+      const normalized = { ...sc.profile, databases: sc.profile.databases ?? [] };
+      const migrated = migrateTrinoLegacyFields(synthesizeDatabasesV1ToV2(normalized));
+      this.connectionCache.set(sc.profile.id, { ...sc, profile: migrated });
     }
 
     // Migrate group tags from localStorage
@@ -478,7 +598,8 @@ class VaultStorageService {
       this.workspacesDirty ||
       this.apiKeysDirty ||
       this.authProfilesDirty ||
-      this.tunnelProfilesDirty
+      this.tunnelProfilesDirty ||
+      this.secretsDirty
     );
   }
 
@@ -500,24 +621,31 @@ class VaultStorageService {
         const parsed = JSON.parse(data);
 
         if (Array.isArray(parsed)) {
-          // Legacy format
+          // Legacy format — apply migrations
           this.connectionCache.clear();
           for (const sc of parsed) {
-            if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+            if (!sc.profile.id) continue;
+            const normalized = { ...sc.profile, databases: sc.profile.databases ?? [] };
+            const migrated = migrateTrinoLegacyFields(synthesizeDatabasesV1ToV2(normalized));
+            this.connectionCache.set(sc.profile.id, { ...sc, profile: migrated });
           }
           this.indexCache = parsed.map((s: StoredConnection) => s.profile.id).filter(Boolean);
         } else {
-          // New format
+          // New format — apply same migrations as preloadAllInternal
           const vaultData = parsed as VaultData;
           this.connectionCache.clear();
           for (const sc of vaultData.connections) {
-            if (sc.profile.id) this.connectionCache.set(sc.profile.id, sc);
+            if (!sc.profile.id) continue;
+            const normalized = { ...sc.profile, databases: sc.profile.databases ?? [] };
+            const migrated = migrateTrinoLegacyFields(synthesizeDatabasesV1ToV2(normalized));
+            this.connectionCache.set(sc.profile.id, { ...sc, profile: migrated });
           }
           this.groupTagsCache = vaultData.groupTags || [];
           this.workspacesCache = vaultData.workspaces || [];
           this.apiKeysCache = vaultData.apiKeys || {};
           this.authProfilesCache = vaultData.auth_profiles || [];
           this.tunnelProfilesCache = vaultData.tunnel_profiles || [];
+          this.secretsCache = vaultData.secrets ?? [];
           this.indexCache = vaultData.connections.map(s => s.profile.id).filter(Boolean);
         }
       }
@@ -730,6 +858,48 @@ class VaultStorageService {
     );
     this.tunnelProfilesDirty = true;
     await this.flushPendingChanges();
+  }
+
+  // ── Phase 3: DuckDB secret records ──────────────────────────────────────────
+
+  async listSecrets(connectionId: string): Promise<VaultSecretRecord[]> {
+    await this.ensureInitialized();
+    return this.secretsCache.filter((s) => s.connection_id === connectionId);
+  }
+
+  async getSecret(connectionId: string, name: string): Promise<VaultSecretRecord | null> {
+    await this.ensureInitialized();
+    return (
+      this.secretsCache.find(
+        (s) => s.connection_id === connectionId && s.name === name,
+      ) ?? null
+    );
+  }
+
+  async upsertSecret(record: VaultSecretRecord): Promise<void> {
+    await this.ensureInitialized();
+    const idx = this.secretsCache.findIndex(
+      (s) => s.connection_id === record.connection_id && s.name === record.name,
+    );
+    if (idx >= 0) {
+      this.secretsCache[idx] = record;
+    } else {
+      this.secretsCache.push(record);
+    }
+    this.secretsDirty = true;
+    this.scheduleSave();
+  }
+
+  async deleteSecret(connectionId: string, name: string): Promise<void> {
+    await this.ensureInitialized();
+    const before = this.secretsCache.length;
+    this.secretsCache = this.secretsCache.filter(
+      (s) => !(s.connection_id === connectionId && s.name === name),
+    );
+    if (this.secretsCache.length !== before) {
+      this.secretsDirty = true;
+      this.scheduleSave();
+    }
   }
 
 }

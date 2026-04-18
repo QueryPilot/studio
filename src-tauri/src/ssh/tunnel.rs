@@ -377,29 +377,20 @@ async fn create_ssh_session(
 
 #[cfg(unix)]
 async fn connect_ssh_agent(
-) -> std::result::Result<
-    russh::keys::agent::client::AgentClient<tokio::net::UnixStream>,
-    AppError,
-> {
+) -> std::result::Result<russh::keys::agent::client::AgentClient<tokio::net::UnixStream>, AppError>
+{
     let sock = std::env::var("SSH_AUTH_SOCK").map_err(|_| {
-        AppError::SshAuthFailed(
-            "SSH_AUTH_SOCK is not set. Make sure ssh-agent is running.".into(),
-        )
+        AppError::SshAuthFailed("SSH_AUTH_SOCK is not set. Make sure ssh-agent is running.".into())
     })?;
     let stream = tokio::net::UnixStream::connect(&sock)
         .await
-        .map_err(|e| {
-            AppError::SshAuthFailed(format!("Failed to connect to SSH agent: {}", e))
-        })?;
+        .map_err(|e| AppError::SshAuthFailed(format!("Failed to connect to SSH agent: {}", e)))?;
     Ok(russh::keys::agent::client::AgentClient::connect(stream))
 }
 
 #[cfg(windows)]
-async fn connect_ssh_agent(
-) -> std::result::Result<
-    russh::keys::agent::client::AgentClient<
-        tokio::net::windows::named_pipe::NamedPipeClient,
-    >,
+async fn connect_ssh_agent() -> std::result::Result<
+    russh::keys::agent::client::AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>,
     AppError,
 > {
     let stream = tokio::net::windows::named_pipe::ClientOptions::new()

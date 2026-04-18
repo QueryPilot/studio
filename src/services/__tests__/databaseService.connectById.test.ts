@@ -10,6 +10,10 @@ const vaultStorageMock = vi.hoisted(() => ({
   updateConnection: vi.fn(),
 }));
 
+const duckDbReplayMock = vi.hoisted(() => ({
+  runDuckDbReplay: vi.fn(),
+}));
+
 vi.mock("@/utils/tauri", () => ({
   isTauri: vi.fn(() => true),
   safeInvoke: vi.fn(),
@@ -34,6 +38,8 @@ vi.mock("../backend", async (importOriginal) => {
 vi.mock("../vaultStorage", () => ({
   vaultStorage: vaultStorageMock,
 }));
+
+vi.mock("../duckdbReplayOrchestrator", () => duckDbReplayMock);
 
 describe("databaseService.connectById", () => {
   beforeEach(() => {
@@ -72,6 +78,7 @@ describe("databaseService.connectById", () => {
       password: "secret",
       options: {},
       pooler_mode: null,
+      databases: [],
     };
 
     (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
@@ -116,6 +123,7 @@ describe("databaseService.connectById", () => {
       options: {
         trino_source: "query-pilot-test",
       },
+      databases: [],
     };
 
     (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
@@ -138,7 +146,8 @@ describe("databaseService.connectById", () => {
 
     await databaseService.connectById("trino-conn");
 
-    expect(BackendAPI.connect).toHaveBeenCalledWith(
+    const connectCalls = (BackendAPI.connect as unknown as Mock).mock.calls;
+    expect(connectCalls.at(-1)?.[0]).toEqual(
       expect.objectContaining({
         options: expect.objectContaining({
           default_schema: "tiny",
@@ -146,5 +155,78 @@ describe("databaseService.connectById", () => {
         }),
       }),
     );
+  });
+
+  it("waits for DuckDB replay before resolving the connection", async () => {
+    const profile: ConnectionProfile = {
+      id: "duck-conn",
+      name: "DuckDB Scratchpad",
+      db_type: DbType.DuckDB,
+      host: "localhost",
+      port: 0,
+      database: "/tmp/main.duckdb",
+      username: "",
+      password: "",
+      options: {},
+      databases: [
+        {
+          name: "/tmp/main.duckdb",
+          visible_schemas: ["main"],
+          attachments: [
+            {
+              alias: "test_attach",
+              kind: "duckdb",
+              uri: "/tmp/attached.duckdb",
+            },
+          ],
+        },
+      ],
+    };
+
+    (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
+      profile,
+      metadata: {
+        favorite: false,
+        tags: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastUsed: null,
+      },
+    });
+    (BackendAPI.connect as unknown as Mock).mockResolvedValue({
+      id: "duck-conn",
+      db_type: DbType.DuckDB,
+      database: "/tmp/main.duckdb",
+      version: "v1.4.0",
+      pooler_mode: null,
+    });
+
+    let resolveReplay!: () => void;
+    duckDbReplayMock.runDuckDbReplay.mockReturnValue(
+      new Promise((resolve) => {
+        resolveReplay = () => {
+          resolve({ runtime_databases: [], errors: [] });
+        };
+      }),
+    );
+
+    const connectPromise = databaseService.connectById("duck-conn");
+    let settled = false;
+    void connectPromise.then(() => {
+      settled = true;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(settled).toBe(false);
+
+    resolveReplay();
+
+    await expect(connectPromise).resolves.toEqual({
+      connection_id: "duck-conn",
+      server_version: "v1.4.0",
+    });
   });
 });

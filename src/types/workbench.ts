@@ -37,6 +37,13 @@ export interface TabMetadata {
   /** When false, sort state is isolated per tab.
    *  Default (undefined/true) = sort is shared across all tabs of the same table. */
   syncSort?: boolean;
+  /** Optional per-tab override of the connection's visible schemas.
+   *  When present, overrides `connection.databases[i].visible_schemas` for queries
+   *  launched from this tab. `visibleSchemas[0]` is primary. Empty array invalid. */
+  schemaOverride?: {
+    visibleSchemas: string[];
+    effectiveDatabase?: string;
+  };
   [key: string]: unknown;
 }
 

@@ -417,6 +417,10 @@ pub struct ConnectionManager {
     reaper_handle: Arc<tokio::sync::Mutex<Option<JoinHandle<()>>>>,
     total_connections: Arc<AtomicUsize>,
     tunnel_manager: Option<Arc<TunnelManager>>,
+    /// Set once at app init; used to emit `duckdb-connection-reestablished`
+    /// events when a transparent reconnect creates a fresh DuckDB adapter so
+    /// the frontend can re-run its secret-aware replay path.
+    app_handle: Arc<RwLock<Option<tauri::AppHandle>>>,
 }
 
 pub struct LiveConnection {
@@ -517,11 +521,18 @@ impl ConnectionManager {
             reaper_handle: Arc::new(tokio::sync::Mutex::new(None)),
             total_connections: Arc::new(AtomicUsize::new(0)),
             tunnel_manager: None,
+            app_handle: Arc::new(RwLock::new(None)),
         }
     }
 
     pub fn set_tunnel_manager(&mut self, tm: Arc<TunnelManager>) {
         self.tunnel_manager = Some(tm);
+    }
+
+    /// Called once during app setup so the manager can emit events
+    /// (currently: DuckDB reconnect signal for secret-aware replay).
+    pub async fn set_app_handle(&self, handle: tauri::AppHandle) {
+        *self.app_handle.write().await = Some(handle);
     }
 
     async fn ensure_tunnel(
@@ -801,6 +812,12 @@ impl ConnectionManager {
                     );
                     return Err(err);
                 }
+                // Transparent reconnect just minted a fresh Connection, so any
+                // secret-backed DuckDB attachments are gone. Tell the frontend.
+                if matches!(profile.db_type, DbType::DuckDB | DbType::MotherDuck) {
+                    let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+                    self.emit_duckdb_reconnected(base_conn_id).await;
+                }
             }
 
             let final_profile = Self::build_final_profile(profile, conn.adapter.as_ref());
@@ -902,12 +919,7 @@ impl ConnectionManager {
         let base_id = conn_id.split(':').next().unwrap_or(conn_id);
         self.connections
             .get(base_id)
-            .and_then(|entry| {
-                entry
-                    .adapter
-                    .as_postgres()
-                    .and_then(|pg| pg.pooler_mode())
-            })
+            .and_then(|entry| entry.adapter.as_postgres().and_then(|pg| pg.pooler_mode()))
             .unwrap_or(false)
     }
 
@@ -1055,6 +1067,13 @@ impl ConnectionManager {
 
                 match self.get_or_create_connection(&profile).await {
                     Ok(_) => {
+                        // Reconnect succeeded — if this is a DuckDB connection,
+                        // the new adapter's `connect()` only replayed non-secret
+                        // attachments. Signal the frontend so it can push
+                        // vault secrets back via `duckdb_replay_setup`.
+                        if matches!(profile.db_type, DbType::DuckDB | DbType::MotherDuck) {
+                            self.emit_duckdb_reconnected(base_conn_id).await;
+                        }
                         let delay_ms = match attempt {
                             0 => 100,
                             1 => 500,
@@ -1150,9 +1169,10 @@ impl ConnectionManager {
                 Ok(UnifiedAdapter::mysql(MySqlAdapter::new(), profile.db_type))
             }
             DbType::SQLite => Ok(UnifiedAdapter::sqlite(SqliteAdapter::new())),
-            DbType::DuckDB | DbType::MotherDuck => {
-                Ok(UnifiedAdapter::duckdb_with_type(DuckDbAdapter::new(), profile.db_type))
-            }
+            DbType::DuckDB | DbType::MotherDuck => Ok(UnifiedAdapter::duckdb_with_type(
+                DuckDbAdapter::new(),
+                profile.db_type,
+            )),
             DbType::SQLServer => Ok(UnifiedAdapter::mssql(MssqlAdapter::new())),
             DbType::Oracle => Ok(UnifiedAdapter::oracle(OracleAdapter::new())),
             DbType::MongoDB => Ok(UnifiedAdapter::mongodb(MongoDbAdapter::new())),
@@ -1272,16 +1292,43 @@ impl ConnectionManager {
         }
     }
 
-    pub fn update_active_schema(&self, conn_id: &str, schema: String) -> Result<()> {
-        fn apply_schema(profile: &mut ConnectionProfile, schema: &str) {
-            profile
-                .options
-                .insert("postgres_current_schema".to_string(), schema.to_string());
+    /// Runtime-only update of visible schemas for (conn_id, database_name).
+    /// Durable persistence is the frontend's responsibility via vaultStorage.
+    pub fn update_connection_schemas(
+        &self,
+        conn_id: &str,
+        database_name: &str,
+        visible_schemas: Vec<String>,
+    ) -> Result<()> {
+        if visible_schemas.is_empty() {
+            // Trino is the only dialect that allows an empty visible_schemas list
+            // (meaning "catalog visible in sidebar, no schemas pinned").
+            // All other dialects must have at least one schema.
+            let db_type = self
+                .profiles
+                .get(conn_id.split(':').next().unwrap_or(conn_id))
+                .map(|p| p.db_type);
+            let is_trino = matches!(db_type, Some(crate::types::DbType::Trino));
+            if !is_trino {
+                return Err(AppError::internal(format!(
+                    "visible_schemas must not be empty for {:?} (only Trino allows empty visible_schemas)",
+                    db_type
+                )));
+            }
         }
 
-        let normalized_schema = schema.trim();
-        if normalized_schema.is_empty() {
-            return Err(AppError::internal("Schema must not be empty"));
+        fn apply(profile: &mut ConnectionProfile, db: &str, schemas: &[String]) {
+            if let Some(entry) = profile.databases.iter_mut().find(|e| e.name == db) {
+                entry.visible_schemas = schemas.to_vec();
+            } else {
+                profile.databases.push(crate::types::DatabaseEntry {
+                    name: db.to_string(),
+                    visible_schemas: schemas.to_vec(),
+                    attachments: None,
+                    extensions: None,
+                    secret_refs: None,
+                });
+            }
         }
 
         let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
@@ -1289,24 +1336,18 @@ impl ConnectionManager {
         let mut found = false;
 
         if let Some(mut profile) = self.profiles.get_mut(base_conn_id) {
-            if profile.db_type == DbType::PostgreSQL {
-                apply_schema(&mut profile, normalized_schema);
-                found = true;
-            }
+            apply(&mut profile, database_name, &visible_schemas);
+            found = true;
         }
 
         for mut entry in self.connections.iter_mut() {
             let key = entry.key();
             if key == base_conn_id || key.starts_with(&prefix) {
-                let live_conn = entry.value_mut();
-                if live_conn.profile.db_type != DbType::PostgreSQL {
-                    continue;
-                }
-
-                apply_schema(&mut live_conn.profile, normalized_schema);
-                if let Some(postgres) = live_conn.adapter.as_postgres() {
-                    postgres.set_current_schema(Some(normalized_schema.to_string()));
-                }
+                apply(
+                    &mut entry.value_mut().profile,
+                    database_name,
+                    &visible_schemas,
+                );
                 found = true;
             }
         }
@@ -1319,6 +1360,101 @@ impl ConnectionManager {
                 conn_id
             )))
         }
+    }
+
+    /// Persist a newly-added DuckDB attachment onto the backend's copy of the
+    /// profile so that per-tab reconnects and reaper-triggered reconnects see
+    /// it during connect-time replay. The frontend is still the durable source
+    /// of truth (vault storage); this just keeps the in-memory profile cache
+    /// consistent with what the user has attached this session.
+    pub fn add_profile_attachment(
+        &self,
+        conn_id: &str,
+        attachment: crate::types::Attachment,
+    ) -> Result<()> {
+        let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+        let prefix = format!("{}:", base_conn_id);
+
+        fn upsert(profile: &mut ConnectionProfile, attachment: &crate::types::Attachment) {
+            let db0 = if profile.databases.is_empty() {
+                profile.databases.push(crate::types::DatabaseEntry {
+                    name: profile.database.clone(),
+                    visible_schemas: vec!["main".into()],
+                    attachments: None,
+                    extensions: None,
+                    secret_refs: None,
+                });
+                profile
+                    .databases
+                    .first_mut()
+                    .expect("just pushed, must exist")
+            } else {
+                profile
+                    .databases
+                    .first_mut()
+                    .expect("databases non-empty")
+            };
+            let existing = db0.attachments.get_or_insert_with(Vec::new);
+            if let Some(slot) = existing.iter_mut().find(|a| a.alias == attachment.alias) {
+                *slot = attachment.clone();
+            } else {
+                existing.push(attachment.clone());
+            }
+        }
+
+        if let Some(mut profile) = self.profiles.get_mut(base_conn_id) {
+            upsert(&mut profile, &attachment);
+        }
+        for mut entry in self.connections.iter_mut() {
+            let key = entry.key();
+            if key == base_conn_id || key.starts_with(&prefix) {
+                upsert(&mut entry.value_mut().profile, &attachment);
+            }
+        }
+        Ok(())
+    }
+
+    /// Emit a signal that a DuckDB connection has been transparently
+    /// reconnected (e.g. by the idle reaper or a per-tab reconnect). The
+    /// frontend listens and calls `duckdb_replay_setup` with vault secrets to
+    /// restore secret-backed attachments that the connect-time backend replay
+    /// cannot handle on its own.
+    async fn emit_duckdb_reconnected(&self, connection_id: &str) {
+        use tauri::Emitter;
+        let guard = self.app_handle.read().await;
+        if let Some(app) = guard.as_ref() {
+            let _ = app.emit(
+                "duckdb-connection-reestablished",
+                serde_json::json!({ "connection_id": connection_id }),
+            );
+        }
+    }
+
+    /// Counterpart to `add_profile_attachment` — drops a DuckDB attachment
+    /// from the backend's profile cache after DETACH so the alias is not
+    /// replayed on the next reconnect.
+    pub fn remove_profile_attachment(&self, conn_id: &str, alias: &str) -> Result<()> {
+        let base_conn_id = conn_id.split(':').next().unwrap_or(conn_id);
+        let prefix = format!("{}:", base_conn_id);
+
+        fn drop_alias(profile: &mut ConnectionProfile, alias: &str) {
+            if let Some(db0) = profile.databases.first_mut() {
+                if let Some(list) = db0.attachments.as_mut() {
+                    list.retain(|a| a.alias != alias);
+                }
+            }
+        }
+
+        if let Some(mut profile) = self.profiles.get_mut(base_conn_id) {
+            drop_alias(&mut profile, alias);
+        }
+        for mut entry in self.connections.iter_mut() {
+            let key = entry.key();
+            if key == base_conn_id || key.starts_with(&prefix) {
+                drop_alias(&mut entry.value_mut().profile, alias);
+            }
+        }
+        Ok(())
     }
 }
 

@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sqlparser::ast::{Expr, Query, SelectItem, SetExpr, Statement, TableFactor};
 
-use super::outline::TextSpan;
+use super::span::TextSpan;
 
 /// References to a SQL symbol including its definition and all usages.
 #[derive(Serialize, Deserialize, Clone, Debug)]

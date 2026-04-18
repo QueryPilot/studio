@@ -25,6 +25,10 @@ import { useAppStore } from "./stores/appStore";
 import { usePreferencesStore } from "./stores/preferencesStore";
 import { getSessionDatabase } from "./lib/db/sessionDb";
 import { windowManager } from "./services/windowManager";
+import {
+  subscribeDuckDbConnectionReestablished,
+  subscribeDuckDbReplayProgress,
+} from "./services/duckdbReplayOrchestrator";
 import { detectPlatform } from "./lib/platform";
 
 function showKeychainAccessToast() {
@@ -199,6 +203,23 @@ function App() {
     let disposed = false;
     let removeListener: (() => void) | null = null;
 
+    // Subscribe to DuckDB replay progress events (non-fatal, fire-and-forget cleanup)
+    let unlistenReplay: (() => void) | undefined;
+    subscribeDuckDbReplayProgress()
+      .then((u) => { unlistenReplay = u; })
+      .catch((err: unknown) => { logger.warn("DuckDB replay progress listener failed:", err); });
+
+    // Subscribe to backend-emitted DuckDB reconnect events so vault-backed
+    // attachments are re-applied when the manager silently reopens an adapter
+    // (idle reaper eviction, tab-scoped first query, tunnel reconnect).
+    let unlistenReconnect: (() => void) | undefined;
+    subscribeDuckDbConnectionReestablished(async (connectionId) => {
+      const stored = await vaultStorage.getConnection(connectionId);
+      return stored?.profile;
+    })
+      .then((u) => { unlistenReconnect = u; })
+      .catch((err: unknown) => { logger.warn("DuckDB reconnect listener failed:", err); });
+
     const registerWindowHandlers = async () => {
       try {
         const currentWindow = getCurrentWindow();
@@ -370,6 +391,8 @@ function App() {
     return () => {
       disposed = true;
       removeListener?.();
+      unlistenReplay?.();
+      unlistenReconnect?.();
     };
   }, [loadAgents, loadApiKeys]);
 

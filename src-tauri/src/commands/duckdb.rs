@@ -330,10 +330,7 @@ pub async fn duckdb_export_data(
     let duckdb = adapter
         .as_duckdb()
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
-    duckdb
-        .export_data(request)
-        .await
-        .map_err(|e| e.to_string())
+    duckdb.export_data(request).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -385,18 +382,32 @@ pub async fn duckdb_reset_setting(
     let duckdb = adapter
         .as_duckdb()
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
-    duckdb
-        .reset_setting(&name)
-        .await
-        .map_err(|e| e.to_string())
+    duckdb.reset_setting(&name).await.map_err(|e| e.to_string())
+}
+
+/// Build the effective connection key for a DuckDB operation. Streaming
+/// queries run on `{conn_id}:{tab_id}` in non-pooler mode, so progress/
+/// interrupt commands must target that same key or they'll hit a sibling
+/// adapter that has nothing running.
+fn duckdb_adapter_key(conn_id: &str, tab_id: Option<&str>) -> String {
+    match tab_id {
+        Some(t) if !t.is_empty() => format!("{}:{}", conn_id, t),
+        _ => conn_id.to_string(),
+    }
 }
 
 #[tauri::command]
 pub async fn duckdb_query_progress(
     conn_id: String,
+    tab_id: Option<String>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<DuckDbQueryProgress, String> {
-    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let key = duckdb_adapter_key(&conn_id, tab_id.as_deref());
+    // Prefer the tab-scoped adapter; fall back to base if not live yet.
+    let adapter = match manager.borrow_adapter(&key) {
+        Some(a) => a,
+        None => borrow_duckdb_adapter(&conn_id, manager.inner()).await?,
+    };
     let duckdb = adapter
         .as_duckdb()
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
@@ -406,12 +417,151 @@ pub async fn duckdb_query_progress(
 #[tauri::command]
 pub async fn duckdb_interrupt_query(
     conn_id: String,
+    tab_id: Option<String>,
     manager: State<'_, Arc<ConnectionManager>>,
 ) -> Result<(), String> {
+    // Interrupt must NEVER trigger a fresh connection — use the non-retry
+    // borrow so a missing adapter is a silent no-op rather than a reconnect.
+    let key = duckdb_adapter_key(&conn_id, tab_id.as_deref());
+    if let Some(adapter) = manager.borrow_adapter(&key) {
+        if let Some(duckdb) = adapter.as_duckdb() {
+            duckdb.interrupt_query();
+        }
+    }
+    // Also interrupt the base connection if the tab-scoped key differs, so a
+    // cancel from a streaming tab also halts any sidebar query running on the
+    // base adapter for the same logical connection.
+    if key != conn_id {
+        if let Some(adapter) = manager.borrow_adapter(&conn_id) {
+            if let Some(duckdb) = adapter.as_duckdb() {
+                duckdb.interrupt_query();
+            }
+        }
+    }
+    Ok(())
+}
+
+// ── Phase 3: DuckDB persistence commands ─────────────────────────────────────
+
+#[tauri::command]
+pub async fn duckdb_replay_setup(
+    app: tauri::AppHandle,
+    conn_id: String,
+    secrets: Vec<crate::types::DecryptedSecretPayload>,
+    attachments: Vec<crate::types::Attachment>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<crate::types::DuckDbReplayResult, String> {
     let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
     let duckdb = adapter
         .as_duckdb()
         .ok_or_else(|| "Not a DuckDB connection".to_string())?;
-    duckdb.interrupt_query();
+    let (runtime_databases, errors) = duckdb
+        .replay(Some(&app), &conn_id, secrets, attachments)
+        .await;
+    Ok(crate::types::DuckDbReplayResult {
+        runtime_databases,
+        errors,
+    })
+}
+
+#[tauri::command]
+pub async fn duckdb_run_attach(
+    conn_id: String,
+    attachment: crate::types::Attachment,
+    secret: Option<crate::types::DecryptedSecretPayload>,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<String, String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB run attach",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    // If a secret is provided, issue it first so the ATTACH can reference it by name.
+    if let Some(s) = secret {
+        duckdb.issue_secret(s).await.map_err(|e| e.to_string())?;
+    }
+    let secret_name = attachment.secret_ref.clone();
+    let alias = duckdb
+        .attach(&attachment, secret_name.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    // Mirror the attachment onto the manager's profile cache so reconnects
+    // (reaper, per-tab) replay it via `DuckDbAdapter::connect`. Failure here is
+    // non-fatal — the attach itself already succeeded.
+    if let Err(e) = manager.add_profile_attachment(&conn_id, attachment) {
+        tracing::warn!("failed to sync attachment to profile cache: {}", e);
+    }
+    Ok(alias)
+}
+
+#[tauri::command]
+pub async fn duckdb_run_detach(
+    conn_id: String,
+    alias: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB run detach",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .detach_database(alias.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Err(e) = manager.remove_profile_attachment(&conn_id, &alias) {
+        tracing::warn!("failed to drop attachment from profile cache: {}", e);
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn duckdb_install_load_extension(
+    conn_id: String,
+    extension: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB install/load extension",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .install_extension(&extension)
+        .await
+        .map_err(|e| e.to_string())?;
+    duckdb
+        .load_extension(&extension)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn duckdb_issue_secret(
+    conn_id: String,
+    secret: crate::types::DecryptedSecretPayload,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<(), String> {
+    check_safe_mode(
+        manager.get_safe_mode(&conn_id),
+        OperationKind::Ddl,
+        "DuckDB issue secret",
+    )?;
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb.issue_secret(secret).await.map_err(|e| e.to_string())
 }

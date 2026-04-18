@@ -96,6 +96,7 @@ describe('buildConnectionUri', () => {
       username: 'system',
       password: 'DevPass123',
       options: {},
+      databases: [],
     });
 
     expect(uri).toBe('oracle://system@localhost:1521/FREEPDB1');

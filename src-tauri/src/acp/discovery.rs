@@ -484,15 +484,13 @@ fn get_installed_package_version(bin_path: &std::path::Path) -> Option<String> {
                             for sub in scoped.flatten() {
                                 let sub_pkg = sub.path().join("package.json");
                                 if sub_pkg.exists() {
-                                    let content =
-                                        std::fs::read_to_string(&sub_pkg).ok()?;
+                                    let content = std::fs::read_to_string(&sub_pkg).ok()?;
                                     let parsed: serde_json::Value =
                                         serde_json::from_str(&content).ok()?;
                                     if let Some(bin_field) = parsed.get("bin") {
                                         let has_binary = match bin_field {
                                             serde_json::Value::String(_) => {
-                                                sub.file_name().to_string_lossy()
-                                                    == stem.as_ref()
+                                                sub.file_name().to_string_lossy() == stem.as_ref()
                                             }
                                             serde_json::Value::Object(map) => {
                                                 map.contains_key(stem.as_ref())
@@ -500,9 +498,10 @@ fn get_installed_package_version(bin_path: &std::path::Path) -> Option<String> {
                                             _ => false,
                                         };
                                         if has_binary {
-                                            return parsed.get("version")?.as_str().map(
-                                                |s| s.to_string(),
-                                            );
+                                            return parsed
+                                                .get("version")?
+                                                .as_str()
+                                                .map(|s| s.to_string());
                                         }
                                     }
                                 }

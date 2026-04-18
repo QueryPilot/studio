@@ -1,6 +1,7 @@
 import { quoteIdentifier } from "@/adapters/formatting";
 import { schemaCache } from "@/services/schemaCache";
 import type { ForeignKeyRelationship } from "@/types/relationships";
+import type { DatabaseEntry } from "@/types/connection";
 import type {
   MetadataProvider,
   EntityMeta,
@@ -17,20 +18,25 @@ import type {
  */
 export class SqlMetadataProvider implements MetadataProvider {
   private connectionId: string;
+  private visibleSchemas: string[];
   private defaultSchema: string;
   private dialect: SqlDialect;
   private catalogs: string[];
+  private databases: DatabaseEntry[] | undefined;
 
   constructor(
     connectionId: string,
-    defaultSchema: string = "public",
+    visibleSchemas: string[] = ["public"],
     dialect: SqlDialect = "postgresql",
     catalogs: string[] = [],
+    databases?: DatabaseEntry[],
   ) {
     this.connectionId = connectionId;
-    this.defaultSchema = defaultSchema;
+    this.visibleSchemas = visibleSchemas.length ? visibleSchemas : ["public"];
+    this.defaultSchema = this.visibleSchemas[0] ?? "public";
     this.dialect = dialect;
     this.catalogs = catalogs;
+    this.databases = databases;
   }
 
   private isSameTable(
@@ -131,37 +137,78 @@ export class SqlMetadataProvider implements MetadataProvider {
   }
 
   async listEntities(schema?: string): Promise<EntityMeta[]> {
-    const targetSchema = schema || this.defaultSchema;
+    if (schema) {
+      try {
+        const tables = await schemaCache.getTables(this.connectionId, schema);
 
-    try {
-      const tables = await schemaCache.getTables(this.connectionId, targetSchema);
+        // For Trino: if no tables found under bare schema name, search across all configured catalogs
+        if (tables.length === 0 && this.dialect === "trino" && this.catalogs.length > 0) {
+          for (const catalog of this.catalogs) {
+            const catTables = await schemaCache
+              .getTablesForCatalogSchema(this.connectionId, catalog, schema)
+              .catch(() => [] as import("@/services/databaseService").TableMeta[]);
+            if (catTables.length > 0) {
+              return catTables.map((t) => ({
+                name: t.name,
+                type: this.mapTableKind(t.kind),
+                schema: t.schema || schema,
+                description: undefined,
+              }));
+            }
+          }
+        }
 
-      // For Trino: if no tables found under bare schema name, search across all configured catalogs
-      if (tables.length === 0 && this.dialect === "trino" && this.catalogs.length > 0) {
-        for (const catalog of this.catalogs) {
-          const catTables = await schemaCache
-            .getTablesForCatalogSchema(this.connectionId, catalog, targetSchema)
-            .catch(() => [] as import("@/services/databaseService").TableMeta[]);
-          if (catTables.length > 0) {
-            return catTables.map((t) => ({
-              name: t.name,
-              type: this.mapTableKind(t.kind),
-              schema: t.schema || targetSchema,
-              description: undefined,
-            }));
+        return tables.map((t) => ({
+          name: t.name,
+          type: this.mapTableKind(t.kind),
+          schema: t.schema || schema,
+          description: undefined,
+        }));
+      } catch {
+        return [];
+      }
+    }
+
+    // Trino multi-catalog path: union tables across all databases/catalogs with primary-wins dedup
+    if (this.databases?.length) {
+      const seen = new Set<string>();
+      const out: EntityMeta[] = [];
+      for (const db of this.databases) {
+        for (const s of db.visible_schemas.length ? db.visible_schemas : [db.name]) {
+          const tables = await schemaCache.getTablesForCatalogSchema?.(this.connectionId, db.name, s)
+            ?? await schemaCache.getTables(this.connectionId, s);
+          for (const t of tables) {
+            const key = `${db.name}.${s}.${t.name}`.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ name: t.name, type: this.mapTableKind(t.kind), schema: s, description: undefined });
           }
         }
       }
-
-      return tables.map((t) => ({
-        name: t.name,
-        type: this.mapTableKind(t.kind),
-        schema: t.schema || targetSchema,
-        description: undefined,
-      }));
-    } catch {
-      return [];
+      return out;
     }
+
+    // No schema specified: union tables across all visible schemas with primary-wins dedup
+    const seen = new Set<string>();
+    const out: EntityMeta[] = [];
+    try {
+      for (const s of this.visibleSchemas) {
+        const tables = await schemaCache.getTables(this.connectionId, s);
+        for (const t of tables) {
+          if (seen.has(t.name.toLowerCase())) continue; // primary-wins
+          seen.add(t.name.toLowerCase());
+          out.push({
+            name: t.name,
+            type: this.mapTableKind(t.kind),
+            schema: t.schema || s,
+            description: undefined,
+          });
+        }
+      }
+    } catch {
+      // return whatever was collected so far
+    }
+    return out;
   }
 
   async listFields(entityName: string, schema?: string): Promise<FieldMeta[]> {
@@ -507,21 +554,24 @@ const providerCache = new Map<string, MetadataProvider>();
 
 /**
  * Factory function to create or retrieve a cached SqlMetadataProvider.
- * Memoizes instances by connectionId + schema + catalogs to avoid recreation on every extension rebuild.
+ * Memoizes instances by connectionId + visibleSchemas + dialect + catalogs to avoid recreation on every extension rebuild.
  */
 export function createSqlMetadataProvider(
   connectionId: string,
-  defaultSchema?: string,
+  visibleSchemas: string[] = ["public"],
   dialect: SqlDialect = "postgresql",
   catalogs: string[] = [],
+  databases?: DatabaseEntry[],
 ): MetadataProvider {
-  const schema = defaultSchema || "public";
+  const schemasKey = databases?.length
+    ? databases.map(d => d.name + ':' + d.visible_schemas.join('|')).join('::')
+    : visibleSchemas.join("|");
   const catalogsKey = catalogs.join(",");
-  const cacheKey = `${connectionId}:${schema}:${dialect}:${catalogsKey}`;
+  const cacheKey = `${connectionId}:${schemasKey}:${dialect}:${catalogsKey}`;
 
   let provider = providerCache.get(cacheKey);
   if (!provider) {
-    provider = new SqlMetadataProvider(connectionId, schema, dialect, catalogs);
+    provider = new SqlMetadataProvider(connectionId, visibleSchemas, dialect, catalogs, databases);
     providerCache.set(cacheKey, provider);
   }
 

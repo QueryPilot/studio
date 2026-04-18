@@ -61,6 +61,7 @@ export interface ValidateRequest {
   sql: string;
   dialect: SqlDialect;
   connectionId?: string;
+  database?: string;
   schema?: string;
 }
 
@@ -121,6 +122,7 @@ export type CompletionKind =
 
 export interface SetSchemaRequest {
   connectionId: string;
+  database: string;
   schema: string;
   tables: TableInput[];
   foreignKeys: ForeignKeyInput[];
@@ -271,6 +273,7 @@ export const SqlEngineService = {
    */
   async setSchema(
     connectionId: string,
+    database: string,
     schema: string,
     tables: TableInput[],
     foreignKeys: ForeignKeyInput[],
@@ -278,7 +281,7 @@ export const SqlEngineService = {
     functions: FunctionInput[] = []
   ): Promise<SetSchemaResponse> {
     return invoke<SetSchemaResponse>("sql_set_schema", {
-      request: { connectionId, schema, tables, foreignKeys, enums, functions },
+      request: { connectionId, database, schema, tables, foreignKeys, enums, functions },
     });
   },
 

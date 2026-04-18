@@ -30,7 +30,7 @@ describe("SqlMetadataProvider join suggestions", () => {
       ]),
     });
 
-    const provider = createSqlMetadataProvider("conn-1", "sales", "mssql");
+    const provider = createSqlMetadataProvider("conn-1", ["sales"], "mssql");
     const getJoinConditions = provider.getJoinConditions?.bind(provider);
 
     expect(getJoinConditions).toBeTypeOf("function");
@@ -67,7 +67,7 @@ describe("SqlMetadataProvider join suggestions", () => {
       },
     ]);
 
-    const provider = createSqlMetadataProvider("conn-1", "public", "postgresql");
+    const provider = createSqlMetadataProvider("conn-1", ["public"], "postgresql");
     const getJoinConditions = provider.getJoinConditions?.bind(provider);
 
     expect(getJoinConditions).toBeTypeOf("function");
@@ -124,7 +124,7 @@ describe("SqlMetadataProvider join suggestions", () => {
       },
     );
 
-    const provider = createSqlMetadataProvider("conn-1", "public", "postgresql");
+    const provider = createSqlMetadataProvider("conn-1", ["public"], "postgresql");
     const getJoinConditions = provider.getJoinConditions?.bind(provider);
 
     expect(getJoinConditions).toBeTypeOf("function");
@@ -181,7 +181,7 @@ describe("SqlMetadataProvider join suggestions", () => {
       },
     );
 
-    const provider = createSqlMetadataProvider("conn-1", "public", "postgresql");
+    const provider = createSqlMetadataProvider("conn-1", ["public"], "postgresql");
     const getJoinConditions = provider.getJoinConditions?.bind(provider);
 
     expect(getJoinConditions).toBeTypeOf("function");

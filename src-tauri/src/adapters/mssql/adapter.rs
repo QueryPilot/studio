@@ -20,13 +20,22 @@ use crate::types::*;
 /// SQL Server adapter using tiberius with bb8 connection pooling.
 pub struct MssqlAdapter {
     pool: Arc<RwLock<Option<Pool<ConnectionManager>>>>,
+    /// The database configured at connect time (from `ConnectionProfile.database`).
+    /// Used to restore the connection's database context after per-query `USE [<db>]`.
+    default_database: Arc<RwLock<Option<String>>>,
 }
 
 impl MssqlAdapter {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(RwLock::new(None)),
+            default_database: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Returns the database name configured at connect time, if any.
+    pub async fn get_default_database(&self) -> Option<String> {
+        self.default_database.read().await.clone()
     }
 
     /// Best-effort reset of per-session plan options that can leak from prior tabs/queries.
@@ -621,6 +630,7 @@ impl BaseCapability for MssqlAdapter {
         }
 
         *self.pool.write().await = Some(pool);
+        *self.default_database.write().await = Some(profile.database.clone());
 
         Ok(())
     }
@@ -629,6 +639,7 @@ impl BaseCapability for MssqlAdapter {
         // Take the pool and drop it - bb8 doesn't have an explicit close method
         // but dropping the pool will close all connections
         let _ = self.pool.write().await.take();
+        *self.default_database.write().await = None;
         Ok(())
     }
 

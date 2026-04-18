@@ -1,5 +1,42 @@
 import type { InlineTunnelConfig } from "./tunnel";
 
+export type AttachmentKind =
+  | "iceberg"
+  | "delta"
+  | "ducklake"
+  | "postgres"
+  | "mysql"
+  | "sqlite"
+  | "duckdb";
+
+export interface Attachment {
+  alias: string;
+  kind: AttachmentKind;
+  uri: string;
+  read_only?: boolean;
+  options?: Record<string, string>;
+  secret_ref?: string;
+}
+
+/**
+ * Per-database entry on a ConnectionProfile.
+ *
+ * `visible_schemas[0]` is the primary (drives search_path). Ordering matters.
+ *
+ * Phase 4 / Trino exception: Trino allows `visible_schemas` to be empty at the
+ * DatabaseEntry level (meaning "surface all schemas for this catalog"). Phase 1
+ * does NOT exercise that path; all non-Trino dialects MUST keep `visible_schemas`
+ * non-empty. Validation lives in `setVisibleSchemas` + backend
+ * `update_connection_schemas`.
+ */
+export interface DatabaseEntry {
+  name: string;
+  visible_schemas: string[];
+  attachments?: Attachment[];
+  extensions?: string[];
+  secret_refs?: string[];
+}
+
 // Connection Profile matching Rust backend
 export interface ConnectionProfile {
   id: string;
@@ -21,10 +58,13 @@ export interface ConnectionProfile {
   options: Record<string, string>;
   group?: string; // Optional group name for organizing related connections
   default_schema?: string; // Default schema for schema-aware SQL databases (e.g., PostgreSQL, SQL Server, Trino)
-  trino_catalogs?: string[]; // Trino: ordered list of catalogs to show in the sidebar (first = primary connection catalog)
-  trino_schema_filters?: string; // Trino: JSON-serialized Record<catalog, string[]> of visible schemas per catalog
+  // DEPRECATED — read-only; migrated in-place on load by migrateTrinoLegacyFields(). Never write.
+  trino_catalogs?: string[];
+  // DEPRECATED — read-only; migrated in-place on load by migrateTrinoLegacyFields(). Never write.
+  trino_schema_filters?: string;
   safe_mode?: SafeMode; // Per-connection safe mode (defaults to "full_access")
   pooler_mode?: boolean | null; // PostgreSQL connection pooler override: true, false, or auto-detect (null)
+  databases: DatabaseEntry[]; // Ordered list of databases/catalogs with their visible schemas
 }
 
 export enum DbType {

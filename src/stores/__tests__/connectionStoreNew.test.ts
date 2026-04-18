@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useConnectionStore } from '../connectionStoreNew';
 import { vaultStorage } from '@/services/vaultStorage';
+import { invoke } from '@tauri-apps/api/core';
 import type { StoredConnection, ConnectionProfile } from '@/types/connection';
 import { DbType } from '@/types/connection';
 
@@ -17,6 +18,10 @@ vi.mock('@/services/vaultStorage', () => ({
   },
 }));
 
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('connectionStoreNew', () => {
   const mockConnections: StoredConnection[] = [
     {
@@ -29,6 +34,7 @@ describe('connectionStoreNew', () => {
         database: 'prod',
         username: 'admin',
         options: {},
+        databases: [],
       },
       metadata: {
         is_favorite: true,
@@ -48,6 +54,7 @@ describe('connectionStoreNew', () => {
         database: 'dev',
         username: 'dev',
         options: {},
+        databases: [],
       },
       metadata: {
         is_favorite: false,
@@ -129,6 +136,7 @@ describe('connectionStoreNew', () => {
         database: 'test',
         username: 'test',
         options: {},
+        databases: [],
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
@@ -157,6 +165,7 @@ describe('connectionStoreNew', () => {
         database: 'test',
         username: 'test',
         options: {},
+        databases: [],
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
@@ -182,6 +191,7 @@ describe('connectionStoreNew', () => {
         database: 'test',
         username: 'test',
         options: {},
+        databases: [],
       };
 
       vi.mocked(vaultStorage.storeConnection).mockResolvedValue('new-conn');
@@ -207,6 +217,7 @@ describe('connectionStoreNew', () => {
         database: 'test',
         username: 'test',
         options: {},
+        databases: [],
       };
 
       const errorMessage = 'Failed to save connection';
@@ -358,4 +369,98 @@ describe('connectionStoreNew', () => {
     });
   });
 
+});
+
+// Helper to build a StoredConnection with a databases entry
+const storedWithDb = (over: Partial<StoredConnection['profile']> = {}): StoredConnection => ({
+  profile: {
+    id: 'c1',
+    name: 't',
+    db_type: DbType.PostgreSQL,
+    host: 'h',
+    port: 5432,
+    database: 'mydb',
+    username: 'u',
+    options: {},
+    databases: [{ name: 'mydb', visible_schemas: ['public'] }],
+    ...over,
+  },
+  metadata: { created_at: '', last_used: null, use_count: 0, tags: [], is_favorite: false },
+});
+
+describe('setVisibleSchemas', () => {
+  beforeEach(() => {
+    useConnectionStore.setState({ connections: [storedWithDb()], loading: false, error: null });
+    vi.clearAllMocks();
+  });
+
+  it('persists via vault and backend, updates store', async () => {
+    await useConnectionStore.getState().setVisibleSchemas('c1', 'mydb', ['reporting', 'public']);
+    const out = useConnectionStore.getState().getConnection('c1')!;
+    expect(out.profile.databases[0]!.visible_schemas).toEqual(['reporting', 'public']);
+    expect(vaultStorage.updateConnection).toHaveBeenCalledOnce();
+    expect(invoke).toHaveBeenCalledWith('update_connection_schemas', {
+      connId: 'c1',
+      databaseName: 'mydb',
+      visibleSchemas: ['reporting', 'public'],
+    });
+  });
+
+  it('rejects empty visibleSchemas', async () => {
+    await expect(
+      useConnectionStore.getState().setVisibleSchemas('c1', 'mydb', []),
+    ).rejects.toThrow(/non-empty/);
+  });
+
+  it('rolls back store on backend failure', async () => {
+    (invoke as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+    await expect(
+      useConnectionStore.getState().setVisibleSchemas('c1', 'mydb', ['x']),
+    ).rejects.toThrow(/boom/);
+    const out = useConnectionStore.getState().getConnection('c1')!;
+    expect(out.profile.databases[0]!.visible_schemas).toEqual(['public']);
+  });
+
+  it('getVisibleSchemas / getPrimarySchema selectors', () => {
+    expect(useConnectionStore.getState().getVisibleSchemas('c1', 'mydb')).toEqual(['public']);
+    expect(useConnectionStore.getState().getPrimarySchema('c1', 'mydb')).toBe('public');
+  });
+});
+
+describe('setVisibleSchemas Trino exception', () => {
+  const storedTrino = (): StoredConnection => ({
+    profile: {
+      id: 'trino1',
+      name: 'Trino',
+      db_type: DbType.Trino,
+      host: 'h',
+      port: 8080,
+      database: 'hive',
+      username: 'u',
+      options: {},
+      databases: [{ name: 'memory', visible_schemas: [] }],
+    },
+    metadata: { created_at: '', last_used: null, use_count: 0, tags: [], is_favorite: false },
+  });
+
+  beforeEach(() => {
+    useConnectionStore.setState({
+      connections: [storedWithDb(), storedTrino()],
+      loading: false,
+      error: null,
+    });
+    vi.clearAllMocks();
+  });
+
+  it('rejects empty visible_schemas for PostgreSQL', async () => {
+    await expect(
+      useConnectionStore.getState().setVisibleSchemas('c1', 'mydb', []),
+    ).rejects.toThrow(/non-empty/);
+  });
+
+  it('allows empty visible_schemas for Trino', async () => {
+    await expect(
+      useConnectionStore.getState().setVisibleSchemas('trino1', 'memory', []),
+    ).resolves.not.toThrow();
+  });
 });

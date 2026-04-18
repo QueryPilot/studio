@@ -62,12 +62,17 @@ ORDER BY name`;
 
   getTablesQuery(schema: string): string {
     const escaped = this.escapeString(schema);
-    return `
+    const parts = this.splitDbSchema(schema);
+    if (parts) {
+      const [dbName, schemaName] = parts;
+      const escapedDb = this.escapeString(dbName);
+      const escapedSchema = this.escapeString(schemaName);
+      // For attached databases, duckdb_tables() may not include external tables
+      // (e.g. postgres_scanner). Use DuckDB's global information_schema:
+      // attached DuckDB files do not expose alias.information_schema.tables.
+      return `
 SELECT
-  CASE
-    WHEN database_name = current_database() THEN schema_name
-    ELSE database_name || '.' || schema_name
-  END AS schema_name,
+  '${escapedDb}' || '.' || schema_name AS schema_name,
   table_name,
   'regular' AS kind,
   NULL AS owner,
@@ -75,10 +80,40 @@ SELECT
   NULL AS row_count,
   NULL AS comment
 FROM duckdb_tables()
-WHERE (
-  (database_name = current_database() AND schema_name = '${escaped}')
-  OR (database_name || '.' || schema_name = '${escaped}')
-)
+WHERE database_name = '${escapedDb}'
+  AND schema_name = '${escapedSchema}'
+UNION ALL
+SELECT
+  '${escapedDb}' || '.' || table_schema AS schema_name,
+  table_name,
+  'regular' AS kind,
+  NULL AS owner,
+  NULL AS size,
+  NULL AS row_count,
+  NULL AS comment
+FROM information_schema.tables
+WHERE table_catalog = '${escapedDb}'
+  AND table_schema = '${escapedSchema}'
+  AND table_type = 'BASE TABLE'
+  AND table_name NOT IN (
+    SELECT table_name FROM duckdb_tables()
+    WHERE database_name = '${escapedDb}'
+      AND schema_name = '${escapedSchema}'
+  )
+ORDER BY table_name`;
+    }
+    return `
+SELECT
+  schema_name,
+  table_name,
+  'regular' AS kind,
+  NULL AS owner,
+  estimated_size AS size,
+  NULL AS row_count,
+  NULL AS comment
+FROM duckdb_tables()
+WHERE database_name = current_database()
+  AND schema_name = '${escaped}'
 ORDER BY table_name`;
   }
 
@@ -87,17 +122,47 @@ ORDER BY table_name`;
     const parts = this.splitDbSchema(schema);
     if (parts) {
       const [dbName, schemaName] = parts;
+      const escapedDb = this.escapeString(dbName);
+      const escapedSchema = this.escapeString(schemaName);
+      // For attached databases, duckdb_views() may not include external views.
+      // Use DuckDB's global information_schema for attached catalogs.
       return `
 SELECT
-  '${this.escapeString(dbName)}' || '.' || schema_name AS schema_name,
+  '${escapedDb}' || '.' || schema_name AS schema_name,
   view_name,
   NULL AS owner,
   sql AS definition,
   0 AS is_materialized,
   NULL AS comment
 FROM duckdb_views()
-WHERE database_name = '${this.escapeString(dbName)}'
-  AND schema_name = '${this.escapeString(schemaName)}'
+WHERE database_name = '${escapedDb}'
+  AND schema_name = '${escapedSchema}'
+UNION ALL
+SELECT
+  '${escapedDb}' || '.' || table_schema AS schema_name,
+  table_name AS view_name,
+  NULL AS owner,
+  NULL AS definition,
+  0 AS is_materialized,
+  NULL AS comment
+FROM (
+  SELECT table_schema, table_name
+  FROM information_schema.views
+  WHERE table_catalog = '${escapedDb}'
+    AND table_schema = '${escapedSchema}'
+  UNION
+  SELECT table_schema, table_name
+  FROM information_schema.tables
+  WHERE table_catalog = '${escapedDb}'
+    AND table_schema = '${escapedSchema}'
+    AND table_type = 'VIEW'
+) info_views
+WHERE table_schema = '${escapedSchema}'
+  AND table_name NOT IN (
+    SELECT view_name FROM duckdb_views()
+    WHERE database_name = '${escapedDb}'
+      AND schema_name = '${escapedSchema}'
+  )
 ORDER BY view_name`;
     }
     return `

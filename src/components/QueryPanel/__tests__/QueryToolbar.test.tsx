@@ -9,7 +9,6 @@ describe("QueryToolbar", () => {
         isExecuting={false}
         hasQuery={true}
         showResults={true}
-        showOutline={false}
         dialect="auto"
         detectedDialect="postgresql"
         onExecute={vi.fn()}
@@ -17,7 +16,6 @@ describe("QueryToolbar", () => {
         onCancel={vi.fn()}
         onBeautify={vi.fn()}
         onToggleResults={vi.fn()}
-        onToggleOutline={vi.fn()}
         onDialectChange={vi.fn()}
       />,
     );

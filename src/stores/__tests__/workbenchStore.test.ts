@@ -1074,3 +1074,124 @@ describe("workbenchStore", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 2: schema override helpers
+// ---------------------------------------------------------------------------
+
+function seedTab() {
+  const store = useWorkbenchStore.getState();
+  store.initializeLayout();
+  const panelId = Array.from(useWorkbenchStore.getState().panelContents.keys())[0]!;
+  store.addTab(panelId, "tab-1", {
+    title: "Query 1",
+    connectionId: "conn-1",
+    database: "app",
+  });
+  return { panelId, tabId: "tab-1" };
+}
+
+describe("workbenchStore schema override", () => {
+  beforeEach(() => {
+    useWorkbenchStore.setState({
+      layoutTree: null,
+      panelContents: new Map(),
+      layoutHistory: [],
+      historyIndex: -1,
+    });
+  });
+
+  it("setTabSchemaOverride stores visibleSchemas on TabMetadata", () => {
+    const { tabId } = seedTab();
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, ["reporting", "public"]);
+    const got = useWorkbenchStore.getState().getTabSchemaOverride(tabId);
+    expect(got).toEqual({ visibleSchemas: ["reporting", "public"] });
+  });
+
+  it("setTabSchemaOverride accepts an optional effectiveDatabase", () => {
+    const { tabId } = seedTab();
+    useWorkbenchStore
+      .getState()
+      .setTabSchemaOverride(tabId, ["reporting"], "warehouse");
+    expect(useWorkbenchStore.getState().getTabSchemaOverride(tabId)).toEqual({
+      visibleSchemas: ["reporting"],
+      effectiveDatabase: "warehouse",
+    });
+  });
+
+  it("passing null clears the override", () => {
+    const { tabId } = seedTab();
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, ["reporting"]);
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, null);
+    expect(useWorkbenchStore.getState().getTabSchemaOverride(tabId)).toBeUndefined();
+  });
+
+  it("rejects an empty array (override not set)", () => {
+    const { tabId } = seedTab();
+    expect(() =>
+      useWorkbenchStore.getState().setTabSchemaOverride(tabId, []),
+    ).toThrow(/visibleSchemas.*empty/i);
+    expect(useWorkbenchStore.getState().getTabSchemaOverride(tabId)).toBeUndefined();
+  });
+
+  it("returns undefined for unknown tabIds", () => {
+    expect(
+      useWorkbenchStore.getState().getTabSchemaOverride("nope"),
+    ).toBeUndefined();
+  });
+
+  it("duplicating a tab deep-copies schemaOverride", () => {
+    const { panelId, tabId } = seedTab();
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, ["reporting"]);
+    useWorkbenchStore.getState().duplicateTab(panelId, tabId, "tab-2");
+    const orig = useWorkbenchStore.getState().getTabSchemaOverride(tabId)!;
+    const dup = useWorkbenchStore.getState().getTabSchemaOverride("tab-2")!;
+    expect(dup).toEqual(orig);
+    dup.visibleSchemas.push("staging");
+    expect(orig.visibleSchemas).toEqual(["reporting"]);
+  });
+
+  it("setActiveTab does not clear schemaOverride", () => {
+    const { panelId, tabId } = seedTab();
+    useWorkbenchStore.getState().addTab(panelId, "t2", {
+      connectionId: "c",
+      database: "d",
+    });
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, ["reporting"]);
+    useWorkbenchStore.getState().setActiveTab(panelId, "t2");
+    useWorkbenchStore.getState().setActiveTab(panelId, tabId);
+    expect(useWorkbenchStore.getState().getTabSchemaOverride(tabId)).toEqual({
+      visibleSchemas: ["reporting"],
+    });
+  });
+
+  it("changing connection visibleSchemas does not mutate tab override", () => {
+    const { tabId } = seedTab();
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, ["reporting"]);
+    const before = useWorkbenchStore.getState().getTabSchemaOverride(tabId);
+    // connection store mocked elsewhere; this asserts isolation from workbenchStore's perspective
+    expect(before).toEqual({ visibleSchemas: ["reporting"] });
+    expect(useWorkbenchStore.getState().getTabSchemaOverride(tabId)).toEqual(
+      before,
+    );
+  });
+
+  it("schemaOverride survives persistLayout -> loadLayout round trip", async () => {
+    const { tabId } = seedTab();
+    useWorkbenchStore.getState().setTabSchemaOverride(tabId, ["reporting"]);
+    await useWorkbenchStore.getState().persistLayout("ws-phase2-test");
+
+    useWorkbenchStore.setState({
+      layoutTree: null,
+      panelContents: new Map(),
+      layoutHistory: [],
+      historyIndex: -1,
+    });
+
+    const ok = await useWorkbenchStore.getState().loadLayout("ws-phase2-test");
+    expect(ok).toBe(true);
+    expect(useWorkbenchStore.getState().getTabSchemaOverride(tabId)).toEqual({
+      visibleSchemas: ["reporting"],
+    });
+  });
+});

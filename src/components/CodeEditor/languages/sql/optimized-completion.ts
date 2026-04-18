@@ -33,7 +33,7 @@ function createLazyMetadataProvider(
   const getProvider = async (): Promise<MetadataProvider> => {
     if (!providerPromise) {
       providerPromise = import("./metadataProvider").then((mod) =>
-        mod.createSqlMetadataProvider(connectionId, defaultSchema, dialect),
+        mod.createSqlMetadataProvider(connectionId, [defaultSchema], dialect),
       );
     }
     return providerPromise;

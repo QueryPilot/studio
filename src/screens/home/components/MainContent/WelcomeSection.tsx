@@ -191,6 +191,7 @@ export function WelcomeSection() {
         password: template.profile.password ?? "",
         database: template.profile.database ?? "",
         options: {},
+        databases: [],
       };
 
       await saveConnection(profile, ["local"]);
@@ -253,6 +254,7 @@ export function WelcomeSection() {
               password: conn.password || "",
               database: conn.database || "",
               options: {},
+              databases: [],
             };
 
             await saveConnection(
@@ -286,6 +288,7 @@ export function WelcomeSection() {
             password: parsed.password || "",
             database: parsed.database || "",
             options: {},
+            databases: [],
           };
           await saveConnection(profile, []);
           toast.success("Connection imported");
@@ -306,6 +309,7 @@ export function WelcomeSection() {
           password: parsed.password || "",
           database: parsed.database || "",
           options: {},
+          databases: [],
         };
         await saveConnection(profile, []);
         toast.success("Connection imported");

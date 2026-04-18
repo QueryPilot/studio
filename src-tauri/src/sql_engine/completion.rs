@@ -228,7 +228,11 @@ fn statement_at_position(doc: &ParsedDocument, position: usize) -> Option<&Parse
         .max_by_key(|s| s.range.1)
 }
 
-fn analyze_context(doc: &ParsedDocument, position: usize, schema: Option<&CachedSchema>) -> CompletionContext {
+fn analyze_context(
+    doc: &ParsedDocument,
+    position: usize,
+    schema: Option<&CachedSchema>,
+) -> CompletionContext {
     let Some(stmt) = statement_at_position(doc, position) else {
         return CompletionContext::Statement;
     };
@@ -384,13 +388,22 @@ fn filter_and_limit_items(items: Vec<CompletionItem>, typed_prefix: &str) -> Vec
 fn is_likely_schema(name: &str, schema: Option<&CachedSchema>) -> bool {
     let lower = name.to_lowercase();
     // Well-known schema names for common databases
-    let common_schemas = ["public", "pg_catalog", "information_schema", "sys", "dbo", "main"];
+    let common_schemas = [
+        "public",
+        "pg_catalog",
+        "information_schema",
+        "sys",
+        "dbo",
+        "main",
+    ];
     if common_schemas.contains(&lower.as_str()) {
         return true;
     }
     // Check against schema names present in the cached schema (e.g., Trino schema names)
     if let Some(cached) = schema {
-        if cached.tables.iter()
+        if cached
+            .tables
+            .iter()
             .filter_map(|t| t.schema.as_ref())
             .any(|s| s.to_lowercase() == lower)
         {

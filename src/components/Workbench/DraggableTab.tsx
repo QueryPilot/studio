@@ -33,6 +33,7 @@ import type { DbType } from "@/types/connection";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { useIsTabLoading } from "@/stores/tabLoadingStore";
 import { toast } from "sonner";
+import { TabBadge } from "@/components/Workbench/TabBadge";
 
 interface DraggableTabProps {
   tabId: string;
@@ -377,6 +378,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = React.memo(({
                   <Icon className={getIconClass()} />
                 </div>
               </div>
+              <TabBadge tabId={tabId} panelId={panelId} tabType={tabType} />
               <span className="whitespace-nowrap pr-1">
                 {displayName}
                 {subtitle && (

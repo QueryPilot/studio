@@ -94,7 +94,6 @@ export function useQueryPanelState({
   const deferredQuery = useDeferredValue(query);
   const hasQuery = query.trim().length > 0;
   const [showResults, setShowResults] = useState(result !== null);
-  const [showOutline, setShowOutline] = useState(false);
   const [showVariablePanel, setShowVariablePanel] = useState(false);
   const [showVariableBar, setShowVariableBar] = useState(true);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -361,14 +360,12 @@ export function useQueryPanelState({
     setResult,
     setSelectedDialect,
     setSelectedStatementCount,
-    setShowOutline,
     setShowVariablePanel,
     setShowVariableBar,
     setShowplanMode,
     setShowResults,
     setShowSaveDialog,
     setViewMode,
-    showOutline,
     showVariablePanel,
     showVariableBar,
     showplanMode,

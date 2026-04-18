@@ -1370,6 +1370,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let config = RedisAdapter::build_config(&profile);
@@ -1409,6 +1413,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let adapter = RedisAdapter::new();

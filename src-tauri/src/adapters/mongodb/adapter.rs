@@ -1683,6 +1683,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
@@ -1714,6 +1718,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
@@ -1748,6 +1756,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);
@@ -1792,6 +1804,10 @@ mod tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         let conn_str = MongoDbAdapter::build_connection_string(&profile);

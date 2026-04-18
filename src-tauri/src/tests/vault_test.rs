@@ -29,6 +29,10 @@ fn test_connection_profile_serialization() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     // Test that connection profiles can be serialized (required for vault storage)
@@ -66,6 +70,10 @@ fn test_multiple_connections_serialization() {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         },
         ConnectionProfile {
             id: "mysql-1".to_string(),
@@ -88,6 +96,10 @@ fn test_multiple_connections_serialization() {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         },
     ];
 
@@ -129,6 +141,10 @@ fn test_connection_with_options() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     // Verify options are preserved in serialization
@@ -179,6 +195,10 @@ fn test_connection_password_handling() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     // Without password
@@ -203,6 +223,10 @@ fn test_connection_password_handling() {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     assert!(with_password.password.is_some());
@@ -234,6 +258,10 @@ fn test_connection_profile_pooler_mode_round_trip() {
         group: None,
         safe_mode: None,
         pooler_mode: Some(true),
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let json = serde_json::to_string(&connection).unwrap();
@@ -267,6 +295,10 @@ fn test_connection_profile_debug_redacts_uri_and_password() {
         group: None,
         safe_mode: None,
         pooler_mode: Some(true),
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     };
 
     let debug_output = format!("{:?}", connection);

@@ -24,6 +24,10 @@ export interface QueryStreamParams {
   pinSession?: boolean;
   /** Abort the stream and tear down the IPC callbacks. */
   signal?: AbortSignal;
+  /** Ordered schemas for search_path / completion scope. Phase 1. */
+  effectiveSchemas?: string[];
+  /** Active catalog/database for multi-catalog dialects. Phase 1. */
+  effectiveDatabase?: string;
 }
 
 export interface StreamBatch {
@@ -286,6 +290,8 @@ export class QueryStreamClient {
       timeoutSecs,
       pinSession,
       signal,
+      effectiveSchemas,
+      effectiveDatabase,
     } = params;
 
     const decodeWorker = getStreamDecodeWorker();
@@ -586,6 +592,8 @@ export class QueryStreamClient {
           batchSize,
           timeoutSecs,
           pinSession,
+          effectiveSchemas,
+          effectiveDatabase,
           metadataChannel,
           dataChannel,
         })

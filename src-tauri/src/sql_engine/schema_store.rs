@@ -10,13 +10,19 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct CacheKey {
     pub connection_id: String,
+    pub database: String,
     pub schema: String,
 }
 
 impl CacheKey {
-    pub fn new(connection_id: impl Into<String>, schema: impl Into<String>) -> Self {
+    pub fn new(
+        connection_id: impl Into<String>,
+        database: impl Into<String>,
+        schema: impl Into<String>,
+    ) -> Self {
         Self {
             connection_id: connection_id.into(),
+            database: database.into(),
             schema: schema.into(),
         }
     }
@@ -327,7 +333,7 @@ mod tests {
     #[test]
     fn test_cache_put_get() {
         let store = SchemaStore::new();
-        let key = CacheKey::new("conn-1", "public");
+        let key = CacheKey::new("conn-1", "mydb", "public");
         let schema = CachedSchemaBuilder::new()
             .add_table(TableInfo {
                 name: "users".to_string(),
@@ -345,7 +351,7 @@ mod tests {
     #[test]
     fn test_cache_invalidation() {
         let store = SchemaStore::new();
-        let key = CacheKey::new("conn-1", "public");
+        let key = CacheKey::new("conn-1", "mydb", "public");
         store.put(key.clone(), CachedSchema::default());
 
         store.invalidate("conn-1", None);
@@ -355,7 +361,7 @@ mod tests {
     #[test]
     fn test_cache_stats() {
         let store = SchemaStore::new();
-        let key = CacheKey::new("conn-1", "public");
+        let key = CacheKey::new("conn-1", "mydb", "public");
 
         store.get(&key); // miss
         store.put(key.clone(), CachedSchema::default());
@@ -364,5 +370,12 @@ mod tests {
         let stats = store.stats();
         assert_eq!(stats.hits, 1);
         assert_eq!(stats.misses, 1);
+    }
+
+    #[test]
+    fn cache_key_distinguishes_databases() {
+        let a = CacheKey::new("c1", "mydb", "public");
+        let b = CacheKey::new("c1", "analytics", "public");
+        assert_ne!(a, b);
     }
 }

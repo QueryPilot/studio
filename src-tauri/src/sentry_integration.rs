@@ -113,7 +113,10 @@ pub fn initialize_sentry(sentry_enabled: bool, app_version: &str) -> Option<Clie
 #[cfg(feature = "telemetry")]
 pub fn set_sentry_enabled(enabled: bool) {
     SENTRY_ENABLED.store(enabled, Ordering::Relaxed);
-    tracing::info!("[Sentry] Event sending {}", if enabled { "enabled" } else { "disabled" });
+    tracing::info!(
+        "[Sentry] Event sending {}",
+        if enabled { "enabled" } else { "disabled" }
+    );
 }
 
 /// No-op version when telemetry feature is disabled

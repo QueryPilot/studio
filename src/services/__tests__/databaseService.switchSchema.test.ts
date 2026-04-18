@@ -34,6 +34,7 @@ describe("databaseService.switchSchema", () => {
       options: {
         oracle_connect_mode: "service_name",
       },
+      databases: [],
     };
 
     (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({
@@ -83,6 +84,7 @@ describe("databaseService.switchSchema", () => {
       options: {
         trino_source: "query-pilot",
       },
+      databases: [],
     };
 
     (vaultStorageMock.getConnection as unknown as Mock).mockResolvedValue({

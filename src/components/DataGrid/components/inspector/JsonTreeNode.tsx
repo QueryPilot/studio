@@ -375,7 +375,7 @@ export const JsonTreeNode = memo(function JsonTreeNode({
         ) : (
           <span
             className={cn(
-              "font-mono text-xs cursor-default truncate",
+              "font-mono text-xs cursor-default min-w-0 flex-1 whitespace-pre-wrap break-words",
               colorClass,
               onEditPrimitive &&
                 "cursor-pointer hover:underline decoration-dotted",

@@ -1,7 +1,12 @@
 pub mod adapter;
+#[cfg(test)]
+mod adapter_test;
 pub mod backup;
 pub mod direct_msgpack;
 pub mod parser;
+pub(crate) mod search_path;
+#[cfg(test)]
+mod search_path_test;
 pub mod simple_converter;
 pub mod types;
 // NOTE: introspection module removed - frontend now uses IntrospectionService

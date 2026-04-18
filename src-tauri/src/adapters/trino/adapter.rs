@@ -11,7 +11,7 @@ use crate::core::capabilities::{
     CapabilityTestResult, SqlQueryable,
 };
 use crate::error::AppError;
-use crate::types::ConnectionProfile;
+use crate::types::{ConnectionProfile, DatabaseEntry};
 
 const TRINO_SOURCE: &str = "QueryPilot";
 
@@ -66,10 +66,7 @@ impl TrinoAdapter {
         if let Some(extra_headers) = options.get("trino.extra_headers") {
             for header in extra_headers.split(',') {
                 let header_name = header.split(':').next().unwrap_or("").trim();
-                if header_name
-                    .to_lowercase()
-                    .starts_with("x-trino-")
-                {
+                if header_name.to_lowercase().starts_with("x-trino-") {
                     return Err(AppError::InvalidInput(format!(
                         "Cannot set protocol-reserved header '{}' via trino.extra_headers",
                         header_name
@@ -85,11 +82,28 @@ impl TrinoAdapter {
     /// Clones all values so RwLock guards are dropped before any await.
     async fn snapshot_state(
         &self,
-    ) -> Result<(Client, String, String, Option<String>, Option<String>, HashMap<String, String>), AppError>
-    {
-        let client = self.client.read().await.clone()
+    ) -> Result<
+        (
+            Client,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            HashMap<String, String>,
+        ),
+        AppError,
+    > {
+        let client = self
+            .client
+            .read()
+            .await
+            .clone()
             .ok_or_else(|| AppError::ConnectionClosed("Not connected to Trino".into()))?;
-        let base_url = self.base_url.read().await.clone()
+        let base_url = self
+            .base_url
+            .read()
+            .await
+            .clone()
             .ok_or_else(|| AppError::ConnectionClosed("No base URL configured".into()))?;
         let username = self.username.read().await.clone();
         let catalog = self.catalog.read().await.clone();
@@ -159,8 +173,7 @@ impl TrinoAdapter {
     }
 
     async fn submit_query(&self, sql: &str) -> Result<TrinoQueryResponse, AppError> {
-        let (client, base_url, username, catalog, schema, options) =
-            self.snapshot_state().await?;
+        let (client, base_url, username, catalog, schema, options) = self.snapshot_state().await?;
 
         let url = format!("{}/v1/statement", base_url);
         let request = client.post(&url).body(sql.to_string());
@@ -191,15 +204,23 @@ impl TrinoAdapter {
         Self::parse_response(resp)
     }
 
-    /// Execute a query and collect all pages of results.
+    /// Poll a Trino query to completion, collecting all result pages.
+    ///
+    /// `initial_resp` is the parsed response from the initial statement submission.
+    /// `catalog` and `schema` are used for follow-up requests (may be overrides).
     /// Safety: capped at MAX_RESULT_ROWS to prevent OOM on unbounded queries.
-    async fn execute_full_query(
+    async fn poll_and_collect(
         &self,
-        sql: &str,
+        initial_resp: TrinoQueryResponse,
+        client: &Client,
+        username: &str,
+        catalog: &Option<String>,
+        schema: &Option<String>,
+        options: &HashMap<String, String>,
     ) -> Result<(Vec<TrinoColumn>, Vec<Vec<serde_json::Value>>), AppError> {
         const MAX_RESULT_ROWS: usize = 5_000_000;
 
-        let mut resp = self.submit_query(sql).await?;
+        let mut resp = initial_resp;
         let mut columns: Option<Vec<TrinoColumn>> = resp.columns;
         let mut all_rows: Vec<Vec<serde_json::Value>> = resp
             .data
@@ -207,11 +228,6 @@ impl TrinoAdapter {
             .iter()
             .map(|row| row.iter().map(|cell| convert_trino_cell(cell)).collect())
             .collect();
-
-        // Snapshot connection state once before the polling loop to avoid
-        // acquiring 6 RwLock read locks on every follow-up request.
-        let (client, _base_url, username, catalog, schema, options) =
-            self.snapshot_state().await?;
 
         let query_timeout: Duration = options
             .get("trino.query_timeout_secs")
@@ -243,7 +259,9 @@ impl TrinoAdapter {
             }
 
             resp = self
-                .follow_next_uri_with_client(&client, &username, &catalog, &schema, &options, &next_uri)
+                .follow_next_uri_with_client(
+                    client, username, catalog, schema, options, &next_uri,
+                )
                 .await?;
 
             if resp.data.is_none() {
@@ -259,15 +277,30 @@ impl TrinoAdapter {
                 columns = resp.columns;
             }
             if let Some(data) = resp.data {
-                all_rows.extend(
-                    data.iter().map(|row| {
-                        row.iter().map(|cell| convert_trino_cell(cell)).collect::<Vec<_>>()
-                    }),
-                );
+                all_rows.extend(data.iter().map(|row| {
+                    row.iter()
+                        .map(|cell| convert_trino_cell(cell))
+                        .collect::<Vec<_>>()
+                }));
             }
         }
 
         Ok((columns.unwrap_or_default(), all_rows))
+    }
+
+    /// Execute a query and collect all pages of results.
+    async fn execute_full_query(
+        &self,
+        sql: &str,
+    ) -> Result<(Vec<TrinoColumn>, Vec<Vec<serde_json::Value>>), AppError> {
+        let resp = self.submit_query(sql).await?;
+
+        // Snapshot connection state once before the polling loop to avoid
+        // acquiring 6 RwLock read locks on every follow-up request.
+        let (client, _base_url, username, catalog, schema, options) = self.snapshot_state().await?;
+
+        self.poll_and_collect(resp, &client, &username, &catalog, &schema, &options)
+            .await
     }
 
     /// Like `follow_next_uri` but uses a pre-snapshotted client to avoid
@@ -314,8 +347,7 @@ impl TrinoAdapter {
             self.snapshot_state().await
         {
             let request = client.delete(next_uri);
-            let request =
-                Self::apply_headers(request, &username, &catalog, &schema, &options);
+            let request = Self::apply_headers(request, &username, &catalog, &schema, &options);
             let _ = request.send().await;
         }
         Ok(())
@@ -334,6 +366,32 @@ impl TrinoAdapter {
 impl Default for TrinoAdapter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// Phase 4: catalog/schema helpers that read from profile.databases[].
+// Replace any code that previously read profile.trino_catalogs / profile.trino_schema_filters.
+impl TrinoAdapter {
+    /// Returns the ordered list of catalog names from profile.databases[].
+    pub fn visible_catalogs(&self, profile: &ConnectionProfile) -> Vec<String> {
+        profile.databases.iter().map(|d| d.name.clone()).collect()
+    }
+
+    /// Returns a per-catalog → visible_schemas map from profile.databases[].
+    pub fn schema_filters(&self, profile: &ConnectionProfile) -> HashMap<String, Vec<String>> {
+        profile
+            .databases
+            .iter()
+            .map(|d| (d.name.clone(), d.visible_schemas.clone()))
+            .collect()
+    }
+
+    /// Returns the first DatabaseEntry (connect-time default catalog).
+    pub fn default_database_entry<'p>(
+        &self,
+        profile: &'p ConnectionProfile,
+    ) -> Option<&'p DatabaseEntry> {
+        profile.databases.first()
     }
 }
 
@@ -450,7 +508,11 @@ impl BaseCapability for TrinoAdapter {
         } else {
             profile.host.trim()
         };
-        let port = if profile.port == 0 { 8080 } else { profile.port };
+        let port = if profile.port == 0 {
+            8080
+        } else {
+            profile.port
+        };
         let base_url = format!("{}://{}:{}", scheme, host, port);
 
         let request_timeout: Duration = profile
@@ -521,7 +583,9 @@ impl BaseCapability for TrinoAdapter {
 
     async fn test_connection(&self) -> Result<CapabilityTestResult, AppError> {
         let start = Instant::now();
-        let (_, rows) = self.execute_full_query("SELECT version() AS version").await?;
+        let (_, rows) = self
+            .execute_full_query("SELECT version() AS version")
+            .await?;
         let latency = start.elapsed().as_millis() as u64;
 
         let version = rows
@@ -566,5 +630,89 @@ impl SqlQueryable for TrinoAdapter {
     async fn execute_statement(&self, sql: &str) -> Result<u64, AppError> {
         let (_, rows) = self.execute_full_query(sql).await?;
         Ok(rows.len() as u64)
+    }
+}
+
+impl TrinoAdapter {
+    /// Execute a query with optional per-request catalog/schema overrides.
+    ///
+    /// Phase 4: Trino session routing via HTTP headers.
+    /// When `effective_database` (catalog) or `effective_schema` (schema) is provided,
+    /// the `X-Trino-Catalog` / `X-Trino-Schema` headers are set to the override values
+    /// for this request only. The adapter's connect-time defaults are not mutated.
+    pub async fn execute_query_with_session(
+        &self,
+        sql: &str,
+        effective_database: Option<&str>,
+        effective_schema: Option<&str>,
+    ) -> Result<CapabilityQueryResult, AppError> {
+        // If neither override is provided, fall back to normal execution.
+        if effective_database.is_none() && effective_schema.is_none() {
+            return self.execute_query(sql).await;
+        }
+
+        let (client, base_url, username, catalog, schema, options) = self.snapshot_state().await?;
+
+        // Apply overrides: effective_database wins for catalog, effective_schema wins for schema.
+        let override_catalog: Option<String> = effective_database.map(String::from).or(catalog);
+        let override_schema: Option<String> = effective_schema.map(String::from).or(schema);
+
+        // Submit initial statement with override headers.
+        let url = format!("{}/v1/statement", base_url);
+        let request = client.post(&url).body(sql.to_string());
+        let request = Self::apply_headers(
+            request,
+            &username,
+            &override_catalog,
+            &override_schema,
+            &options,
+        );
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| AppError::Driver(format!("Trino HTTP request failed: {}", e)))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "unknown error".into());
+            return Err(AppError::Driver(format!(
+                "Trino returned HTTP {}: {}",
+                status, body
+            )));
+        }
+
+        let resp: TrinoQueryResponse = response
+            .json()
+            .await
+            .map_err(|e| AppError::Driver(format!("Failed to parse Trino response: {}", e)))?;
+        let resp = Self::parse_response(resp)?;
+
+        let (trino_cols, all_rows) = self
+            .poll_and_collect(
+                resp,
+                &client,
+                &username,
+                &override_catalog,
+                &override_schema,
+                &options,
+            )
+            .await?;
+
+        let columns: Vec<CapabilityColumnMeta> = trino_cols
+            .iter()
+            .map(|col| CapabilityColumnMeta {
+                name: col.name.clone(),
+                data_type: map_trino_type(&col.type_name),
+            })
+            .collect();
+
+        Ok(CapabilityQueryResult {
+            columns,
+            rows: all_rows,
+        })
     }
 }

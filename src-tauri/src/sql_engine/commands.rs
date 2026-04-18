@@ -6,14 +6,11 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    complete,
-    outline::{OutlineBuilder, OutlineTree},
-    parse_document,
+    CompletionRequest, SCHEMA_STORE, SqlDialect, complete, parse_document,
     schema_store::{
         CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo,
         FunctionParam, ParamMode, TableInfo, TableType,
     },
-    CompletionRequest, SqlDialect, SCHEMA_STORE,
 };
 
 /// Parse request from frontend
@@ -68,6 +65,7 @@ pub struct ValidateRequest {
     pub sql: String,
     pub dialect: String,
     pub connection_id: Option<String>,
+    pub database: Option<String>,
     pub schema: Option<String>,
     pub include_heuristics: Option<bool>,
 }
@@ -194,7 +192,8 @@ pub async fn sql_validate(request: ValidateRequest) -> Result<ValidateResponse, 
     // Get schema from cache if connection_id provided (pushed via sql_set_schema)
     let schema = request.connection_id.as_ref().and_then(|conn_id| {
         let schema_name = resolved_schema_name(&dialect, request.schema.as_deref())?;
-        let cache_key = CacheKey::new(conn_id, &schema_name);
+        let db = request.database.as_deref().unwrap_or("");
+        let cache_key = CacheKey::new(conn_id, db, &schema_name);
         SCHEMA_STORE.get(&cache_key)
     });
 
@@ -243,7 +242,8 @@ pub async fn sql_complete(request: CompleteRequest) -> Result<CompleteResponse, 
     // Get schema from cache if connection_id provided (pushed via sql_set_schema)
     let schema = request.connection_id.as_ref().and_then(|conn_id| {
         let schema_name = resolved_schema_name(&dialect, request.schema.as_deref())?;
-        let cache_key = CacheKey::new(conn_id, &schema_name);
+        let db = request.database.as_deref().unwrap_or("");
+        let cache_key = CacheKey::new(conn_id, db, &schema_name);
         SCHEMA_STORE.get(&cache_key)
     });
 
@@ -273,15 +273,6 @@ pub async fn sql_complete(request: CompleteRequest) -> Result<CompleteResponse, 
         from: result.from,
         to: result.to,
     })
-}
-
-/// Get SQL outline tree for document structure navigation.
-///
-/// Returns an OutlineTree with statement types, CTEs, tables, and subqueries.
-#[tauri::command]
-pub async fn sql_get_outline(sql: String, dialect: String) -> Result<OutlineTree, String> {
-    let sql_dialect = parse_dialect(&dialect);
-    Ok(OutlineBuilder::build_from_sql(&sql, sql_dialect))
 }
 
 // =============================================================================
@@ -396,6 +387,7 @@ pub struct FunctionInput {
 #[serde(rename_all = "camelCase")]
 pub struct SetSchemaRequest {
     pub connection_id: String,
+    pub database: String,
     pub schema: String,
     pub tables: Vec<TableInput>,
     pub foreign_keys: Vec<ForeignKeyInput>,
@@ -418,7 +410,7 @@ pub struct SetSchemaResponse {
 /// TypeScript adapters (via IntrospectionService) are the single source of truth.
 #[tauri::command]
 pub async fn sql_set_schema(request: SetSchemaRequest) -> Result<SetSchemaResponse, String> {
-    let cache_key = CacheKey::new(&request.connection_id, &request.schema);
+    let cache_key = CacheKey::new(&request.connection_id, &request.database, &request.schema);
 
     let mut builder = CachedSchemaBuilder::new();
     let mut total_columns = 0;
@@ -530,48 +522,6 @@ pub async fn sql_clear_schema(connection_id: String, schema: Option<String>) -> 
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_sql_get_outline_simple_select() {
-        let result =
-            sql_get_outline("SELECT * FROM users".to_string(), "postgresql".to_string()).await;
-
-        assert!(result.is_ok());
-        let outline = result.unwrap();
-        assert_eq!(outline.statements.len(), 1);
-        assert_eq!(outline.statements[0].kind, "SELECT");
-        assert_eq!(outline.statements[0].tables.len(), 1);
-        assert_eq!(outline.statements[0].tables[0].name, "users");
-    }
-
-    #[tokio::test]
-    async fn test_sql_get_outline_with_joins() {
-        let result = sql_get_outline(
-            "SELECT * FROM users u INNER JOIN orders o ON u.id = o.user_id".to_string(),
-            "postgresql".to_string(),
-        )
-        .await;
-
-        assert!(result.is_ok());
-        let outline = result.unwrap();
-        assert_eq!(outline.statements[0].tables.len(), 2);
-        assert_eq!(outline.statements[0].tables[0].name, "users");
-        assert_eq!(outline.statements[0].tables[1].name, "orders");
-        assert_eq!(
-            outline.statements[0].tables[1].join_type,
-            Some("INNER".to_string())
-        );
-    }
-
-    #[tokio::test]
-    async fn test_sql_get_outline_mysql_dialect() {
-        let result =
-            sql_get_outline("SELECT * FROM `users`".to_string(), "mysql".to_string()).await;
-
-        assert!(result.is_ok());
-        let outline = result.unwrap();
-        assert_eq!(outline.statements[0].tables[0].name, "users");
-    }
-
     #[test]
     fn test_parse_dialect() {
         assert_eq!(parse_dialect("postgresql"), SqlDialect::PostgreSQL);
@@ -617,6 +567,7 @@ mod tests {
     async fn test_sql_set_schema() {
         let request = SetSchemaRequest {
             connection_id: "test-conn".to_string(),
+            database: "testdb".to_string(),
             schema: "public".to_string(),
             tables: vec![TableInput {
                 name: "users".to_string(),
@@ -648,7 +599,7 @@ mod tests {
         assert_eq!(response.column_count, 2);
 
         // Verify schema is cached
-        let key = CacheKey::new("test-conn", "public");
+        let key = CacheKey::new("test-conn", "testdb", "public");
         let cached = SCHEMA_STORE.get(&key);
         assert!(cached.is_some());
         assert_eq!(cached.unwrap().tables.len(), 1);

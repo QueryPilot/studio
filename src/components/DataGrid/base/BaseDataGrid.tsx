@@ -46,6 +46,7 @@ import {
 import { QuickFilter } from "../components/QuickFilter";
 import { UnifiedContextMenu } from "../components/UnifiedContextMenu";
 import { FKPreviewPopover } from "../components/FKPreviewPopover";
+import { CellValuePreviewDialog } from "../components/CellValuePreviewDialog";
 import { buildGridCellV2 } from "../utils/cellFactory";
 import { cn } from "@/lib/utils";
 import { useContextKey, useScopedKeybindings } from "@/hooks/useContextKey";
@@ -674,6 +675,14 @@ export const BaseDataGrid = memo(function BaseDataGrid(
   const [gridSelection, setGridSelection] = useState<GridSelection | undefined>(
     undefined,
   );
+
+  // Read-only cell value preview (Space/Enter)
+  const [cellPreview, setCellPreview] = useState<{
+    value: unknown;
+    columnName: string;
+    dbType?: string;
+    cellBounds?: { x: number; y: number; width: number; height: number };
+  } | null>(null);
   const hasSelection = useMemo(() => {
     const selection = gridSelection?.current;
     const hasRowSelection = (gridSelection?.rows?.length ?? 0) > 0;
@@ -3216,9 +3225,38 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       if (enableInspector && event.row) {
         setInspectorSelectedRow(event.row);
       }
-      return onCellActivated?.(event);
+      const handled = onCellActivated?.(event);
+      if (!handled && readOnly && event.row) {
+        const raw: unknown = event.row[event.column.field];
+        const value =
+          raw &&
+          typeof raw === "object" &&
+          "value" in (raw as Record<string, unknown>)
+            ? (raw as { value?: unknown }).value
+            : raw;
+        const bounds = gridRef.current?.getBounds(
+          event.columnIndex,
+          event.rowIndex,
+        );
+        setCellPreview({
+          value,
+          columnName:
+            event.column.title || event.column.name || event.column.field,
+          dbType: event.column.meta?.db_type,
+          cellBounds: bounds
+            ? {
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height,
+              }
+            : undefined,
+        });
+        return true;
+      }
+      return handled;
     },
-    [enableInspector, onCellActivated],
+    [enableInspector, onCellActivated, readOnly],
   );
 
   const handleInspectorCellClicked = useCallback(
@@ -3520,6 +3558,48 @@ export const BaseDataGrid = memo(function BaseDataGrid(
     return getSelectedRowsSet();
   }, [selectedRowCount, getSelectedRowsSet]);
 
+  const openCellPreviewFromSelection = useCallback(() => {
+    const currentCell = gridSelection?.current?.cell;
+    if (!currentCell) return false;
+    const [colIndex, rowIndex] = currentCell;
+    const column = finalColumns[colIndex];
+    const row = effectiveDisplayRows[rowIndex];
+    if (!column || !row) return false;
+    const raw: unknown = row[column.field];
+    const value =
+      raw && typeof raw === "object" && "value" in (raw as Record<string, unknown>)
+        ? (raw as { value?: unknown }).value
+        : raw;
+    const bounds = gridRef.current?.getBounds(colIndex, rowIndex);
+    setCellPreview({
+      value,
+      columnName: column.title || column.name || column.field,
+      dbType: column.meta?.db_type,
+      cellBounds: bounds
+        ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+        : undefined,
+    });
+    return true;
+  }, [gridSelection, finalColumns, effectiveDisplayRows]);
+
+  const handleGridContainerKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!readOnly) return;
+      if (e.defaultPrevented) return;
+      if (e.key !== " " && e.key !== "Enter") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isCellEditorActive()) return;
+      const target = e.target as HTMLElement | null;
+      if (target && isTextInputElement(target)) return;
+      if (cellPreview) return;
+      if (openCellPreviewFromSelection()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    [readOnly, isCellEditorActive, cellPreview, openCellPreviewFromSelection],
+  );
+
   // Grid container - extracted to avoid duplication across inspector branches
   const gridContainer = (
     <div
@@ -3529,6 +3609,7 @@ export const BaseDataGrid = memo(function BaseDataGrid(
       onFocusCapture={handleFocusCapture}
       onBlurCapture={handleBlurCapture}
       onPaste={handleNativePaste}
+      onKeyDownCapture={handleGridContainerKeyDown}
       onMouseDown={(e) => {
         if (isEditorInteractionTarget(e.target)) {
           return;
@@ -3856,6 +3937,17 @@ export const BaseDataGrid = memo(function BaseDataGrid(
         fetchCount={props.fetchCount}
         cursorSetupMs={props.cursorSetupMs}
         totalStreamingMs={props.totalStreamingMs}
+      />
+
+      <CellValuePreviewDialog
+        open={cellPreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setCellPreview(null);
+        }}
+        value={cellPreview?.value}
+        columnName={cellPreview?.columnName}
+        dbType={cellPreview?.dbType}
+        cellBounds={cellPreview?.cellBounds}
       />
     </div>
   );

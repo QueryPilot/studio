@@ -217,8 +217,7 @@ fn write_linux_key_file(data_dir: &Path, key: &str) -> Result<(), String> {
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))
         .map_err(|e| format!("Failed to chmod vault key file: {}", e))?;
 
-    fs::rename(&tmp, &path)
-        .map_err(|e| format!("Failed to finalize vault key file: {}", e))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("Failed to finalize vault key file: {}", e))?;
 
     Ok(())
 }

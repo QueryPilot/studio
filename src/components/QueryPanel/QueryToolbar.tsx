@@ -26,7 +26,6 @@ import {
   IconLayoutRows,
   IconDotsVertical,
   IconWand,
-  IconBinaryTree,
   IconBraces,
   IconChevronDown,
   IconAlertTriangle,
@@ -58,7 +57,6 @@ interface QueryToolbarProps {
   isExecuting: boolean;
   hasQuery: boolean;
   showResults: boolean;
-  showOutline?: boolean;
   showVariables?: boolean;
   hasVariables?: boolean;
   variableScope?: VariableScope;
@@ -75,18 +73,18 @@ interface QueryToolbarProps {
   onCancel: () => void;
   onBeautify: () => void;
   onToggleResults: () => void;
-  onToggleOutline?: () => void;
   onToggleVariables?: () => void;
   onDialectChange?: (dialect: SqlDialect | "auto") => void;
   showplanMode?: string | null;
   inTransaction?: boolean;
+  /** Optional schema pill slot rendered in the left section of the toolbar. */
+  schemaPillSlot?: React.ReactNode;
 }
 
 export const QueryToolbar = memo(function QueryToolbar({
   isExecuting,
   hasQuery,
   showResults,
-  showOutline = false,
   showVariables = false,
   hasVariables = false,
   variableScope = "global",
@@ -103,11 +101,11 @@ export const QueryToolbar = memo(function QueryToolbar({
   onCancel,
   onBeautify,
   onToggleResults,
-  onToggleOutline,
   onToggleVariables,
   onDialectChange,
   showplanMode,
   inTransaction = false,
+  schemaPillSlot,
 }: QueryToolbarProps) {
   // Get the display label for the current dialect
   const currentDialectLabel =
@@ -167,6 +165,14 @@ export const QueryToolbar = memo(function QueryToolbar({
               ))}
             </SelectContent>
           </Select>
+
+          {/* Schema Pill */}
+          {schemaPillSlot && (
+            <>
+              <div className="w-px h-4 bg-border hidden @[400px]/toolbar:block" />
+              {schemaPillSlot}
+            </>
+          )}
 
           {/* SHOWPLAN Mode Indicator */}
           {showplanMode && (
@@ -243,20 +249,6 @@ export const QueryToolbar = memo(function QueryToolbar({
             </div>
           )}
 
-          {/* Outline toggle button - hidden on narrow containers */}
-          {onToggleOutline && (
-            <Button
-              size="sm"
-              variant={showOutline ? "secondary" : "ghost"}
-              onClick={onToggleOutline}
-              className="!h-6 text-xs gap-1 hidden @[500px]/toolbar:flex !px-2"
-              title="Toggle Query Outline"
-            >
-              <IconBinaryTree className="h-3 w-3" />
-              <span>Outline</span>
-            </Button>
-          )}
-
           {/* Format button - hidden on narrow containers */}
           <Button
             size="sm"
@@ -320,14 +312,6 @@ export const QueryToolbar = memo(function QueryToolbar({
                 <DropdownMenuItem onClick={onToggleVariables} className="text-xs">
                   <IconBraces className="h-3 w-3 mr-2" />
                   {showVariables ? "Hide Variables" : "Show Variables"}
-                </DropdownMenuItem>
-              )}
-
-              {/* Outline toggle */}
-              {onToggleOutline && (
-                <DropdownMenuItem onClick={onToggleOutline} className="text-xs">
-                  <IconBinaryTree className="h-3 w-3 mr-2" />
-                  {showOutline ? "Hide Outline" : "Show Outline"}
                 </DropdownMenuItem>
               )}
 

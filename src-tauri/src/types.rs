@@ -33,6 +33,16 @@ pub struct ConnectionProfile {
     pub safe_mode: Option<SafeMode>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pooler_mode: Option<bool>,
+    #[serde(default)]
+    pub databases: Vec<DatabaseEntry>,
+    // Deprecated v1 fields — kept for backwards-compatible deserialization of
+    // existing vault blobs. Will be dropped in a later phase.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub default_schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trino_catalogs: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub trino_schema_filters: Option<String>,
 }
 
 pub(crate) fn redact_if_uri(s: &str) -> &str {
@@ -70,6 +80,21 @@ pub enum SafeMode {
     ReadWriteUpdate,
     #[default]
     FullAccess,
+}
+
+/// Describes one logical database (catalog) attached to a connection, along
+/// with the schemas the user wants visible in the sidebar.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseEntry {
+    pub name: String,
+    #[serde(default)]
+    pub visible_schemas: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub attachments: Option<Vec<Attachment>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub extensions: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub secret_refs: Option<Vec<String>>,
 }
 
 impl ConnectionProfile {
@@ -945,4 +970,72 @@ pub enum KeyValueStreamMessage {
         code: String,
         message: String,
     },
+}
+
+// ── Phase 3: DuckDB persistence ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentKind {
+    Iceberg,
+    Delta,
+    Ducklake,
+    Postgres,
+    Mysql,
+    Sqlite,
+    Duckdb,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Attachment {
+    pub alias: String,
+    pub kind: AttachmentKind,
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub read_only: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub options: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub secret_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachmentError {
+    pub alias: String,
+    pub message: String,
+}
+
+/// In-memory-only payload passed from the frontend into `duckdb_replay_setup`
+/// and `duckdb_issue_secret`. Never persisted Rust-side, never logged.
+#[derive(Clone, Deserialize)]
+pub struct DecryptedSecretPayload {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub secret_type: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub persistent: bool,
+    pub params: std::collections::HashMap<String, String>,
+}
+
+impl std::fmt::Debug for DecryptedSecretPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DecryptedSecretPayload")
+            .field("name", &self.name)
+            .field("secret_type", &self.secret_type)
+            .field("provider", &self.provider)
+            .field("persistent", &self.persistent)
+            .field(
+                "params",
+                &format_args!("[{} keys redacted]", self.params.len()),
+            )
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DuckDbReplayResult {
+    pub runtime_databases: Vec<DatabaseEntry>,
+    pub errors: Vec<AttachmentError>,
 }

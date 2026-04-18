@@ -475,6 +475,29 @@ export function useCellHoverIcons(
       // Draw grouped container background
       const cellFillColor =
         (args as { cellFillColor?: string }).cellFillColor ?? theme.bgCell;
+
+      // If the cell renders a trailing "N lines" badge (or similar right-edge
+      // suffix), the default-drawn badge text can bleed through underneath the
+      // icon group. Mask the right portion of the cell with the cell fill so
+      // the icons sit cleanly.
+      const cellData = (args.cell as { data?: { kind?: string; value?: unknown; displayValue?: unknown; showLineBadge?: boolean } }).data;
+      const cellValueStr =
+        typeof cellData?.value === "string" ? cellData.value : null;
+      const hasLineBadge =
+        !iconsOnLeft &&
+        cellData?.kind === "text-multi-cell" &&
+        cellData.showLineBadge !== false &&
+        cellValueStr !== null &&
+        cellValueStr.includes("\n");
+
+      if (hasLineBadge) {
+        const maskExtraLeft = 60;
+        const maskX = groupX - maskExtraLeft;
+        const maskWidth = groupWidth + maskExtraLeft + edgePadding;
+        ctx.fillStyle = cellFillColor;
+        ctx.fillRect(maskX, rect.y + 1, maskWidth, rect.height - 2);
+      }
+
       ctx.fillStyle = cellFillColor;
       ctx.beginPath();
       ctx.roundRect(groupX, groupY, groupWidth, groupHeight, 4);

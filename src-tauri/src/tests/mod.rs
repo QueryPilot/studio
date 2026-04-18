@@ -24,3 +24,12 @@ mod unified_adapter_test;
 mod duckdb_scratchpad_test;
 #[cfg(test)]
 mod oracle_integration_test;
+
+#[cfg(test)]
+mod migration_v1_to_v2_test;
+
+#[cfg(test)]
+mod trino_phase4_wire_test;
+
+#[cfg(test)]
+mod trino_legacy_migration_test;

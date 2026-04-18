@@ -1,13 +1,17 @@
 import { logger } from "@/lib/logger";
 import { create } from "zustand";
 import { vaultStorage } from "@/services/vaultStorage";
+import { invoke } from "@tauri-apps/api/core";
 import {
   type StoredConnection,
   type ConnectionProfile,
+  DbType,
 } from "@/types/connection";
 
 // Track inflight fetch to deduplicate concurrent calls
 let inflightFetch: Promise<void> | null = null;
+
+const schemaUpdateInFlight = new Set<string>();
 
 interface ConnectionStore {
   // State
@@ -33,7 +37,13 @@ interface ConnectionStore {
   addTag: (id: string, tag: string) => Promise<void>;
   removeTag: (id: string, tag: string) => Promise<void>;
   markAsUsed: (id: string) => Promise<void>;
-  setDefaultSchema: (id: string, schema: string | undefined) => Promise<void>;
+  setVisibleSchemas: (
+    connectionId: string,
+    databaseName: string,
+    visibleSchemas: string[],
+  ) => Promise<void>;
+  getVisibleSchemas: (connectionId: string, databaseName: string) => string[];
+  getPrimarySchema: (connectionId: string, databaseName: string) => string;
 
   // Search
   searchConnections: (query: string) => StoredConnection[];
@@ -284,34 +294,86 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     }
   },
 
-  // Set default schema for connection
-  setDefaultSchema: async (id: string, schema: string | undefined) => {
-    try {
-      const connection = get().getConnection(id);
-      if (!connection) {
-        throw new Error("Connection not found");
+  // Set visible schemas for a database within a connection
+  setVisibleSchemas: async (
+    connectionId: string,
+    databaseName: string,
+    visibleSchemas: string[],
+  ) => {
+    if (visibleSchemas.length === 0) {
+      const conn = get().getConnection(connectionId);
+      const dbType = conn?.profile.db_type;
+      if (dbType !== DbType.Trino) {
+        throw new Error("visibleSchemas must be non-empty");
       }
+    }
 
-      const updatedProfile = {
-        ...connection.profile,
-        default_schema: schema || undefined,
-      };
+    const lockKey = `${connectionId}::${databaseName}`;
+    if (schemaUpdateInFlight.has(lockKey)) {
+      throw new Error("Schema update already in progress");
+    }
+    schemaUpdateInFlight.add(lockKey);
 
-      await vaultStorage.updateConnection(id, updatedProfile);
+    try {
+      const conn = get().getConnection(connectionId);
+      if (!conn) throw new Error("Connection not found");
 
+      const prevDatabases = conn.profile.databases;
+      const nextDatabases = (() => {
+        const idx = prevDatabases.findIndex((d) => d.name === databaseName);
+        if (idx === -1) {
+          return [...prevDatabases, { name: databaseName, visible_schemas: visibleSchemas }];
+        }
+        const clone = [...prevDatabases];
+        clone[idx] = { ...clone[idx]!, visible_schemas: visibleSchemas };
+        return clone;
+      })();
+
+      const nextProfile = { ...conn.profile, databases: nextDatabases };
+
+      // Optimistic in-memory update.
       set((state) => ({
-        connections: state.connections.map((conn) =>
-          conn.profile.id === id
-            ? { ...conn, profile: updatedProfile }
-            : conn,
+        connections: state.connections.map((c) =>
+          c.profile.id === connectionId ? { ...c, profile: nextProfile } : c,
         ),
       }));
-    } catch (err) {
-      const error =
-        err instanceof Error ? err.message : "Failed to set default schema";
-      set({ error });
-      throw new Error(error);
+
+      try {
+        await vaultStorage.updateConnection(connectionId, nextProfile);
+        await invoke("update_connection_schemas", {
+          connId: connectionId,
+          databaseName,
+          visibleSchemas,
+        });
+      } catch (err) {
+        // Rollback on either failure.
+        const revert = { ...conn.profile, databases: prevDatabases };
+        set((state) => ({
+          connections: state.connections.map((c) =>
+            c.profile.id === connectionId ? { ...c, profile: revert } : c,
+          ),
+        }));
+        // Attempt to roll back the vault update — best effort.
+        try { await vaultStorage.updateConnection(connectionId, revert); } catch (rollbackErr) { console.error("[connectionStore] Vault rollback failed:", rollbackErr); }
+        throw err instanceof Error ? err : new Error(String(err));
+      }
+    } finally {
+      schemaUpdateInFlight.delete(lockKey);
     }
+  },
+
+  // Get visible schemas for a database within a connection
+  getVisibleSchemas: (connectionId: string, databaseName: string) => {
+    const conn = get().getConnection(connectionId);
+    if (!conn) return [];
+    const entry = conn.profile.databases.find((d) => d.name === databaseName);
+    return entry?.visible_schemas ?? [];
+  },
+
+  // Get the primary (first) visible schema for a database
+  getPrimarySchema: (connectionId: string, databaseName: string) => {
+    const schemas = get().getVisibleSchemas(connectionId, databaseName);
+    return schemas[0] ?? "";
   },
 
   // Search connections locally

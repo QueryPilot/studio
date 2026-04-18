@@ -263,6 +263,7 @@ export function QuickConnectDialog({
             ? { oracle_connect_mode: "service_name" }
             : {}),
         },
+        databases: [],
       };
 
       // Include SSH tunnel config if parsed from env vars

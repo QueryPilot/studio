@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 
 import { tableStreamingService } from "@/services/tableStreamingService";
+import { resolveEffective } from "@/services/effectiveSchemas";
 import useWorkbenchStore from "@/stores/workbenchStore";
 import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
@@ -45,6 +46,7 @@ import { useAcpStore } from "@/stores/acpStore";
 import { useTabLoadingStore } from "@/stores/tabLoadingStore";
 import { queryActionDispatcher } from "@/services/queryActionDispatcher";
 import { QueryPanelLayout } from "./QueryPanelLayout";
+import { SchemaPill } from "./SchemaPill";
 import { useQueryPanelState } from "./useQueryPanelState";
 import { useDuckDbQueryProgress } from "@/hooks/useDuckDbQueryProgress";
 import { BackendAPI } from "@/services/backend";
@@ -134,7 +136,6 @@ export const QueryPanel = memo(function QueryPanel({
   const {
     activeBatchResultIndex,
     batchResults,
-    deferredQuery,
     detectedDialect,
     effectiveConnectionId,
     executionStatus,
@@ -167,12 +168,10 @@ export const QueryPanel = memo(function QueryPanel({
     setResult,
     setSelectedDialect,
     setSelectedStatementCount,
-    setShowOutline,
     setShowVariablePanel,
     setShowplanMode,
     setShowResults,
     setShowSaveDialog,
-    showOutline,
     showVariablePanel,
     showplanMode,
     showResults,
@@ -192,6 +191,7 @@ export const QueryPanel = memo(function QueryPanel({
   const duckDbProgress = useDuckDbQueryProgress(
     effectiveConnectionId,
     isDuckDbLike && (isExecuting || isStreaming),
+    tabId,
   );
 
   // Query variables
@@ -513,6 +513,12 @@ export const QueryPanel = memo(function QueryPanel({
         const shouldPinSession =
           pinSession ?? (inTransactionRef.current || isTransaction);
 
+        const { effectiveSchemas, effectiveDatabase } = resolveEffective(
+          effectiveConnectionId,
+          database,
+          tabId,
+        );
+
         const streamPromise = tableStreamingService.streamQuery(
           effectiveConnectionId,
           tabId,
@@ -545,7 +551,7 @@ export const QueryPanel = memo(function QueryPanel({
             }
           },
           usePreferencesStore.getState().queryTimeoutSecs || undefined,
-          { collectRows: false, pinSession: shouldPinSession },
+          { collectRows: false, pinSession: shouldPinSession, effectiveSchemas, effectiveDatabase },
         );
 
         const final = await streamPromise;
@@ -665,7 +671,7 @@ export const QueryPanel = memo(function QueryPanel({
                 );
                 invalidateSchema(effectiveConnectionId, database, targetSchema);
                 void clearRustSchema(effectiveConnectionId, targetSchema).then(
-                  () => syncSchemaToRust(effectiveConnectionId, targetSchema),
+                  () => syncSchemaToRust(effectiveConnectionId, targetSchema, database ?? ""),
                 );
               });
             }
@@ -1224,7 +1230,7 @@ export const QueryPanel = memo(function QueryPanel({
       cancelRequestedRef.current = true;
 
       if (isDuckDbLike && effectiveConnectionId) {
-        void BackendAPI.duckdbInterruptQuery(effectiveConnectionId);
+        void BackendAPI.duckdbInterruptQuery(effectiveConnectionId, tabId);
       }
 
       // Cancel backend streaming — rejects the streamQuery promise with AbortError
@@ -1248,6 +1254,7 @@ export const QueryPanel = memo(function QueryPanel({
     setExecutionStatus,
     setIsExecuting,
     setIsStreaming,
+    tabId,
   ]);
 
   const handleSelectionChange = useCallback(
@@ -1303,12 +1310,6 @@ export const QueryPanel = memo(function QueryPanel({
   const toggleResults = useCallback(() => {
     setShowResults((prev) => !prev);
   }, [setShowResults]);
-  const toggleOutline = useCallback(() => {
-    setShowOutline((prev) => !prev);
-  }, [setShowOutline]);
-  const closeOutline = useCallback(() => {
-    setShowOutline(false);
-  }, [setShowOutline]);
   const toggleVariables = useCallback(() => {
     setShowVariablePanel((prev) => !prev);
   }, [setShowVariablePanel]);
@@ -1477,7 +1478,6 @@ export const QueryPanel = memo(function QueryPanel({
         onDialectDetected={setDetectedDialect}
         hasQuery={hasQuery}
         showResults={showResults}
-        showOutline={showOutline}
         focused={isInteractive}
         detectedDialect={detectedDialect}
         runButtonLabel={runButtonLabel}
@@ -1488,10 +1488,7 @@ export const QueryPanel = memo(function QueryPanel({
         onCancel={handleCancel}
         onBeautify={handleBeautify}
         onToggleResults={toggleResults}
-        onToggleOutline={toggleOutline}
         onDialectChange={setSelectedDialect}
-        deferredQuery={deferredQuery}
-        onCloseOutline={closeOutline}
         batchResults={batchResults}
         activeBatchResultIndex={activeBatchResultIndex}
         onActiveBatchResultChange={handleBatchTabSwitch}
@@ -1527,6 +1524,9 @@ export const QueryPanel = memo(function QueryPanel({
         duckDbQueryProgress={duckDbProgress.progress}
         duckDbProgressEtaSeconds={duckDbProgress.estimatedSecondsRemaining}
         onDuckDbProgressCancel={duckDbProgress.cancel}
+        schemaPillSlot={
+          <SchemaPill tabId={tabId} connectionId={connectionId} database={database} />
+        }
       />
       <SaveQueryDialog
         open={showSaveDialog}

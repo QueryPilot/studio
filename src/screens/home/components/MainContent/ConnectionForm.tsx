@@ -211,14 +211,23 @@ export function ConnectionForm() {
   const [username, setUsername] = useState(connection?.profile.username || "");
   const [password, setPassword] = useState(connection?.profile.password || "");
   const [database, setDatabase] = useState(connection?.profile.database || "");
-  const [trinoCatalogs, setTrinoCatalogs] = useState<string[]>(
-    connection?.profile.trino_catalogs ??
-      (connection?.profile.database ? [connection.profile.database] : [])
-  );
+  const [trinoCatalogs, setTrinoCatalogs] = useState<string[]>(() => {
+    // Phase 4: derive catalog list from databases[] first; fall back to
+    // legacy trino_catalogs (still present until migration runs) or database name.
+    const dbs = connection?.profile.databases;
+    if (dbs && dbs.length > 0) return dbs.map((d) => d.name);
+    if (connection?.profile.trino_catalogs?.length) return connection.profile.trino_catalogs;
+    return connection?.profile.database ? [connection.profile.database] : [];
+  });
   const [trinoCatalogInput, setTrinoCatalogInput] = useState("");
-  const [defaultSchema, setDefaultSchema] = useState(
-    connection?.profile.default_schema || "",
-  );
+  const [defaultSchema, setDefaultSchema] = useState(() => {
+    if (connection?.profile.default_schema) return connection.profile.default_schema;
+    // Read primary schema from databases array (v2 format)
+    const db = connection?.profile.databases?.find(
+      (d) => d.name === connection.profile.database,
+    );
+    return db?.visible_schemas?.[0] || "";
+  });
   const [sslMode, setSslMode] = useState<SslMode>(
     connection?.profile.ssl_mode || SslMode.Disable,
   );
@@ -929,9 +938,30 @@ export function ConnectionForm() {
         };
       })(),
       default_schema: defaultSchema || undefined,
-      ...(dbType === "trino" && trinoCatalogs.length > 0
-        ? { trino_catalogs: trinoCatalogs }
-        : {}),
+      databases: dbType === "trino"
+        ? trinoCatalogs.map((name) => {
+            // Preserve any previously stored schemas if the catalog existed before.
+            const prev = connection?.profile.databases?.find((d) => d.name === name);
+            return { name, visible_schemas: prev?.visible_schemas ?? [] };
+          })
+        : database
+          ? [{
+              name: database,
+              visible_schemas: (() => {
+                // Preserve existing visible_schemas if editing
+                const prev = connection?.profile.databases?.find((d) => d.name === database);
+                if (prev) return prev.visible_schemas;
+                // For new connections, seed with default schema
+                const schema = defaultSchema ||
+                  (dbType === "postgresql" ? "public"
+                    : dbType === "mssql" ? "dbo"
+                    : dbType === "oracle" ? "SYS"
+                    : dbType === "duckdb" || dbType === "motherduck" ? "main"
+                    : "");
+                return schema ? [schema] : [];
+              })(),
+            }]
+          : [],
       safe_mode: safeMode,
       pooler_mode:
         dbType === "postgresql"
@@ -1774,6 +1804,9 @@ export function ConnectionForm() {
                       placeholder={dbType === "postgresql" ? "public" : dbType === "trino" ? "default" : "dbo"}
                       disabled={isTesting}
                     />
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      More schemas can be added after connecting
+                    </p>
                   </div>
                 )}
               </div>

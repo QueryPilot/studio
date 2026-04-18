@@ -12,6 +12,7 @@ interface WorkbenchStoreMockState {
   updateTabMetadata: typeof updateTabMetadataMock;
   focusPanel: typeof focusPanelMock;
   panelContents: Map<string, unknown>;
+  getTabSchemaOverride: () => undefined;
 }
 
 interface PanelFocusStoreMockState {
@@ -116,10 +117,6 @@ vi.mock("../ResultViewer", () => ({
   ),
 }));
 
-vi.mock("../QueryOutline", () => ({
-  QueryOutline: () => null,
-}));
-
 vi.mock("@/components/QueryHistory", () => ({
   SaveQueryDialog: () => null,
 }));
@@ -141,7 +138,7 @@ vi.mock("@/stores/workbenchStore", () => {
   type WorkbenchStoreMock = ((
     selector: (state: WorkbenchStoreMockState) => unknown,
   ) => unknown) & {
-    getState: () => Pick<WorkbenchStoreMockState, "focusPanel" | "panelContents">;
+    getState: () => Pick<WorkbenchStoreMockState, "focusPanel" | "panelContents" | "getTabSchemaOverride">;
   };
 
   const store = ((selector: (state: WorkbenchStoreMockState) => unknown) =>
@@ -149,10 +146,12 @@ vi.mock("@/stores/workbenchStore", () => {
       updateTabMetadata: updateTabMetadataMock,
       focusPanel: focusPanelMock,
       panelContents: new Map([["panel-1", {}]]),
+      getTabSchemaOverride: () => undefined,
     })) as WorkbenchStoreMock;
   store.getState = () => ({
     focusPanel: focusPanelMock,
     panelContents: new Map([["panel-1", {}]]),
+    getTabSchemaOverride: () => undefined,
   });
   return { default: store };
 });
@@ -177,7 +176,10 @@ vi.mock("@/stores/preferencesStore", () => ({
 
 vi.mock("@/stores/connectionStoreNew", () => ({
   useConnectionStore: {
-    getState: () => ({ getConnection: getConnectionMock }),
+    getState: () => ({
+      getConnection: getConnectionMock,
+      getVisibleSchemas: () => [],
+    }),
   },
 }));
 
@@ -429,10 +431,10 @@ describe("QueryPanel execution state", () => {
     expect(
       streamQueryMock.mock.calls.map((call) => call[7]),
     ).toEqual([
-      { collectRows: false, pinSession: true },
-      { collectRows: false, pinSession: true },
-      { collectRows: false, pinSession: true },
-      { collectRows: false, pinSession: true },
+      expect.objectContaining({ collectRows: false, pinSession: true }),
+      expect.objectContaining({ collectRows: false, pinSession: true }),
+      expect.objectContaining({ collectRows: false, pinSession: true }),
+      expect.objectContaining({ collectRows: false, pinSession: true }),
     ]);
   });
 

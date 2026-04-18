@@ -8,6 +8,7 @@ import { useVersionStore } from "@/stores/versionStore";
 import type { IndexUsageStats } from "./backend";
 import { DbType as ConnectionDbType, type ConnectionProfile } from "@/types/connection";
 import { tableStreamingService } from "./tableStreamingService";
+import { runDuckDbReplay } from "./duckdbReplayOrchestrator";
 
 import { QueryStreamClient } from "./queryStreamClient";
 import type { QueryResult, ColumnMeta } from "@/types/database";
@@ -22,6 +23,7 @@ import { ConstraintType, TableKind } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
 import { getSqlAdapterForConnection } from "@/adapters";
 import { TrinoAdapter } from "@/adapters/dialects/TrinoAdapter";
+import { useRuntimeDatabasesStore } from "@/stores/runtimeDatabasesStore";
 
 // Types from API spec
 export interface ConnectionConfig {
@@ -195,6 +197,7 @@ class DatabaseService {
       bastion: storedProfile.bastion,
       options,
       pooler_mode: storedProfile.pooler_mode ?? null,
+      databases: storedProfile.databases,
     };
   }
 
@@ -300,6 +303,16 @@ class DatabaseService {
           });
         }
 
+        // Phase 3: DuckDB replay — restore extensions, secrets, and attachments
+        // before data/sidebar queries can run against the connection.
+        if (profile.db_type === ConnectionDbType.DuckDB) {
+          try {
+            await runDuckDbReplay(profile);
+          } catch (err: unknown) {
+            logger.warn("[DatabaseService] DuckDB replay setup failed (non-fatal):", err);
+          }
+        }
+
         logger.info(
           `[DatabaseService] Setting activeConnections for ${connectionId}`,
         );
@@ -377,6 +390,7 @@ class DatabaseService {
         ssl_mode: undefined,
         options: config.options || {},
         pooler_mode: null,
+        databases: [],
       };
 
       const connectionInfo = await BackendAPI.connect(profile);
@@ -410,6 +424,7 @@ class DatabaseService {
       }
 
       this.activeConnections.delete(connectionId);
+      useRuntimeDatabasesStore.getState().clear(connectionId);
     } catch (error) {
       logger.error("Failed to disconnect from database:", error);
       throw error;
@@ -449,6 +464,7 @@ class DatabaseService {
     // Always remove from active connections, even on timeout
     // The backend will clean up idle connections eventually
     this.activeConnections.delete(connectionId);
+    useRuntimeDatabasesStore.getState().clear(connectionId);
 
     if (!result) {
       logger.warn(
@@ -563,7 +579,11 @@ class DatabaseService {
     }
 
     if (dbType === ConnectionDbType.PostgreSQL) {
-      await BackendAPI.updateActiveSchema(connectionId, schema);
+      await BackendAPI.updateActiveSchema(
+        connectionId,
+        stored?.profile.database ?? "",
+        schema,
+      );
       return;
     }
 
@@ -750,7 +770,9 @@ class DatabaseService {
       }
       const sql = adapter.getSchemasForCatalog(catalog);
       const result = await BackendAPI.query(connectionId, sql);
-      return result.rows.map((row) => String((row[0] as string | null) ?? "")).filter(Boolean);
+      return result.rows
+        .map((row) => (row[0] as string | null) ?? "")
+        .filter(Boolean);
     } catch (error) {
       logger.error("Failed to list schemas for catalog:", error);
       throw error;
@@ -776,12 +798,12 @@ class DatabaseService {
       const sql = adapter.getTablesForCatalogSchema(catalog, schema);
       const result = await BackendAPI.query(connectionId, sql);
       return result.rows.map((row) => {
-        const kind = String((row[2] as string | null) ?? "regular");
+        const kind = (row[2] as string | null) ?? "regular";
         const mappedKind: TableMeta["kind"] =
           kind === "view" ? "View" : "Table";
         return {
-          schema: String((row[0] as string | null) ?? ""),
-          name: String((row[1] as string | null) ?? ""),
+          schema: (row[0] as string | null) ?? "",
+          name: (row[1] as string | null) ?? "",
           kind: mappedKind,
         };
       });
@@ -1652,6 +1674,8 @@ class DatabaseService {
         percentage?: number;
       }) => void;
       onError?: (error: Error | string) => void;
+      effectiveSchemas?: string[];
+      effectiveDatabase?: string;
     },
   ): Promise<QueryResult> {
     // Use streaming service for query execution
@@ -1680,6 +1704,11 @@ class DatabaseService {
                 : (error as { message: string }).message;
           options.onError(errMsg);
         }
+      },
+      undefined,
+      {
+        effectiveSchemas: options?.effectiveSchemas,
+        effectiveDatabase: options?.effectiveDatabase,
       },
     );
 

@@ -418,16 +418,36 @@ export const SqlEditor = memo(
     // Stable reference for schema
     const defaultSchema = schema || getFallbackSchema(dbType, database);
 
-    // Only load Trino catalogs when the dialect is actually Trino — no point
-    // subscribing to connection profile data for other dialects.
-    const trinoCatalogsRaw = useConnectionStore(
+    // Phase 4: For Trino, read catalog list from databases[] (first-class).
+    // Fall back to legacy trino_catalogs during the migration window.
+    // For non-Trino dialects, keep an empty array (no catalog fallback needed).
+    const trinoCatalogs = useConnectionStore(
       useShallow((state) => {
-        if (effectiveDialect !== "trino") return null;
+        if (effectiveDialect !== "trino") return [] as string[];
         const conn = state.getConnection(connectionId);
-        return conn?.profile.trino_catalogs ?? null;
+        const dbs = conn?.profile.databases;
+        if (dbs && dbs.length > 0) return dbs.map((d) => d.name);
+        // Legacy fallback (migration window)
+        return conn?.profile.trino_catalogs ?? [];
       }),
     );
-    const trinoCatalogs = trinoCatalogsRaw ?? [];
+
+    // Phase 4: Pass full DatabaseEntry[] for Trino so per-catalog visible_schemas are available.
+    const trinoDatabases = useConnectionStore(
+      useShallow((state) => {
+        if (effectiveDialect !== "trino") return undefined;
+        const conn = state.getConnection(connectionId);
+        const dbs = conn?.profile.databases;
+        return dbs && dbs.length > 0 ? dbs : undefined;
+      }),
+    );
+
+    // Visible schemas for multi-schema completion (falls back to defaultSchema)
+    const visibleSchemas = useConnectionStore(
+      useShallow((state) =>
+        state.getVisibleSchemas(connectionId, database),
+      ),
+    );
 
     const handlePickedCompletion = useCallback(
       (picked: { label: string; type?: string | null }) => {
@@ -470,6 +490,7 @@ export const SqlEditor = memo(
     // Sync schema to Rust for completion/validation
     useRustSchemaSync({
       connectionId,
+      database: database ?? "",
       schema: defaultSchema,
       enabled: !!connectionId && !!database,
     });
@@ -499,9 +520,10 @@ export const SqlEditor = memo(
     const dialectExtensions = useMemo(() => {
       const provider = createSqlMetadataProvider(
         connectionId,
-        defaultSchema,
+        visibleSchemas.length ? visibleSchemas : [defaultSchema],
         effectiveDialect,
         trinoCatalogs,
+        trinoDatabases,
       );
       return [
         sqlLang,
@@ -514,7 +536,7 @@ export const SqlEditor = memo(
         createSqlHoverExtension(provider, defaultSchema),
         createExpandStarExtension(provider, defaultSchema, effectiveDialect),
       ];
-    }, [connectionId, defaultSchema, effectiveDialect, sqlLang, trinoCatalogs]);
+    }, [connectionId, visibleSchemas, defaultSchema, effectiveDialect, sqlLang, trinoCatalogs, trinoDatabases]);
 
     // DuckDB-native completion source (additive, for DuckDB/MotherDuck only)
     const duckDbHandleRef = useRef<ReturnType<typeof createDuckDbCompletionSource> | null>(null);

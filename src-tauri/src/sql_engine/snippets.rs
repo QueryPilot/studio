@@ -223,9 +223,11 @@ mod tests {
     fn test_get_snippets() {
         let snippets = get_snippets("sel");
         assert!(!snippets.is_empty());
-        assert!(snippets
-            .iter()
-            .all(|s| s.prefix.starts_with("sel") || s.name.to_lowercase().contains("sel")));
+        assert!(
+            snippets
+                .iter()
+                .all(|s| s.prefix.starts_with("sel") || s.name.to_lowercase().contains("sel"))
+        );
     }
 
     #[test]

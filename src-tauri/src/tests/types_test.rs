@@ -529,6 +529,10 @@ mod connection_types_tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         };
 
         assert_eq!(profile.id, "test-123");
@@ -659,6 +663,10 @@ mod connection_profile_redaction_tests {
             group: None,
             safe_mode: None,
             pooler_mode: None,
+            databases: vec![],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
         }
     }
 
@@ -682,4 +690,141 @@ mod connection_profile_redaction_tests {
         assert!(debug.contains("<redacted-uri>"));
         assert!(debug.contains("***"));
     }
+}
+
+mod attachment_tests {
+    use std::collections::HashMap;
+
+    #[test]
+    fn attachment_serde_roundtrip() {
+        use crate::types::{Attachment, AttachmentKind};
+        let att = Attachment {
+            alias: "lake".into(),
+            kind: AttachmentKind::Iceberg,
+            uri: "s3://b/ice".into(),
+            read_only: Some(true),
+            options: Some(HashMap::from([("catalog_uri".into(), "http://...".into())])),
+            secret_ref: Some("my_s3".into()),
+        };
+        let json = serde_json::to_string(&att).expect("serialize");
+        // keys must be snake_case
+        assert!(json.contains("\"alias\""), "json: {json}");
+        assert!(json.contains("\"kind\""), "json: {json}");
+        assert!(json.contains("\"uri\""), "json: {json}");
+        assert!(json.contains("\"read_only\""), "json: {json}");
+        assert!(json.contains("\"options\""), "json: {json}");
+        assert!(json.contains("\"secret_ref\""), "json: {json}");
+        // kind is lowercase
+        assert!(json.contains("\"iceberg\""), "json: {json}");
+        // round-trip
+        let back: Attachment = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.alias, "lake");
+        assert_eq!(back.kind, AttachmentKind::Iceberg);
+        assert_eq!(back.uri, "s3://b/ice");
+        assert_eq!(back.read_only, Some(true));
+        assert_eq!(back.secret_ref, Some("my_s3".into()));
+    }
+}
+
+mod database_entry_tests {
+    use std::collections::HashMap;
+
+    #[test]
+    fn database_entry_round_trip_snake_case() {
+        use crate::types::DatabaseEntry;
+        let entry = DatabaseEntry {
+            name: "mydb".to_string(),
+            visible_schemas: vec!["public".to_string(), "reporting".to_string()],
+            attachments: None,
+            extensions: None,
+            secret_refs: None,
+        };
+        let json = serde_json::to_string(&entry).expect("serialize");
+        assert!(json.contains("\"visible_schemas\""));
+        assert!(!json.contains("visibleSchemas"));
+        let back: DatabaseEntry = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.visible_schemas, vec!["public", "reporting"]);
+    }
+
+    #[test]
+    fn connection_profile_includes_databases_field() {
+        use crate::types::{ConnectionProfile, DatabaseEntry, DbType};
+        let profile = ConnectionProfile {
+            id: "c1".into(),
+            name: "t".into(),
+            db_type: DbType::PostgreSQL,
+            host: "localhost".into(),
+            port: 5432,
+            database: "db".into(),
+            username: "u".into(),
+            password: None,
+            ssl_mode: None,
+            ssl_config: None,
+            ssh_tunnel: None,
+            bastion: None,
+            tunnel_profile_id: None,
+            tunnel_inline: None,
+            tunnel_remote_host: None,
+            tunnel_remote_port: None,
+            options: HashMap::new(),
+            group: None,
+            safe_mode: None,
+            pooler_mode: None,
+            databases: vec![DatabaseEntry {
+                name: "db".into(),
+                visible_schemas: vec!["public".into()],
+                attachments: None,
+                extensions: None,
+                secret_refs: None,
+            }],
+            default_schema: None,
+            trino_catalogs: None,
+            trino_schema_filters: None,
+        };
+        let json = serde_json::to_string(&profile).expect("serialize");
+        assert!(json.contains("\"databases\""));
+        assert!(json.contains("\"visible_schemas\""));
+        assert!(!json.contains("visibleSchemas"));
+    }
+}
+
+#[test]
+fn update_connection_schemas_args_parse_camel_case() {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct Args {
+        conn_id: String,
+        database_name: String,
+        visible_schemas: Vec<String>,
+    }
+    let json = r#"{"connId":"c","databaseName":"mydb","visibleSchemas":["public","reporting"]}"#;
+    let a: Args = serde_json::from_str(json).expect("parse");
+    assert_eq!(a.visible_schemas, vec!["public", "reporting"]);
+}
+
+#[test]
+fn execute_query_params_accept_camel_case_wire_names() {
+    // Sanity that serde_json parses the wire shape we'll send from JS.
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[allow(dead_code)]
+    struct ExecuteQueryArgs {
+        conn_id: String,
+        tab_id: String,
+        sql: String,
+        effective_schemas: Option<Vec<String>>,
+        effective_database: Option<String>,
+    }
+    let json = r#"{
+        "connId":"c","tabId":"t","sql":"SELECT 1",
+        "effectiveSchemas":["public","reporting"],
+        "effectiveDatabase":"mydb"
+    }"#;
+    let args: ExecuteQueryArgs = serde_json::from_str(json).expect("parse");
+    assert_eq!(
+        args.effective_schemas.as_deref().unwrap(),
+        &["public", "reporting"]
+    );
+    assert_eq!(args.effective_database.as_deref(), Some("mydb"));
 }

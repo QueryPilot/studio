@@ -43,6 +43,10 @@ fn test_profile(database: &str) -> ConnectionProfile {
         group: None,
         safe_mode: None,
         pooler_mode: None,
+        databases: vec![],
+        default_schema: None,
+        trino_catalogs: None,
+        trino_schema_filters: None,
     }
 }
 
@@ -685,6 +689,391 @@ async fn duckdb_execute_query_reports_meaningful_error_on_bad_sql() {
 
     adapter.disconnect().await.expect("disconnect duckdb");
     let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_connect_replays_non_secret_duckdb_attachments_from_profile() {
+    // Regression: streaming queries use `{conn_id}:{tab_id}` as the connection
+    // key, so every new tab gets a brand-new DuckDbAdapter. Without replay on
+    // connect, queries against attached catalogs hit "Binder Error: Catalog
+    // does not exist" even though the base connection has them attached.
+    //
+    // Verify a freshly connected adapter, given a profile carrying an
+    // attachment, ends up with the catalog attached — without the frontend
+    // having to call `duckdb_replay_setup`.
+    use crate::types::{Attachment, AttachmentKind, DatabaseEntry};
+
+    // Seed a small .duckdb file to attach
+    let attached_path = temp_path("attached-seed.duckdb");
+    {
+        let seeder = DuckDbAdapter::new();
+        seeder
+            .connect(&test_profile(attached_path.to_str().unwrap()))
+            .await
+            .expect("seed: connect attached");
+        seeder
+            .execute_statement("CREATE TABLE things(id INTEGER)")
+            .await
+            .expect("seed: create table");
+        seeder
+            .execute_statement("INSERT INTO things VALUES (1), (2), (3)")
+            .await
+            .expect("seed: insert");
+        seeder.disconnect().await.expect("seed: disconnect");
+    }
+
+    // Build a profile like the one produced by frontend after an explicit
+    // attach — durable attachment persisted on databases[0].attachments.
+    let primary_path = temp_path("primary.duckdb");
+    let mut profile = test_profile(primary_path.to_str().unwrap());
+    profile.databases = vec![DatabaseEntry {
+        name: "main".into(),
+        visible_schemas: vec!["main".into()],
+        attachments: Some(vec![Attachment {
+            alias: "seed_attach".into(),
+            kind: AttachmentKind::Duckdb,
+            uri: attached_path.to_string_lossy().into_owned(),
+            read_only: Some(true),
+            options: None,
+            secret_ref: None,
+        }]),
+        extensions: None,
+        secret_refs: None,
+    }];
+
+    // This mimics the per-tab / reaper-reconnect path: a fresh adapter
+    // connects, and nothing else calls replay.
+    let adapter = DuckDbAdapter::new();
+    adapter.connect(&profile).await.expect("connect primary");
+
+    let attached = adapter
+        .list_attached_databases()
+        .await
+        .expect("list attached");
+    assert!(
+        attached.iter().any(|d| d.database_name == "seed_attach"),
+        "expected 'seed_attach' to be auto-replayed on connect, saw: {:?}",
+        attached
+            .iter()
+            .map(|d| &d.database_name)
+            .collect::<Vec<_>>()
+    );
+
+    // The whole point — queries against the attached catalog must resolve.
+    let cap = adapter
+        .execute_query("SELECT COUNT(*) AS n FROM \"seed_attach\".\"main\".\"things\"")
+        .await
+        .expect("query attached catalog");
+    let row = cap.rows.first().expect("one row");
+    let n = row[0].as_i64().expect("n is int");
+    assert_eq!(n, 3, "expected 3 rows from attached things table");
+
+    adapter.disconnect().await.expect("disconnect primary");
+    let _ = fs::remove_file(primary_path);
+    let _ = fs::remove_file(attached_path);
+}
+
+#[tokio::test]
+async fn duckdb_replay_is_idempotent_for_already_attached_aliases() {
+    // Regression: after connect-time auto-replay attaches a catalog, the
+    // frontend's `duckdb_replay_setup` runs the same attachments again.
+    // Without idempotency this surfaces "Failed to attach: ..." errors on the
+    // attached-db sidebar header even though the catalog is already there.
+    use crate::types::{Attachment, AttachmentKind, DatabaseEntry};
+
+    let attached_path = temp_path("replay-seed.duckdb");
+    {
+        let seeder = DuckDbAdapter::new();
+        seeder
+            .connect(&test_profile(attached_path.to_str().unwrap()))
+            .await
+            .expect("seed connect");
+        seeder.disconnect().await.expect("seed disconnect");
+    }
+
+    let attachment = Attachment {
+        alias: "seed_attach".into(),
+        kind: AttachmentKind::Duckdb,
+        uri: attached_path.to_string_lossy().into_owned(),
+        read_only: Some(true),
+        options: None,
+        secret_ref: None,
+    };
+
+    let primary_path = temp_path("replay-primary.duckdb");
+    let mut profile = test_profile(primary_path.to_str().unwrap());
+    profile.databases = vec![DatabaseEntry {
+        name: "main".into(),
+        visible_schemas: vec!["main".into()],
+        attachments: Some(vec![attachment.clone()]),
+        extensions: None,
+        secret_refs: None,
+    }];
+
+    let adapter = DuckDbAdapter::new();
+    adapter.connect(&profile).await.expect("connect primary");
+
+    // Simulate what the frontend does right after `BackendAPI.connect` returns:
+    // invoke `duckdb_replay_setup` with the same attachment list. The backend
+    // connect-time replay has already attached 'seed_attach' — the second
+    // replay must not surface a "Failed to attach" error for it.
+    let (runtime, errors) = adapter.replay(None, "conn-id", vec![], vec![attachment]).await;
+    assert!(
+        errors.is_empty(),
+        "second replay should be idempotent, got errors: {:?}",
+        errors
+    );
+    assert!(
+        runtime.iter().any(|d| d.name == "seed_attach"),
+        "runtime should still report the already-attached catalog"
+    );
+
+    adapter.disconnect().await.expect("disconnect");
+    let _ = fs::remove_file(primary_path);
+    let _ = fs::remove_file(attached_path);
+}
+
+#[tokio::test]
+async fn duckdb_connect_skips_secret_backed_attachments() {
+    // Secret-backed attachments must be replayed by the frontend
+    // (`duckdb_replay_setup`) because decrypted secrets live in the vault, not
+    // in the backend profile.
+    //
+    // Using a DuckDB-kind attachment (rather than Postgres) for the secret
+    // case gives us a distinguishing signal: if the backend *attempted* the
+    // attach instead of skipping, DuckDB would succeed in opening the file
+    // and `list_attached_databases()` would include it. We prove skip-not-
+    // attempt by pairing it with a companion no-secret DuckDB attachment
+    // pointing at the same file — the companion must be replayed so the test
+    // isn't merely asserting that replay is broken in general.
+    use crate::types::{Attachment, AttachmentKind, DatabaseEntry};
+
+    // Seed a real .duckdb file so a hypothetical attempted ATTACH would
+    // actually succeed.
+    let seed_path = temp_path("skip-seed.duckdb");
+    {
+        let seeder = DuckDbAdapter::new();
+        seeder
+            .connect(&test_profile(seed_path.to_str().unwrap()))
+            .await
+            .expect("seed connect");
+        seeder.disconnect().await.expect("seed disconnect");
+    }
+
+    let primary_path = temp_path("primary-secret.duckdb");
+    let mut profile = test_profile(primary_path.to_str().unwrap());
+    profile.databases = vec![DatabaseEntry {
+        name: "main".into(),
+        visible_schemas: vec!["main".into()],
+        attachments: Some(vec![
+            // Should be skipped (secret_ref set).
+            Attachment {
+                alias: "with_secret".into(),
+                kind: AttachmentKind::Duckdb,
+                uri: seed_path.to_string_lossy().into_owned(),
+                read_only: Some(true),
+                options: None,
+                secret_ref: Some("some_secret_name".into()),
+            },
+            // Control: no secret, should be attached.
+            Attachment {
+                alias: "no_secret".into(),
+                kind: AttachmentKind::Duckdb,
+                uri: seed_path.to_string_lossy().into_owned(),
+                read_only: Some(true),
+                options: None,
+                secret_ref: None,
+            },
+        ]),
+        extensions: None,
+        secret_refs: None,
+    }];
+
+    let adapter = DuckDbAdapter::new();
+    adapter
+        .connect(&profile)
+        .await
+        .expect("connect should succeed even when a secret-backed attach is skipped");
+
+    let attached = adapter
+        .list_attached_databases()
+        .await
+        .expect("list attached");
+    let names: Vec<&str> = attached
+        .iter()
+        .map(|d| d.database_name.as_str())
+        .collect();
+
+    assert!(
+        !names.contains(&"with_secret"),
+        "secret-backed attachment must NOT be attached by backend; saw {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"no_secret"),
+        "control (no secret) attachment MUST be attached; saw {:?}",
+        names
+    );
+
+    adapter.disconnect().await.expect("disconnect");
+    let _ = fs::remove_file(primary_path);
+    let _ = fs::remove_file(seed_path);
+}
+
+#[tokio::test]
+async fn duckdb_already_attached_alias_is_case_insensitive() {
+    // DuckDB catalog names are case-insensitive — the profile might carry
+    // alias "MyDB" while duckdb_databases() reports "mydb" (or vice versa).
+    // Our idempotency snapshot must normalise so we don't try to double-
+    // attach and surface a spurious "database already exists" error.
+    use crate::types::{Attachment, AttachmentKind, DatabaseEntry};
+
+    let seed_path = temp_path("case-seed.duckdb");
+    {
+        let seeder = DuckDbAdapter::new();
+        seeder
+            .connect(&test_profile(seed_path.to_str().unwrap()))
+            .await
+            .expect("seed connect");
+        seeder.disconnect().await.expect("seed disconnect");
+    }
+
+    let attachment = Attachment {
+        alias: "MyDB".into(),
+        kind: AttachmentKind::Duckdb,
+        uri: seed_path.to_string_lossy().into_owned(),
+        read_only: Some(true),
+        options: None,
+        secret_ref: None,
+    };
+
+    let primary_path = temp_path("case-primary.duckdb");
+    let mut profile = test_profile(primary_path.to_str().unwrap());
+    profile.databases = vec![DatabaseEntry {
+        name: "main".into(),
+        visible_schemas: vec!["main".into()],
+        attachments: Some(vec![attachment.clone()]),
+        extensions: None,
+        secret_refs: None,
+    }];
+
+    let adapter = DuckDbAdapter::new();
+    adapter.connect(&profile).await.expect("connect primary");
+
+    // Second replay should skip `MyDB` even though DuckDB reports the catalog
+    // lowercased internally.
+    let (runtime, errors) = adapter.replay(None, "conn", vec![], vec![attachment]).await;
+    assert!(
+        errors.is_empty(),
+        "case-insensitive skip must suppress double-attach, got: {:?}",
+        errors
+    );
+    assert!(runtime.iter().any(|d| d.name.eq_ignore_ascii_case("MyDB")));
+
+    adapter.disconnect().await.expect("disconnect");
+    let _ = fs::remove_file(primary_path);
+    let _ = fs::remove_file(seed_path);
+}
+
+#[tokio::test]
+async fn duckdb_replay_default_visible_schemas_are_kind_aware() {
+    // Regression for the previous hardcoded `vec!["main"]` that shoved
+    // Postgres catalogs into a non-existent `main` schema, and for the later
+    // "empty for non-DuckDB" default that left Postgres/SQLite catalogs
+    // collapsed in the sidebar until the user manually pinned a schema.
+    // Kinds with a conventional default schema should surface it; kinds whose
+    // namespace is data-defined stay empty and rely on discovery.
+    use crate::types::AttachmentKind;
+
+    assert_eq!(
+        DuckDbAdapter::default_visible_schemas_for(&AttachmentKind::Duckdb),
+        vec!["main".to_string()],
+    );
+    assert_eq!(
+        DuckDbAdapter::default_visible_schemas_for(&AttachmentKind::Sqlite),
+        vec!["main".to_string()],
+    );
+    assert_eq!(
+        DuckDbAdapter::default_visible_schemas_for(&AttachmentKind::Postgres),
+        vec!["public".to_string()],
+    );
+    for kind in [
+        AttachmentKind::Mysql,
+        AttachmentKind::Iceberg,
+        AttachmentKind::Delta,
+        AttachmentKind::Ducklake,
+    ] {
+        assert!(
+            DuckDbAdapter::default_visible_schemas_for(&kind).is_empty(),
+            "{:?} should default to empty visible_schemas",
+            kind,
+        );
+    }
+}
+
+#[tokio::test]
+async fn duckdb_replay_runtime_omits_unprocessed_after_early_break() {
+    // When an Extension/Secret step errors, `replay()` breaks before reaching
+    // later Attach steps. The runtime list must NOT silently include those
+    // unprocessed aliases, because no Attach actually ran for them. Regression
+    // for the prior exclusion-based filter that admitted any alias not in
+    // `errors`.
+    use crate::types::{Attachment, AttachmentKind, DecryptedSecretPayload};
+    use std::collections::HashMap;
+
+    let seed_path = temp_path("early-break-seed.duckdb");
+    {
+        let seeder = DuckDbAdapter::new();
+        seeder
+            .connect(&test_profile(seed_path.to_str().unwrap()))
+            .await
+            .expect("seed connect");
+        seeder.disconnect().await.expect("seed disconnect");
+    }
+
+    let primary_path = temp_path("early-break-primary.duckdb");
+    let adapter = DuckDbAdapter::new();
+    adapter
+        .connect(&test_profile(primary_path.to_str().unwrap()))
+        .await
+        .expect("connect primary");
+
+    // Force the Secret step to fail by giving the payload an invalid
+    // secret_type that `validate_sql_key` rejects. The resulting error breaks
+    // the replay loop before the Attach step can run.
+    let attachment = Attachment {
+        alias: "wont_attach".into(),
+        kind: AttachmentKind::Duckdb,
+        uri: seed_path.to_string_lossy().into_owned(),
+        read_only: None,
+        options: None,
+        secret_ref: Some("bad_secret".into()),
+    };
+    let secret = DecryptedSecretPayload {
+        name: "bad_secret".into(),
+        secret_type: "bad type with space".into(),
+        provider: None,
+        persistent: false,
+        params: HashMap::new(),
+    };
+
+    let (runtime, errors) = adapter
+        .replay(None, "conn", vec![secret], vec![attachment])
+        .await;
+
+    assert!(
+        !errors.is_empty(),
+        "expected secret issuance failure to produce an error"
+    );
+    assert!(
+        !runtime.iter().any(|d| d.name == "wont_attach"),
+        "runtime must omit aliases whose Attach step never ran after early break; got: {:?}",
+        runtime.iter().map(|d| &d.name).collect::<Vec<_>>()
+    );
+
+    adapter.disconnect().await.expect("disconnect");
+    let _ = fs::remove_file(primary_path);
+    let _ = fs::remove_file(seed_path);
 }
 
 #[tokio::test]
