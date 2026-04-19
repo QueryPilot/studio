@@ -3,13 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconChevronDown,
   IconChevronRight,
-  IconDatabase,
-  IconLock,
-  IconPlugConnectedX,
   IconTable,
   IconEye,
   IconAlertCircle,
   IconLoader2,
+  IconDotsVertical,
+  IconRefresh,
+  IconPlugConnectedX,
 } from "@tabler/icons-react";
 import {
   ContextMenu,
@@ -18,8 +18,15 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { PrimaryBadge } from "@/components/badges/PrimaryBadge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SidebarSection, SidebarItem } from "./DatabaseSidebarItem";
+import { SidebarStatusDot, type SidebarStatus } from "./SidebarStatusDot";
 import { IntrospectionService } from "@/services/introspectionService";
 import type { TableMeta } from "@/services/databaseService";
 import { schemaNamesForAttachedDatabase } from "./duckDbAttachedDatabaseSectionHelpers";
@@ -163,6 +170,17 @@ export function DuckDbAttachedDatabaseSection({
     }));
   };
 
+  const headerStatus: SidebarStatus = error
+    ? "error"
+    : isLoadingObjects || isLoadingSchemaNames
+      ? "loading"
+      : readOnly
+        ? "readonly"
+        : "ok";
+  const statusLabel = readOnly
+    ? `Read-only · ${dbType ?? "duckdb"}`
+    : (dbType ?? "duckdb");
+
   return (
     <div className={className}>
     <SidebarSection
@@ -172,28 +190,30 @@ export function DuckDbAttachedDatabaseSection({
       onToggle={() => { setIsExpanded((v) => !v); }}
       stickyClass=""
       headerExtra={
-        <div className="flex items-center gap-0.5 pr-1">
-          <IconDatabase
-            className="h-3 w-3 text-muted-foreground/70"
-            title={dbType ?? "duckdb"}
-          />
-          {readOnly && (
-            <IconLock
-              className="h-3 w-3 text-muted-foreground/70"
-              title="Read-only"
-            />
-          )}
-          <button
-            type="button"
-            className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDetach(dbName);
-            }}
-            title={`Detach ${dbName}`}
-          >
-            <IconPlugConnectedX className="h-3 w-3" />
-          </button>
+        <div className="flex items-center gap-1 pr-1">
+          <SidebarStatusDot status={headerStatus} label={statusLabel} />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="p-1 rounded text-muted-foreground opacity-0 group-hover/section:opacity-100 data-[popup-open]:opacity-100 hover:bg-muted hover:text-foreground transition-opacity"
+              render={<button type="button" aria-label={`${dbName} actions`} />}
+            >
+              <IconDotsVertical className="h-3.5 w-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="min-w-[180px]">
+              <DropdownMenuItem onClick={handleReload}>
+                <IconRefresh className="h-4 w-4 mr-2" />
+                Reload
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => { onDetach(dbName); }}
+                className="text-destructive focus:text-destructive"
+              >
+                <IconPlugConnectedX className="h-4 w-4 mr-2" />
+                Detach {dbName}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       }
       extraContextMenuItems={
@@ -256,6 +276,10 @@ export function DuckDbAttachedDatabaseSection({
         const isVisibleSchema = selectedSchemaSet.has(schemaName);
         const isSchemaExpanded =
           schemaExpansionOverrides[schemaName] ?? isVisibleSchema;
+        const tableCount = schemaObjects.tables.length;
+        const viewCount = schemaObjects.views.length;
+        const hasBothKinds = tableCount > 0 && viewCount > 0;
+        const showPrimaryHint = schemaIdx === 0 && isVisibleSchema;
         return (
           <div key={`attached-schema-${dbName}-${schemaName}`}>
             <button
@@ -266,84 +290,81 @@ export function DuckDbAttachedDatabaseSection({
               }}
             >
               {isSchemaExpanded ? (
-                <IconChevronDown className="h-3.5 w-3.5" />
+                <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground/70" />
               ) : (
-                <IconChevronRight className="h-3.5 w-3.5" />
+                <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground/70" />
               )}
-              <IconDatabase className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="font-medium">{schemaName}</span>
-              {schemaIdx === 0 && isVisibleSchema && (
-                <PrimaryBadge className="ml-1" />
+              {showPrimaryHint && (
+                <span className="text-[10px] italic text-muted-foreground/70 ml-1">
+                  · primary
+                </span>
               )}
-              <span className="ml-auto text-xs text-muted-foreground">
+              <span className="ml-auto tabular-nums text-xs text-muted-foreground">
                 {isVisibleSchema ? schemaCount : "available"}
               </span>
             </button>
             {isSchemaExpanded && (
-              <div className="ml-2">
+              <div className="ml-2 border-l border-border/40 pl-1.5">
                 {!isVisibleSchema ? (
                   <p className="px-4 py-1.5 text-xs text-muted-foreground italic">
                     Select schema to load objects
                   </p>
                 ) : (
                   <>
-                    {schemaObjects.tables.length > 0 && (
-                      <SidebarSection
-                        title="Tables"
-                        count={schemaObjects.tables.length}
-                        isExpanded={true}
-                        onToggle={() => {}}
-                        stickyClass=""
-                      >
-                        {schemaObjects.tables.map((table) => (
-                          <ContextMenu key={`attached-tbl-${dbName}-${table.schema}-${table.name}`}>
-                            <ContextMenuTrigger>
-                              <SidebarItem
-                                icon={<IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />}
-                                name={table.name}
-                                isActive={false}
-                                onClick={() => { onTableClick(table); }}
-                                rowCount={table.row_estimate}
-                              />
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem onClick={() => { onTableClick(table); }}>
-                                View Data
-                              </ContextMenuItem>
-                              <ContextMenuItem onClick={() => { onTableClick({ ...table, kind: "Table" }); }}>
-                                View Structure
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        ))}
-                      </SidebarSection>
+                    {tableCount > 0 && (
+                      hasBothKinds ? (
+                        <SidebarSection
+                          title="Tables"
+                          count={tableCount}
+                          isExpanded={true}
+                          onToggle={() => {}}
+                          stickyClass=""
+                        >
+                          {schemaObjects.tables.map((table) => (
+                            <AttachedTableItem
+                              key={`attached-tbl-${dbName}-${table.schema}-${table.name}`}
+                              table={table}
+                              onClick={onTableClick}
+                            />
+                          ))}
+                        </SidebarSection>
+                      ) : (
+                        schemaObjects.tables.map((table) => (
+                          <AttachedTableItem
+                            key={`attached-tbl-${dbName}-${table.schema}-${table.name}`}
+                            table={table}
+                            onClick={onTableClick}
+                          />
+                        ))
+                      )
                     )}
-                    {schemaObjects.views.length > 0 && (
-                      <SidebarSection
-                        title="Views"
-                        count={schemaObjects.views.length}
-                        isExpanded={true}
-                        onToggle={() => {}}
-                        stickyClass=""
-                      >
-                        {schemaObjects.views.map((view) => (
-                          <ContextMenu key={`attached-view-${dbName}-${view.schema}-${view.name}`}>
-                            <ContextMenuTrigger>
-                              <SidebarItem
-                                icon={<IconEye className="h-4 min-h-4 w-4 min-w-4 text-green-500 shrink-0" />}
-                                name={view.name}
-                                isActive={false}
-                                onClick={() => { onTableClick(view); }}
-                              />
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem onClick={() => { onTableClick(view); }}>
-                                View Data
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        ))}
-                      </SidebarSection>
+                    {viewCount > 0 && (
+                      hasBothKinds ? (
+                        <SidebarSection
+                          title="Views"
+                          count={viewCount}
+                          isExpanded={true}
+                          onToggle={() => {}}
+                          stickyClass=""
+                        >
+                          {schemaObjects.views.map((view) => (
+                            <AttachedViewItem
+                              key={`attached-view-${dbName}-${view.schema}-${view.name}`}
+                              view={view}
+                              onClick={onTableClick}
+                            />
+                          ))}
+                        </SidebarSection>
+                      ) : (
+                        schemaObjects.views.map((view) => (
+                          <AttachedViewItem
+                            key={`attached-view-${dbName}-${view.schema}-${view.name}`}
+                            view={view}
+                            onClick={onTableClick}
+                          />
+                        ))
+                      )
                     )}
                     {!isLoadingObjects && schemaCount === 0 && (
                       <p className="px-4 py-1.5 text-xs text-muted-foreground italic">
@@ -359,5 +380,63 @@ export function DuckDbAttachedDatabaseSection({
       })}
     </SidebarSection>
     </div>
+  );
+}
+
+interface AttachedTableItemProps {
+  table: TableMeta;
+  onClick: (table: TableMeta) => void;
+}
+
+function AttachedTableItem({ table, onClick }: AttachedTableItemProps) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger>
+        <SidebarItem
+          icon={
+            <IconTable className="h-3.5 w-4 min-w-4 text-primary shrink-0" />
+          }
+          name={table.name}
+          isActive={false}
+          onClick={() => { onClick(table); }}
+          rowCount={table.row_estimate}
+        />
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => { onClick(table); }}>
+          View Data
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => { onClick({ ...table, kind: "Table" }); }}>
+          View Structure
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+interface AttachedViewItemProps {
+  view: TableMeta;
+  onClick: (view: TableMeta) => void;
+}
+
+function AttachedViewItem({ view, onClick }: AttachedViewItemProps) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger>
+        <SidebarItem
+          icon={
+            <IconEye className="h-4 min-h-4 w-4 min-w-4 text-green-500 shrink-0" />
+          }
+          name={view.name}
+          isActive={false}
+          onClick={() => { onClick(view); }}
+        />
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={() => { onClick(view); }}>
+          View Data
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

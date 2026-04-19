@@ -3380,7 +3380,7 @@ export const ConnectionSection = forwardRef<
                           className={cn(
                             "h-4 min-h-4 w-4 min-w-4 shrink-0",
                             (itemData as TableMeta).kind === "MaterializedView"
-                              ? "text-blue-500"
+                              ? "text-sky-500/80"
                               : "text-green-500",
                           )}
                         />
@@ -3764,7 +3764,7 @@ export const ConnectionSection = forwardRef<
                                         className={cn(
                                           "h-4 min-h-4 w-4 min-w-4 shrink-0",
                                           view.kind === "MaterializedView"
-                                            ? "text-blue-500"
+                                            ? "text-sky-500/80"
                                             : "text-green-500",
                                         )}
                                       />
@@ -4360,7 +4360,7 @@ export const ConnectionSection = forwardRef<
                               className={cn(
                                 "h-4 min-h-4 w-4 min-w-4 shrink-0",
                                 view.kind === "MaterializedView"
-                                  ? "text-blue-500"
+                                  ? "text-sky-500/80"
                                   : "text-green-500",
                               )}
                             />

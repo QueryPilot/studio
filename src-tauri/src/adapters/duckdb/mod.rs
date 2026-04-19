@@ -2,6 +2,7 @@ pub mod adapter;
 #[cfg(test)]
 mod adapter_test;
 pub mod backup;
+pub(crate) mod search_path;
 
 pub use adapter::{
     DuckDbAdapter, DuckDbAddFileRequest, DuckDbAttachCatalogRequest, DuckDbAttachDatabaseRequest,

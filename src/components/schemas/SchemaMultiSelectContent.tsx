@@ -4,8 +4,8 @@
  * Reusable popover body for selecting visible schemas.
  * Extracted from SchemaDropdown so that SchemaPill can reuse the same UI.
  *
- * Changes auto-apply immediately on toggle, drag-reorder, or set-primary.
- * Click a visible schema's label to set it as PRIMARY (index 0).
+ * Changes auto-apply immediately on toggle or drag-reorder.
+ * The first visible schema (index 0) is PRIMARY — reorder by dragging.
  */
 
 import { logger } from "@/lib/logger";
@@ -64,10 +64,9 @@ interface SortableRowProps {
   schema: string;
   isPrimary: boolean;
   onRemove: (schema: string) => void;
-  onSetPrimary: (schema: string) => void;
 }
 
-function SortableRow({ id, schema, isPrimary, onRemove, onSetPrimary }: SortableRowProps) {
+function SortableRow({ id, schema, isPrimary, onRemove }: SortableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id });
 
@@ -99,14 +98,12 @@ function SortableRow({ id, schema, isPrimary, onRemove, onSetPrimary }: Sortable
         }}
         aria-label={schema}
       />
-      <button
-        type="button"
-        className="text-xs flex-1 cursor-pointer truncate text-left hover:underline"
-        onClick={() => onSetPrimary(schema)}
-        title={isPrimary ? "Primary schema" : "Click to set as primary"}
+      <span
+        className="text-xs flex-1 truncate"
+        title={isPrimary ? "Primary schema — drag to reorder" : schema}
       >
         {schema}
-      </button>
+      </span>
       {isPrimary && <PrimaryBadge className="shrink-0" />}
     </div>
   );
@@ -221,18 +218,6 @@ export function SchemaMultiSelectContent({
     [doApply, allowEmptySelection],
   );
 
-  const setPrimary = useCallback(
-    (schema: string) => {
-      setSelected((prev) => {
-        if (prev[0] === schema) return prev; // already primary
-        const next = [schema, ...prev.filter((s) => s !== schema)];
-        doApply(next);
-        return next;
-      });
-    },
-    [doApply],
-  );
-
   const searchLower = searchText.toLowerCase().trim();
   const unselected = allSchemas.filter(
     (s) =>
@@ -286,7 +271,6 @@ export function SchemaMultiSelectContent({
                   schema={schema}
                   isPrimary={idx === 0 && selected[0] === schema}
                   onRemove={removeSelected}
-                  onSetPrimary={setPrimary}
                 />
               ))}
             </SortableContext>

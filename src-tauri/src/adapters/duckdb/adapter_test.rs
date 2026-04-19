@@ -1,8 +1,10 @@
 #[test]
 fn duckdb_set_search_path_sql_shape() {
-    use crate::adapters::postgres::search_path::build_set_search_path_sql;
+    use crate::adapters::duckdb::search_path::build_set_search_path_sql;
+    // DuckDB requires a single scalar string, not a Postgres-style identifier list.
     let sql = build_set_search_path_sql(&["main".into(), "reporting".into()]);
-    assert_eq!(sql, "SET search_path TO \"main\", \"reporting\"");
+    assert_eq!(sql, "SET search_path = 'main,reporting'");
+    assert_eq!(build_set_search_path_sql(&[]), "");
 }
 
 // ── Phase 3: DuckDB persistence tests ────────────────────────────────────────

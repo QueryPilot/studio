@@ -646,7 +646,14 @@ async fn execute_duckdb_stream(
         .ok_or_else(|| "execute_duckdb_stream requires a DuckDB connection".to_string())?;
 
     // DuckDB: stateless re-apply on every query; no RESET.
-    if let Some(db) = effective_database {
+    // Frontend may pass the connection's file path (profile.database) as the
+    // effective database — DuckDB's USE expects a catalog alias, not a path,
+    // so skip USE for anything that isn't a plain identifier. The main file's
+    // catalog is already the default, and cross-attachment queries resolve
+    // via schema qualification.
+    if let Some(db) = effective_database
+        .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_'))
+    {
         let use_sql = format!("USE \"{}\"", db.replace('"', "\"\""));
         duckdb_adapter
             .execute_query_chunked(&use_sql)
@@ -654,7 +661,7 @@ async fn execute_duckdb_stream(
             .map_err(|e| format!("Failed to set database context: {e}"))?;
     }
     if let Some(schemas) = effective_schemas {
-        let set_sql = crate::adapters::postgres::search_path::build_set_search_path_sql(schemas);
+        let set_sql = crate::adapters::duckdb::search_path::build_set_search_path_sql(schemas);
         if !set_sql.is_empty() {
             duckdb_adapter
                 .execute_query_chunked(&set_sql)
