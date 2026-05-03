@@ -259,9 +259,7 @@ impl TrinoAdapter {
             }
 
             resp = self
-                .follow_next_uri_with_client(
-                    client, username, catalog, schema, options, &next_uri,
-                )
+                .follow_next_uri_with_client(client, username, catalog, schema, options, &next_uri)
                 .await?;
 
             if resp.data.is_none() {

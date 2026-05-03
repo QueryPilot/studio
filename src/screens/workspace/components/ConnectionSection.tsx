@@ -56,6 +56,10 @@ import { nanoid } from "nanoid";
 import { getDatabaseLogo } from "@/utils/databaseLogos";
 import { buildConnectionUri } from "@/utils/connectionParser";
 import { useSchemaData } from "@/hooks/useSchemaData";
+import {
+  useDuckDbSidebarDrop,
+  type DroppedFile,
+} from "@/hooks/useDuckDbSidebarDrop";
 import { refreshConnectionData } from "@/lib/refreshConnectionData";
 import { FunctionFilterDropdown } from "./FunctionFilterDropdown";
 import {
@@ -182,7 +186,11 @@ import type {
 } from "@/adapters/types/ipc";
 import type { QueryColumnMeta, RawCellValue } from "@/services/backend";
 import { BackendAPI } from "@/services/backend";
-import { DuckDbAddFileDialog } from "./DuckDbAddFileDialog";
+import {
+  DuckDbAddFileDialog,
+  type DuckDbAddFileDialogItem,
+  type DuckDbImportFileFormat,
+} from "./DuckDbAddFileDialog";
 import { DuckDbImportUrlDialog } from "./DuckDbImportUrlDialog";
 import { DuckDbGlobHelperDialog } from "./DuckDbGlobHelperDialog";
 import { DuckDbAttachDatabaseDialog } from "./DuckDbAttachDatabaseDialog";
@@ -211,6 +219,18 @@ import {
 
 const { open } = await import("@tauri-apps/plugin-dialog");
 const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+
+function detectDuckDbImportFormat(filePath: string): DuckDbImportFileFormat | null {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith(".parquet")) return "parquet";
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".tsv")) return "tsv";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".jsonl")) return "jsonl";
+  if (lower.endsWith(".ndjson")) return "ndjson";
+  if (lower.endsWith(".xlsx")) return "xlsx";
+  return null;
+}
 
 interface ConnectionSectionProps {
   connection: OpenConnection;
@@ -268,6 +288,9 @@ interface PendingConfirmAction {
 const DEFAULT_DUCKDB_SCHEMA = "main";
 const DEFAULT_DUCKDB_TABLE_NAME = "scratchpad_data";
 const REDIS_SCAN_BATCH_SIZE = 200;
+// Shared empty array — avoids creating a new reference on every render when
+// no schemas are visible, which would churn downstream useMemo/useEffect deps.
+const EMPTY_VISIBLE_SCHEMAS: string[] = [];
 const MONGO_SNAPSHOT_BATCH_SIZE = 500;
 
 function defaultVisibleSchemasFor(kind: AttachmentKind): string[] {
@@ -405,13 +428,16 @@ export const ConnectionSection = forwardRef<
   const [globalChangesDialogOpen, setGlobalChangesDialogOpen] = useState(false);
   const [pendingConfirmAction, setPendingConfirmAction] =
     useState<PendingConfirmAction | null>(null);
-  const [duckDbImportFilePath, setDuckDbImportFilePath] = useState<
-    string | null
-  >(null);
+  const [duckDbImportFiles, setDuckDbImportFiles] = useState<
+    DuckDbAddFileDialogItem[]
+  >([]);
   const [duckDbAddFileDialogOpen, setDuckDbAddFileDialogOpen] = useState(false);
   const [isAddingDuckDbFile, setIsAddingDuckDbFile] = useState(false);
   const [duckDbImportUrlDialogOpen, setDuckDbImportUrlDialogOpen] =
     useState(false);
+  const [duckDbImportUrlInitial, setDuckDbImportUrlInitial] = useState<
+    string | undefined
+  >(undefined);
   const [duckDbGlobHelperDialogOpen, setDuckDbGlobHelperDialogOpen] =
     useState(false);
   const [duckDbAttachDialogOpen, setDuckDbAttachDialogOpen] = useState(false);
@@ -440,9 +466,19 @@ export const ConnectionSection = forwardRef<
   );
   const [schemaDropdownOpen, setSchemaDropdownOpen] = useState(false);
 
-  // Visible schemas for the current database (used for sidebar schema list)
-  const visibleSchemas = useConnectionStore((s) =>
-    s.getVisibleSchemas(connectionId, database),
+  // Visible schemas for the current database (used for sidebar schema list).
+  // Subscribe to a stable string key (joined with \0) to avoid re-render loops
+  // from new array references — `getVisibleSchemas` returns a new `[]` on every
+  // call when no entry exists, which otherwise breaks Zustand's `===` selector
+  // memoization and re-renders this big component on every unrelated store
+  // mutation.
+  const visibleSchemasKey = useConnectionStore((s) => {
+    const arr = s.getVisibleSchemas(connectionId, database);
+    return arr.length > 0 ? arr.join("\0") : "";
+  });
+  const visibleSchemas = useMemo(
+    () => (visibleSchemasKey ? visibleSchemasKey.split("\0") : EMPTY_VISIBLE_SCHEMAS),
+    [visibleSchemasKey],
   );
 
   // For DuckDB: split visible schemas into local (e.g. "main") vs attached (e.g. "pg.public")
@@ -1837,6 +1873,49 @@ export const ConnectionSection = forwardRef<
     setSelectedItems(new Set());
   };
 
+  const handleImportDuckDbFilePaths = (files: string[]) => {
+    if (files.length === 0) return;
+
+    const prepared: DuckDbAddFileDialogItem[] = [];
+    const errors: string[] = [];
+
+    for (const filePath of files) {
+      try {
+        const format = detectDuckDbImportFormat(filePath);
+        if (!format) {
+          throw new Error("Unsupported file type");
+        }
+
+        prepared.push({
+          filePath,
+          targetName: defaultDuckDbTargetNameFromFile(filePath),
+          format,
+        });
+      } catch (error) {
+        errors.push(
+          `${defaultDuckDbTargetNameFromFile(filePath)}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    if (prepared.length > 0) {
+      setDuckDbImportFiles(prepared);
+      setDuckDbAddFileDialogOpen(true);
+      if (errors.length > 0) {
+        toast.error(`${errors.length} file(s) could not be prepared`, {
+          description: errors.join("\n"),
+        });
+      }
+      return;
+    }
+
+    toast.error("Failed to prepare file import", {
+      description: errors.join("\n"),
+    });
+  };
+
   const handleOpenDuckDbAddFileDialog = async () => {
     const selected = await open({
       multiple: true,
@@ -1844,89 +1923,81 @@ export const ConnectionSection = forwardRef<
       filters: [
         {
           name: "Supported data files",
-          extensions: ["csv", "parquet", "json", "jsonl", "ndjson"],
+          extensions: ["csv", "tsv", "parquet", "json", "jsonl", "ndjson", "xlsx"],
         },
       ],
     });
 
     if (!selected) return;
-
-    // Normalize to array
     const files = Array.isArray(selected) ? selected : [selected];
-    if (files.length === 0) return;
-
-    if (files.length === 1 && files[0]) {
-      // Single file: show dialog to customize table name
-      setDuckDbImportFilePath(files[0]);
-      setDuckDbAddFileDialogOpen(true);
-      return;
-    }
-
-    // Multiple files: auto-import all with derived table names
-    setIsAddingDuckDbFile(true);
-    const targetSchema = schema || DEFAULT_DUCKDB_SCHEMA;
-    let successCount = 0;
-    const errors: string[] = [];
-
-    const toastId = toast.loading(`Importing 0 of ${files.length} files...`);
-
-    for (const filePath of files) {
-      const targetName = defaultDuckDbTargetNameFromFile(filePath);
-      toast.loading(
-        `Importing ${successCount + errors.length + 1} of ${files.length}: ${targetName}...`,
-        { id: toastId },
-      );
-      try {
-        await DuckDbScratchpadService.importFile(connectionId, {
-          filePath,
-          targetSchema,
-          targetName,
-          sourceId: nanoid(),
-        });
-        successCount++;
-      } catch (error) {
-        errors.push(
-          `${targetName}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
-
-    if (successCount > 0) {
-      refreshConnectionData(connection);
-      toast.success(`Imported ${successCount} of ${files.length} files`, {
-        id: toastId,
-      });
-    }
-    if (errors.length > 0) {
-      toast.error(`${errors.length} file(s) failed to import`, {
-        id: successCount === 0 ? toastId : undefined,
-        description: errors.join("\n"),
-      });
-    }
-    setIsAddingDuckDbFile(false);
+    handleImportDuckDbFilePaths(files);
   };
 
-  const handleAddDuckDbFile = async (targetName: string) => {
-    if (!duckDbImportFilePath) {
+  const handleAddDuckDbFile = async (filesToImport: DuckDbAddFileDialogItem[]) => {
+    if (filesToImport.length === 0) {
       return;
     }
 
     setIsAddingDuckDbFile(true);
-    const toastId = toast.loading("Importing file...");
+    const toastId = toast.loading(
+      filesToImport.length === 1 ? "Importing file..." : "Importing files...",
+    );
+    let successCount = 0;
+    const errors: string[] = [];
     try {
-      await DuckDbScratchpadService.importFile(connectionId, {
-        filePath: duckDbImportFilePath,
-        targetSchema: schema || DEFAULT_DUCKDB_SCHEMA,
-        targetName: sanitizeDuckDbObjectName(
-          targetName,
-          defaultDuckDbTargetNameFromFile(duckDbImportFilePath),
-        ),
-        sourceId: nanoid(),
-      });
-      refreshConnectionData(connection);
-      toast.success("File imported into DuckDB scratchpad", { id: toastId });
-      setDuckDbAddFileDialogOpen(false);
-      setDuckDbImportFilePath(null);
+      for (const [index, file] of filesToImport.entries()) {
+        const normalizedTargetName = sanitizeDuckDbObjectName(
+          file.targetName,
+          defaultDuckDbTargetNameFromFile(file.filePath),
+        );
+        toast.loading(
+          filesToImport.length === 1
+            ? `Importing ${normalizedTargetName}...`
+            : `Importing ${index + 1} of ${filesToImport.length}: ${normalizedTargetName}...`,
+          { id: toastId },
+        );
+        try {
+          await DuckDbScratchpadService.importFile(connectionId, {
+            filePath: file.filePath,
+            targetSchema: schema || DEFAULT_DUCKDB_SCHEMA,
+            targetName: normalizedTargetName,
+            sourceId: nanoid(),
+            sheetName:
+              file.format === "xlsx" ? (file.selectedSheet ?? null) : null,
+          });
+          successCount++;
+        } catch (error) {
+          errors.push(
+            `${normalizedTargetName}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
+      if (successCount > 0) {
+        refreshConnectionData(connection);
+      }
+      if (successCount === filesToImport.length) {
+        toast.success(
+          filesToImport.length === 1
+            ? "File imported into DuckDB scratchpad"
+            : `Imported ${successCount} files into DuckDB scratchpad`,
+          { id: toastId },
+        );
+        setDuckDbAddFileDialogOpen(false);
+        setDuckDbImportFiles([]);
+      } else if (successCount > 0) {
+        toast.error(`${errors.length} file(s) failed to import`, {
+          id: toastId,
+          description: errors.join("\n"),
+        });
+      } else {
+        toast.error("Failed to import file", {
+          id: toastId,
+          description: errors.join("\n"),
+        });
+      }
     } catch (error) {
       toast.error("Failed to import file", {
         id: toastId,
@@ -1945,6 +2016,7 @@ export const ConnectionSection = forwardRef<
         filePath: url,
         targetSchema: schema || DEFAULT_DUCKDB_SCHEMA,
         targetName: sanitizeDuckDbObjectName(targetName),
+        sheetName: null,
       });
       toast.success(`Imported "${targetName}" from URL`, { id: toastId });
       refreshConnectionData(connection);
@@ -1958,6 +2030,42 @@ export const ConnectionSection = forwardRef<
       setIsAddingDuckDbFile(false);
     }
   };
+
+  const {
+    dropZoneRef: duckDbDropZoneRef,
+    isDragOver: isDuckDbDragOver,
+  } = useDuckDbSidebarDrop({
+    enabled: dbType === DbType.DuckDB,
+    onFilesDropped: (files: DroppedFile[]) => {
+      const missingPath = files.filter((f) => !f.path).length;
+      const withPath = files
+        .map((f) => f.path)
+        .filter((path): path is string => Boolean(path));
+      if (missingPath > 0 && withPath.length === 0) {
+        toast.error("Could not read file path", {
+          description:
+            "Drop files from Finder / Explorer in the desktop app.",
+        });
+        return;
+      }
+      handleImportDuckDbFilePaths(withPath);
+    },
+    onUrlDropped: (url) => {
+      setDuckDbImportUrlInitial(url);
+      setDuckDbImportUrlDialogOpen(true);
+    },
+  });
+  const connectionRootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      duckDbDropZoneRef(node);
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        (ref as { current: HTMLDivElement | null }).current = node;
+      }
+    },
+    [duckDbDropZoneRef, ref],
+  );
 
   const handleAttachDatabase = useCallback(async (
     path: string,
@@ -2963,7 +3071,23 @@ export const ConnectionSection = forwardRef<
           : true);
 
   return (
-    <div ref={ref}>
+    <div
+      ref={connectionRootRef}
+      className={cn(
+        "relative",
+        dbType === DbType.DuckDB &&
+          isDuckDbDragOver &&
+          "ring-2 ring-primary ring-inset rounded",
+      )}
+    >
+      {dbType === DbType.DuckDB && isDuckDbDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-primary/10 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-md border border-primary/40 bg-popover/95 px-3 py-2 text-xs font-medium text-primary shadow-md">
+            <IconFileImport className="h-4 w-4" />
+            Drop file or URL to import into DuckDB
+          </div>
+        </div>
+      )}
       {/* Connection Header */}
       <ContextMenu>
         <ContextMenuTrigger
@@ -5055,23 +5179,23 @@ export const ConnectionSection = forwardRef<
       <DuckDbAddFileDialog
         key={
           duckDbAddFileDialogOpen
-            ? `duckdb-add-file:${duckDbImportFilePath ?? ""}`
+            ? `duckdb-add-file:${duckDbImportFiles
+                .map((file) => file.filePath)
+                .join("|")}`
             : "duckdb-add-file:closed"
         }
         open={duckDbAddFileDialogOpen}
         onOpenChange={(openValue) => {
           setDuckDbAddFileDialogOpen(openValue);
           if (!openValue) {
-            setDuckDbImportFilePath(null);
+            setDuckDbImportFiles([]);
           }
         }}
-        filePath={duckDbImportFilePath}
-        defaultTargetName={
-          duckDbImportFilePath
-            ? defaultDuckDbTargetNameFromFile(duckDbImportFilePath)
-            : DEFAULT_DUCKDB_TABLE_NAME
-        }
+        files={duckDbImportFiles}
         isSubmitting={isAddingDuckDbFile}
+        loadSheets={(filePath) =>
+          DuckDbScratchpadService.listExcelSheets(connectionId, filePath)
+        }
         onConfirm={handleAddDuckDbFile}
       />
 
@@ -5079,8 +5203,10 @@ export const ConnectionSection = forwardRef<
         open={duckDbImportUrlDialogOpen}
         onClose={() => {
           setDuckDbImportUrlDialogOpen(false);
+          setDuckDbImportUrlInitial(undefined);
         }}
         onSubmit={handleImportDuckDbUrl}
+        initialUrl={duckDbImportUrlInitial}
       />
 
       <DuckDbGlobHelperDialog

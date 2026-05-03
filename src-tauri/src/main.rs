@@ -103,8 +103,7 @@ fn main() {
             // Set app handle on connection manager so it can emit reconnect
             // events (needed for DuckDB secret-aware replay after idle-reaper
             // or tunnel-driven reconnects).
-            if let Some(cm) =
-                app.try_state::<Arc<query_pilot::core::manager::ConnectionManager>>()
+            if let Some(cm) = app.try_state::<Arc<query_pilot::core::manager::ConnectionManager>>()
             {
                 let handle = app.handle().clone();
                 let cm = cm.inner().clone();
@@ -216,6 +215,7 @@ fn main() {
             commands::update_safe_mode,
             commands::update_connection_schemas,
             commands::duckdb_add_file,
+            commands::duckdb_list_excel_sheets,
             commands::duckdb_replace_managed_object,
             commands::duckdb_list_managed_objects,
             commands::duckdb_get_object_lineage,

@@ -6,11 +6,12 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    CompletionRequest, SCHEMA_STORE, SqlDialect, complete, parse_document,
+    complete, parse_document,
     schema_store::{
         CacheKey, CachedSchemaBuilder, ColumnInfo, EnumInfo, ForeignKeyInfo, FunctionInfo,
         FunctionParam, ParamMode, TableInfo, TableType,
     },
+    CompletionRequest, SqlDialect, SCHEMA_STORE,
 };
 
 /// Parse request from frontend

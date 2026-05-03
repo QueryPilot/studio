@@ -67,6 +67,7 @@ export interface DuckDbAddFileRequest {
   targetSchema?: string | null;
   targetName: string;
   sourceId?: string | null;
+  sheetName?: string | null;
 }
 
 export interface DuckDbReplaceManagedObjectRequest {
@@ -557,6 +558,13 @@ export class BackendAPI {
     request: DuckDbAddFileRequest,
   ): Promise<DuckDbManagedObjectSummary> {
     return invoke("duckdb_add_file", { connId, request });
+  }
+
+  static async duckdbListExcelSheets(
+    connId: string,
+    filePath: string,
+  ): Promise<string[]> {
+    return invoke("duckdb_list_excel_sheets", { connId, filePath });
   }
 
   static async duckdbReplaceManagedObject(

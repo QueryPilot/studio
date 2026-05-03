@@ -288,8 +288,10 @@ export async function streamEntityPage(
       }
     };
 
-    // Start fetching estimated total in parallel (don't wait for it)
-    const countPromise = fetchEstimatedTotal();
+    // Start fetching estimated total in parallel — fire-and-forget. The page
+    // resolves as soon as rows are streamed; the count update arrives later
+    // via onProgress when this completes.
+    void fetchEstimatedTotal();
 
     // Wait for stream to complete
     void queryStreamClient.streamWithCallbacks(
@@ -403,8 +405,12 @@ export async function streamEntityPage(
             .catch(() => {
               // ignore mapping errors here, they'll have been logged
             })
-            .then(async () => {
-              await countPromise;
+            .then(() => {
+              // Don't block page resolution on the count query. SHOW STATS / COUNT(*)
+              // can be slow (especially Trino without ANALYZE) and would keep
+              // isFetching=true even after rows have streamed. fetchEstimatedTotal
+              // calls onProgress when it completes, so the cached page still gets
+              // its estimatedTotal asynchronously.
               executionTimeMs = result.executionTimeMs;
               if (onProgress) {
                 onProgress({

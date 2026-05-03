@@ -1389,10 +1389,7 @@ impl ConnectionManager {
                     .first_mut()
                     .expect("just pushed, must exist")
             } else {
-                profile
-                    .databases
-                    .first_mut()
-                    .expect("databases non-empty")
+                profile.databases.first_mut().expect("databases non-empty")
             };
             let existing = db0.attachments.get_or_insert_with(Vec::new);
             if let Some(slot) = existing.iter_mut().find(|a| a.alias == attachment.alias) {

@@ -47,6 +47,22 @@ pub async fn duckdb_add_file(
 }
 
 #[tauri::command]
+pub async fn duckdb_list_excel_sheets(
+    conn_id: String,
+    file_path: String,
+    manager: State<'_, Arc<ConnectionManager>>,
+) -> Result<Vec<String>, String> {
+    let adapter = borrow_duckdb_adapter(&conn_id, manager.inner()).await?;
+    let duckdb = adapter
+        .as_duckdb()
+        .ok_or_else(|| "Not a DuckDB connection".to_string())?;
+    duckdb
+        .list_excel_sheets(file_path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn duckdb_replace_managed_object(
     conn_id: String,
     request: DuckDbReplaceManagedObjectRequest,

@@ -1167,9 +1167,7 @@ async fn execute_oracle_stream(
             if rows_in_batch >= target_batch_size {
                 // Wrap accumulated rows in an outer array header
                 let mut final_buf = Vec::with_capacity(5 + batch_buf.len());
-                if let Err(e) =
-                    rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32)
-                {
+                if let Err(e) = rmp::encode::write_array_len(&mut final_buf, rows_in_batch as u32) {
                     let _ = conn.execute("ALTER SESSION SET CURRENT_SCHEMA = USER", &[]);
                     return Err(e.to_string());
                 }
@@ -2067,7 +2065,9 @@ async fn execute_postgres_pooler_simple_stream(
                             message: "Query cancelled by user".to_string(),
                         });
                         let _ = client
-                            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                            .batch_execute(
+                                crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL,
+                            )
                             .await;
                         return Err("Query cancelled by user".to_string());
                     }
@@ -2245,7 +2245,9 @@ async fn execute_postgres_pooler_typed_stream(
                             message: "Query cancelled by user".to_string(),
                         });
                         let _ = client
-                            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                            .batch_execute(
+                                crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL,
+                            )
                             .await;
                         return Err("Query cancelled by user".to_string());
                     }
@@ -2538,10 +2540,7 @@ async fn execute_postgres_stream(
 
     // Execute query with prepared statement
     let query_start = std::time::Instant::now();
-    let row_stream = match pool_conn
-        .query_raw(&stmt, std::iter::empty::<i32>())
-        .await
-    {
+    let row_stream = match pool_conn.query_raw(&stmt, std::iter::empty::<i32>()).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("❌ query_raw failed: {:?}", e);
@@ -2723,7 +2722,9 @@ async fn execute_postgres_stream(
                             message: "Query cancelled by user".to_string(),
                         });
                         let _ = pool_conn
-                            .batch_execute(crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL)
+                            .batch_execute(
+                                crate::adapters::postgres::search_path::RESET_SEARCH_PATH_SQL,
+                            )
                             .await;
                         return Err("Query cancelled by user".to_string());
                     }

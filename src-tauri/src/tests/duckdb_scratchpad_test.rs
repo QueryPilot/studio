@@ -6,6 +6,7 @@ use crate::core::backup_capability::{BackupCapable, BackupConfig, BackupProgress
 use crate::core::capabilities::{BaseCapability, SqlQueryable};
 use crate::error::AppError;
 use crate::types::{ConnectionProfile, DbType};
+use rust_xlsxwriter::Workbook;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -19,6 +20,28 @@ fn temp_path(suffix: &str) -> PathBuf {
         suffix
     ));
     path
+}
+
+fn write_test_xlsx(path: &PathBuf) {
+    let mut workbook = Workbook::new();
+
+    let sheet1 = workbook.add_worksheet();
+    sheet1.set_name("Sheet One").expect("set first sheet name");
+    sheet1.write_string(0, 0, "id").expect("write header");
+    sheet1.write_string(0, 1, "name").expect("write header");
+    sheet1.write_number(1, 0, 1.0).expect("write row");
+    sheet1.write_string(1, 1, "Ada").expect("write row");
+
+    let sheet2 = workbook.add_worksheet();
+    sheet2
+        .set_name("Second Sheet")
+        .expect("set second sheet name");
+    sheet2.write_string(0, 0, "id").expect("write header");
+    sheet2.write_string(0, 1, "name").expect("write header");
+    sheet2.write_number(1, 0, 2.0).expect("write row");
+    sheet2.write_string(1, 1, "Grace").expect("write row");
+
+    workbook.save(path).expect("save xlsx");
 }
 
 fn test_profile(database: &str) -> ConnectionProfile {
@@ -294,6 +317,7 @@ async fn duckdb_scratchpad_add_file_imports_csv_and_tracks_source() {
             target_schema: Some("main".to_string()),
             target_name: "imported_users".to_string(),
             source_id: Some("file-import-1".to_string()),
+            sheet_name: None,
         })
         .await
         .expect("add file");
@@ -315,6 +339,46 @@ async fn duckdb_scratchpad_add_file_imports_csv_and_tracks_source() {
     assert_eq!(lineage.source_kind, "file");
     assert_eq!(lineage.source_spec["filePath"], json!(csv_path));
     assert_eq!(lineage.source_spec["format"], json!("csv"));
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(csv_path);
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_scratchpad_add_file_imports_latin1_semicolon_csv() {
+    let (adapter, db_path) = connected_adapter().await;
+    let csv_path = temp_path("latin1-input.csv");
+    fs::write(&csv_path, b"id;name;note\n1;Ada;Ol\xe1\n2;Grace;Cafe\n").expect("write latin1 csv");
+
+    let summary = adapter
+        .add_file(DuckDbAddFileRequest {
+            file_path: csv_path
+                .to_str()
+                .expect("csv path should be valid UTF-8")
+                .to_string(),
+            target_schema: Some("main".to_string()),
+            target_name: "latin1_users".to_string(),
+            source_id: Some("file-import-latin1".to_string()),
+            sheet_name: None,
+        })
+        .await
+        .expect("add latin1 csv file");
+
+    assert_eq!(summary.target_name, "latin1_users");
+    assert_eq!(summary.last_row_count, Some(2));
+
+    let result = adapter
+        .execute_query("SELECT id, name, note FROM main.latin1_users ORDER BY id")
+        .await
+        .expect("query latin1 import");
+    assert_eq!(
+        result.rows,
+        vec![
+            vec![json!(1), json!("Ada"), json!("Ol\u{00E1}")],
+            vec![json!(2), json!("Grace"), json!("Cafe")],
+        ]
+    );
 
     adapter.disconnect().await.expect("disconnect duckdb");
     let _ = fs::remove_file(csv_path);
@@ -594,6 +658,7 @@ async fn duckdb_add_file_imports_parquet() {
             target_schema: Some("main".to_string()),
             target_name: "parquet_import".to_string(),
             source_id: Some("file-parquet-1".to_string()),
+            sheet_name: None,
         })
         .await
         .expect("add parquet file");
@@ -629,6 +694,7 @@ async fn duckdb_add_file_imports_json() {
             target_schema: Some("main".to_string()),
             target_name: "json_import".to_string(),
             source_id: Some("file-json-1".to_string()),
+            sheet_name: None,
         })
         .await
         .expect("add json file");
@@ -645,6 +711,79 @@ async fn duckdb_add_file_imports_json() {
 
     adapter.disconnect().await.expect("disconnect duckdb");
     let _ = fs::remove_file(json_path);
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_list_excel_sheets_returns_workbook_sheets() {
+    let (adapter, db_path) = connected_adapter().await;
+    let xlsx_path = temp_path("input.xlsx");
+    write_test_xlsx(&xlsx_path);
+
+    let sheets = adapter
+        .list_excel_sheets(
+            xlsx_path
+                .to_str()
+                .expect("xlsx path should be valid UTF-8")
+                .to_string(),
+        )
+        .await
+        .expect("list workbook sheets");
+
+    assert_eq!(
+        sheets,
+        vec!["Sheet One".to_string(), "Second Sheet".to_string()]
+    );
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(xlsx_path);
+    let _ = fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn duckdb_add_file_imports_xlsx_selected_sheet() {
+    let (adapter, db_path) = connected_adapter().await;
+    let xlsx_path = temp_path("selected-sheet.xlsx");
+    write_test_xlsx(&xlsx_path);
+
+    let excel_available = adapter
+        .execute_blocking(|conn| match conn.execute_batch("LOAD excel") {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        })
+        .await
+        .unwrap_or(false);
+
+    if !excel_available {
+        eprintln!("SKIP: excel extension not available, skipping xlsx import test");
+        adapter.disconnect().await.expect("disconnect duckdb");
+        let _ = fs::remove_file(xlsx_path);
+        let _ = fs::remove_file(db_path);
+        return;
+    }
+
+    let summary = adapter
+        .add_file(DuckDbAddFileRequest {
+            file_path: xlsx_path.to_str().unwrap().to_string(),
+            target_schema: Some("main".to_string()),
+            target_name: "xlsx_import".to_string(),
+            source_id: Some("file-xlsx-1".to_string()),
+            sheet_name: Some("Second Sheet".to_string()),
+        })
+        .await
+        .expect("add xlsx file");
+
+    assert_eq!(summary.target_name, "xlsx_import");
+    assert_eq!(summary.last_row_count, Some(1));
+
+    let result = adapter
+        .execute_query("SELECT id, name FROM main.xlsx_import")
+        .await
+        .expect("query imported xlsx");
+    assert_eq!(result.rows, vec![vec![json!(2), json!("Grace")]]);
+
+    adapter.disconnect().await.expect("disconnect duckdb");
+    let _ = fs::remove_file(xlsx_path);
     let _ = fs::remove_file(db_path);
 }
 
@@ -817,7 +956,9 @@ async fn duckdb_replay_is_idempotent_for_already_attached_aliases() {
     // invoke `duckdb_replay_setup` with the same attachment list. The backend
     // connect-time replay has already attached 'seed_attach' — the second
     // replay must not surface a "Failed to attach" error for it.
-    let (runtime, errors) = adapter.replay(None, "conn-id", vec![], vec![attachment]).await;
+    let (runtime, errors) = adapter
+        .replay(None, "conn-id", vec![], vec![attachment])
+        .await;
     assert!(
         errors.is_empty(),
         "second replay should be idempotent, got errors: {:?}",
@@ -899,10 +1040,7 @@ async fn duckdb_connect_skips_secret_backed_attachments() {
         .list_attached_databases()
         .await
         .expect("list attached");
-    let names: Vec<&str> = attached
-        .iter()
-        .map(|d| d.database_name.as_str())
-        .collect();
+    let names: Vec<&str> = attached.iter().map(|d| d.database_name.as_str()).collect();
 
     assert!(
         !names.contains(&"with_secret"),

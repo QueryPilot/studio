@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
 import type { SqlEditorRef } from "@/components/CodeEditor/SqlEditor";
+import { dataTransferHasType } from "./dragDataTransfer";
 
 function isDuckDbFamily(dbType: string | undefined): boolean {
   if (!dbType) return false;
@@ -12,12 +13,17 @@ function escapeSqlLiteral(path: string): string {
   return path.replace(/\\/g, "/").replace(/'/g, "''");
 }
 
-type ReadFn = "read_parquet" | "read_csv_auto" | "read_json_auto";
+type ReadFn =
+  | "read_parquet"
+  | "read_csv_auto"
+  | "read_json_auto"
+  | "read_xlsx";
 
 function detectReadFn(fileName: string): ReadFn | null {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".parquet")) return "read_parquet";
   if (lower.endsWith(".csv") || lower.endsWith(".tsv")) return "read_csv_auto";
+  if (lower.endsWith(".xlsx")) return "read_xlsx";
   if (
     lower.endsWith(".json") ||
     lower.endsWith(".jsonl") ||
@@ -79,7 +85,7 @@ export function useDuckDbFileDrop(
       const containsFiles = (e: DragEvent) => {
         const dt = e.dataTransfer;
         if (!dt) return false;
-        return dt.types.includes("Files");
+        return dataTransferHasType(dt, "Files");
       };
 
       const onDragEnter = (e: DragEvent) => {
@@ -155,7 +161,8 @@ export function useDuckDbFileDrop(
 
         if (unsupported > 0 && statements.length === 0 && missingPath === 0) {
           toast.error("Unsupported file type", {
-            description: "Use .csv, .tsv, .parquet, .json, .jsonl, or .ndjson.",
+            description:
+              "Use .csv, .tsv, .parquet, .json, .jsonl, .ndjson, or .xlsx.",
           });
         } else if (unsupported > 0 && statements.length > 0) {
           toast.message("Some files skipped", {

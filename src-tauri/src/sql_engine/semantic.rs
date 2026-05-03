@@ -501,7 +501,7 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
 mod tests {
     use super::*;
     use crate::sql_engine::schema_store::{CachedSchemaBuilder, ColumnInfo, TableInfo, TableType};
-    use crate::sql_engine::{SqlDialect, parse_document};
+    use crate::sql_engine::{parse_document, SqlDialect};
 
     fn test_schema() -> CachedSchema {
         let schema = CachedSchemaBuilder::new()
@@ -951,11 +951,9 @@ mod tests {
             .expect("expected one parsed statement");
 
         let errors = validate_column_references(stmt, &schema);
-        assert!(
-            !errors
-                .iter()
-                .any(|e| e.message.contains("item_count") && e.message.contains("does not exist"))
-        );
+        assert!(!errors
+            .iter()
+            .any(|e| e.message.contains("item_count") && e.message.contains("does not exist")));
     }
 
     #[test]
@@ -1077,11 +1075,9 @@ mod tests {
 
         let errors = validate_table_references(stmt, &schema);
         assert!(!errors.is_empty());
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("missing_table") && e.severity == ErrorSeverity::Error)
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("missing_table") && e.severity == ErrorSeverity::Error));
     }
 
     #[test]

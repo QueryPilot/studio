@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use calamine::{open_workbook_auto, Reader};
 use duckdb::core::LogicalTypeId;
 use duckdb::types::{Value as DuckValue, ValueRef};
 use duckdb::{params, params_from_iter, AccessMode, Config, Connection, OptionalExt};
@@ -37,6 +38,8 @@ pub struct DuckDbAddFileRequest {
     pub target_schema: Option<String>,
     pub target_name: String,
     pub source_id: Option<String>,
+    #[serde(default)]
+    pub sheet_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -123,6 +126,7 @@ enum DuckDbFileFormat {
     Csv,
     Parquet,
     Json,
+    Xlsx,
 }
 
 #[derive(Clone, Copy)]
@@ -379,6 +383,24 @@ impl DuckDbAdapter {
         Ok(())
     }
 
+    fn ensure_excel_loaded(conn: &Connection, format: DuckDbFileFormat) -> Result<()> {
+        if format != DuckDbFileFormat::Xlsx {
+            return Ok(());
+        }
+
+        match conn.execute_batch("LOAD excel") {
+            Ok(()) => return Ok(()),
+            Err(_) => {}
+        }
+
+        conn.execute_batch("INSTALL excel; LOAD excel")
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to load DuckDB excel extension: {}", e))
+            })?;
+
+        Ok(())
+    }
+
     fn normalize_schema(schema: Option<String>) -> String {
         let trimmed = schema
             .unwrap_or_else(|| "main".to_string())
@@ -471,6 +493,8 @@ impl DuckDbAdapter {
             Ok(DuckDbFileFormat::Parquet)
         } else if lower.ends_with(".csv") || lower.ends_with(".tsv") {
             Ok(DuckDbFileFormat::Csv)
+        } else if lower.ends_with(".xlsx") {
+            Ok(DuckDbFileFormat::Xlsx)
         } else if lower.ends_with(".json")
             || lower.ends_with(".jsonl")
             || lower.ends_with(".ndjson")
@@ -489,16 +513,60 @@ impl DuckDbAdapter {
             DuckDbFileFormat::Csv => "csv",
             DuckDbFileFormat::Parquet => "parquet",
             DuckDbFileFormat::Json => "json",
+            DuckDbFileFormat::Xlsx => "xlsx",
         }
     }
 
-    fn file_scan_sql(path: &str, format: DuckDbFileFormat) -> String {
+    fn csv_scan_sql(path: &str) -> String {
+        let literal = Self::quote_string_literal(path);
+        format!("SELECT * FROM read_csv_auto({literal})")
+    }
+
+    fn csv_scan_sql_with_encoding(path: &str, encoding: &str) -> String {
+        let literal = Self::quote_string_literal(path);
+        let encoding_literal = Self::quote_string_literal(encoding);
+        format!("SELECT * FROM read_csv({literal}, encoding = {encoding_literal})")
+    }
+
+    fn xlsx_scan_sql(path: &str, sheet_name: Option<&str>) -> String {
+        let literal = Self::quote_string_literal(path);
+        match sheet_name {
+            Some(sheet_name) if !sheet_name.trim().is_empty() => {
+                let sheet_literal = Self::quote_string_literal(sheet_name.trim());
+                format!("SELECT * FROM read_xlsx({literal}, sheet = {sheet_literal})")
+            }
+            _ => format!("SELECT * FROM read_xlsx({literal})"),
+        }
+    }
+
+    fn file_scan_sql(path: &str, format: DuckDbFileFormat, sheet_name: Option<&str>) -> String {
         let literal = Self::quote_string_literal(path);
         match format {
-            DuckDbFileFormat::Csv => format!("SELECT * FROM read_csv_auto({literal})"),
+            DuckDbFileFormat::Csv => Self::csv_scan_sql(path),
             DuckDbFileFormat::Parquet => format!("SELECT * FROM read_parquet({literal})"),
             DuckDbFileFormat::Json => format!("SELECT * FROM read_json_auto({literal})"),
+            DuckDbFileFormat::Xlsx => Self::xlsx_scan_sql(path, sheet_name),
         }
+    }
+
+    fn create_temp_table_from_scan_sql(
+        conn: &Connection,
+        temp_name: &str,
+        scan_sql: &str,
+    ) -> duckdb::Result<()> {
+        let create_sql = format!(
+            "CREATE TEMP TABLE {} AS {}",
+            Self::quote_identifier(temp_name),
+            scan_sql
+        );
+        conn.execute_batch(&create_sql)
+    }
+
+    fn should_retry_csv_with_latin1(error: &duckdb::Error) -> bool {
+        let message = error.to_string().to_ascii_lowercase();
+        message.contains("invalid unicode")
+            || message.contains("not utf-8 encoded")
+            || message.contains("invalid encoding")
     }
 
     fn create_temp_table_for_rows(
@@ -861,17 +929,38 @@ impl DuckDbAdapter {
     fn load_file_to_temp(
         conn: &Connection,
         file_path: &str,
+        sheet_name: Option<&str>,
         temp_name: &str,
     ) -> Result<(DuckDbFileFormat, i64)> {
-        Self::ensure_httpfs_loaded(conn, file_path)?;
         let format = Self::detect_file_format(file_path)?;
-        let scan_sql = Self::file_scan_sql(file_path, format);
-        let create_sql = format!(
-            "CREATE TEMP TABLE {} AS {}",
-            Self::quote_identifier(temp_name),
-            scan_sql
-        );
-        conn.execute_batch(&create_sql)
+        Self::ensure_httpfs_loaded(conn, file_path)?;
+        Self::ensure_excel_loaded(conn, format)?;
+        let import_result = match format {
+            DuckDbFileFormat::Csv => {
+                match Self::create_temp_table_from_scan_sql(
+                    conn,
+                    temp_name,
+                    &Self::csv_scan_sql(file_path),
+                ) {
+                    Ok(()) => Ok(()),
+                    Err(error) if Self::should_retry_csv_with_latin1(&error) => {
+                        Self::drop_temp_table(conn, temp_name);
+                        Self::create_temp_table_from_scan_sql(
+                            conn,
+                            temp_name,
+                            &Self::csv_scan_sql_with_encoding(file_path, "latin-1"),
+                        )
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            _ => Self::create_temp_table_from_scan_sql(
+                conn,
+                temp_name,
+                &Self::file_scan_sql(file_path, format, sheet_name),
+            ),
+        };
+        import_result
             .map_err(|e| AppError::DatabaseError(format!("Failed to import source file: {}", e)))?;
         let row_count = Self::row_count_for_table(conn, temp_name)?;
         Ok((format, row_count))
@@ -1001,12 +1090,18 @@ impl DuckDbAdapter {
             let source_spec = json!({
                 "filePath": request.file_path,
                 "format": Self::file_format_name(Self::detect_file_format(&request.file_path)?),
+                "sheetName": request.sheet_name,
                 "mode": "persist_table",
             });
 
             Self::start_refresh_run(conn, &run_id, &target_schema, &request.target_name)?;
 
-            let import_result = Self::load_file_to_temp(conn, &request.file_path, &temp_name);
+            let import_result = Self::load_file_to_temp(
+                conn,
+                &request.file_path,
+                request.sheet_name.as_deref(),
+                &temp_name,
+            );
             let row_count = match import_result {
                 Ok((_format, row_count)) => row_count,
                 Err(error) => {
@@ -1278,6 +1373,28 @@ impl DuckDbAdapter {
             }
             Ok(extensions)
         }).await
+    }
+
+    pub async fn list_excel_sheets(&self, file_path: String) -> Result<Vec<String>> {
+        let detected = Self::detect_file_format(&file_path)?;
+        if detected != DuckDbFileFormat::Xlsx {
+            return Err(AppError::Unsupported(format!(
+                "Unsupported DuckDB scratchpad import format for `{}`",
+                file_path
+            )));
+        }
+
+        tokio::task::spawn_blocking(move || {
+            let workbook = open_workbook_auto(&file_path).map_err(|e| {
+                AppError::DatabaseError(format!(
+                    "Failed to open Excel workbook `{}`: {}",
+                    file_path, e
+                ))
+            })?;
+            Ok(workbook.sheet_names().to_vec())
+        })
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read Excel workbook: {}", e)))?
     }
 
     pub async fn install_extension(&self, name: &str) -> Result<()> {
@@ -2770,8 +2887,7 @@ impl DuckDbAdapter {
         // already-attached or freshly attached here). Build the runtime list
         // positively from this set so an early Extension/Secret failure that
         // aborts the loop never silently admits unprocessed aliases.
-        let mut live_aliases: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut live_aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
         let steps = Self::replay_plan(&secrets, &attachments);
         for step in &steps {
             let (kind_label, name) = match step {
@@ -2855,9 +2971,7 @@ impl DuckDbAdapter {
     /// collapsing to an empty catalog node. Kinds whose schema namespace is
     /// data-defined (Iceberg/Delta/Ducklake, MySQL databases-as-schemas)
     /// default to empty and let discovery populate the tree.
-    pub(crate) fn default_visible_schemas_for(
-        kind: &crate::types::AttachmentKind,
-    ) -> Vec<String> {
+    pub(crate) fn default_visible_schemas_for(kind: &crate::types::AttachmentKind) -> Vec<String> {
         use crate::types::AttachmentKind;
         match kind {
             AttachmentKind::Duckdb | AttachmentKind::Sqlite => vec!["main".into()],

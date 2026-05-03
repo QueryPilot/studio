@@ -15,6 +15,7 @@ interface DuckDbImportUrlDialogProps {
   open: boolean;
   onClose: () => void;
   onSubmit: (url: string, targetName: string) => void;
+  initialUrl?: string;
 }
 
 /**
@@ -51,9 +52,12 @@ function deriveTableNameFromUrl(url: string): string {
 function DuckDbImportUrlForm({
   onClose,
   onSubmit,
+  initialUrl,
 }: Omit<DuckDbImportUrlDialogProps, "open">) {
-  const [url, setUrl] = useState("");
-  const [targetName, setTargetName] = useState("");
+  const [url, setUrl] = useState(initialUrl ?? "");
+  const [targetName, setTargetName] = useState(() =>
+    initialUrl ? deriveTableNameFromUrl(initialUrl) : "",
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userEditedTarget, setUserEditedTarget] = useState(false);
 
@@ -148,6 +152,7 @@ export function DuckDbImportUrlDialog({
   open,
   onClose,
   onSubmit,
+  initialUrl,
 }: DuckDbImportUrlDialogProps) {
   return (
     <Dialog
@@ -161,7 +166,11 @@ export function DuckDbImportUrlDialog({
       <DialogContent className="sm:max-w-md">
         {/* Key-based remounting resets form state each time dialog opens */}
         {open && (
-          <DuckDbImportUrlForm onClose={onClose} onSubmit={onSubmit} />
+          <DuckDbImportUrlForm
+            onClose={onClose}
+            onSubmit={onSubmit}
+            initialUrl={initialUrl}
+          />
         )}
       </DialogContent>
     </Dialog>

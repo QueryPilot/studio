@@ -905,12 +905,10 @@ mod tests {
             SqlDialect::PostgreSQL,
         );
         let result = validate_document(&doc, None, None);
-        assert!(
-            result
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("unused") && w.message.contains("never referenced"))
-        );
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("unused") && w.message.contains("never referenced")));
     }
 
     #[test]
@@ -920,12 +918,10 @@ mod tests {
             SqlDialect::PostgreSQL,
         );
         let result = validate_document(&doc, None, None);
-        assert!(
-            !result
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("never referenced"))
-        );
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("never referenced")));
     }
 
     #[test]
@@ -955,12 +951,10 @@ mod tests {
             SqlDialect::PostgreSQL,
         );
         let result = validate_document(&doc, None, None);
-        assert!(
-            result
-                .warnings
-                .iter()
-                .any(|w| { w.message.contains("should be qualified") && w.message.contains("id") })
-        );
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| { w.message.contains("should be qualified") && w.message.contains("id") }));
     }
 
     #[test]
@@ -970,24 +964,20 @@ mod tests {
             SqlDialect::PostgreSQL,
         );
         let result = validate_document(&doc, None, None);
-        assert!(
-            !result
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("should be qualified"))
-        );
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("should be qualified")));
     }
 
     #[test]
     fn test_validate_single_table_no_ambiguous_warning() {
         let doc = parse_document("SELECT id, name FROM users", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, None, None);
-        assert!(
-            !result
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("should be qualified"))
-        );
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("should be qualified")));
     }
 
     #[test]
@@ -1004,12 +994,10 @@ mod tests {
             .filter(|w| w.message.contains("should be qualified"))
             .collect();
         assert_eq!(qualify_hints.len(), 8);
-        assert!(
-            !result
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("omitted; qualify columns"))
-        );
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("omitted; qualify columns")));
     }
 
     #[test]
@@ -1035,12 +1023,10 @@ mod tests {
         );
         let result = validate_document(&doc, None, None);
         assert!(!result.is_valid());
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("did you mean 'WHERE'"))
-        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("did you mean 'WHERE'")));
     }
 
     #[test]
@@ -1048,12 +1034,10 @@ mod tests {
         let doc = parse_document(r#"select *sd from "addresses""#, SqlDialect::PostgreSQL);
         let result = validate_document(&doc, None, None);
         assert!(!result.is_valid());
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("Invalid use of '*'"))
-        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("Invalid use of '*'")));
     }
 
     #[test]
@@ -1103,12 +1087,10 @@ mod tests {
         );
         let result = validate_document(&doc, None, None);
         assert!(!result.is_valid());
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("Missing comparison operator"))
-        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("Missing comparison operator")));
     }
 
     #[test]
@@ -1161,11 +1143,9 @@ mod tests {
         assert!(!result.is_valid());
         // Should catch multiple typos
         let error_messages: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
-        assert!(
-            error_messages
-                .iter()
-                .any(|m| m.contains("SELECT") || m.contains("FROM") || m.contains("WHERE"))
-        );
+        assert!(error_messages
+            .iter()
+            .any(|m| m.contains("SELECT") || m.contains("FROM") || m.contains("WHERE")));
     }
 
     // Fuzzy matching tests
@@ -1315,11 +1295,9 @@ mod tests {
         let result = validate_document(&doc, None, None);
 
         let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.clone()).collect();
-        assert!(
-            warnings
-                .iter()
-                .any(|m| m.contains("active_user") && m.contains("Did you mean"))
-        );
+        assert!(warnings
+            .iter()
+            .any(|m| m.contains("active_user") && m.contains("Did you mean")));
     }
 
     #[test]
@@ -1360,18 +1338,14 @@ mod tests {
         );
         let result = validate_document(&doc, Some(&schema), None);
 
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("pg_statio_user_tables"))
-        );
-        assert!(
-            !result
-                .warnings
-                .iter()
-                .any(|w| w.message.contains("pg_statio_user_tables"))
-        );
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("pg_statio_user_tables")));
+        assert!(!result
+            .warnings
+            .iter()
+            .any(|w| w.message.contains("pg_statio_user_tables")));
     }
 
     #[test]
@@ -1409,12 +1383,10 @@ mod tests {
         let doc = parse_document("SELECT u.missing_col FROM users u", SqlDialect::PostgreSQL);
         let result = validate_document(&doc, Some(&schema), None);
 
-        assert!(
-            result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("missing_col") && e.message.contains("users"))
-        );
+        assert!(result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("missing_col") && e.message.contains("users")));
     }
 
     #[test]
@@ -1540,12 +1512,10 @@ mod tests {
         );
         let result = validate_document(&doc, None, None);
 
-        assert!(
-            !result
-                .errors
-                .iter()
-                .any(|e| e.message.contains("did you mean"))
-        );
+        assert!(!result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("did you mean")));
     }
 
     #[test]

@@ -2415,12 +2415,10 @@ mod tests {
         assert!(doc.errors.is_empty(), "Parse errors: {:?}", doc.errors);
         assert_eq!(doc.statements.len(), 1);
         assert_eq!(doc.statements[0].statement_type, Some("SELECT".to_string()));
-        assert!(
-            doc.statements[0]
-                .tables
-                .iter()
-                .any(|table| table.name == "client_sales_contexts")
-        );
+        assert!(doc.statements[0]
+            .tables
+            .iter()
+            .any(|table| table.name == "client_sales_contexts"));
     }
 
     #[test]
@@ -2532,14 +2530,12 @@ mod tests {
         );
         let cols = &doc.statements[0].columns;
 
-        assert!(
-            cols.iter()
-                .any(|c| c.name == "customer_id" && c.table.as_deref() == Some("r"))
-        );
-        assert!(
-            cols.iter()
-                .any(|c| c.name == "vuiver" && c.table.as_deref() == Some("c"))
-        );
+        assert!(cols
+            .iter()
+            .any(|c| c.name == "customer_id" && c.table.as_deref() == Some("r")));
+        assert!(cols
+            .iter()
+            .any(|c| c.name == "vuiver" && c.table.as_deref() == Some("c")));
     }
 
     #[test]

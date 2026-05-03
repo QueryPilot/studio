@@ -230,6 +230,10 @@ export const DuckDbScratchpadService = {
     return BackendAPI.duckdbAddFile(connId, request);
   },
 
+  async listExcelSheets(connId: string, filePath: string): Promise<string[]> {
+    return BackendAPI.duckdbListExcelSheets(connId, filePath);
+  },
+
   async replaceManagedObject(
     connId: string,
     request: DuckDbReplaceManagedObjectRequest,
