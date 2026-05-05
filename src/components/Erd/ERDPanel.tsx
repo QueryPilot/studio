@@ -11,7 +11,7 @@ import { ERDToolbar, type LayoutDirection } from "./ERDToolbar";
 import { ERDVisualizerPlaceholder } from "./ERDVisualizerPlaceholder";
 import { ERDVisualizer, type ERDVisualizerRef } from "./ERDVisualizer";
 import { ReactFlowProvider, getNodesBounds, getViewportForBounds } from "@xyflow/react";
-import { Parser, exporter as dbmlExporter } from "@dbml/core";
+import { exporter as dbmlExporter } from "@dbml/core";
 import { toPng, toSvg } from "html-to-image";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, writeBinaryFile } from "@/utils/tauriFs";
@@ -25,8 +25,7 @@ import {
 } from "@/services/dbmlService";
 import { databaseService } from "@/services/databaseService";
 import { useConnectionStore } from "@/stores/connectionStoreNew";
-import type { TableStructure, ForeignKeyInfo } from "@/types/tableStructure";
-import type { ColumnMeta } from "@/types/database";
+import type { TableStructure } from "@/types/tableStructure";
 import { erdCache } from "@/services/erdCache";
 import {
   useErdStore,
@@ -34,28 +33,9 @@ import {
   type ViewportState,
 } from "@/stores/erdStore";
 import { ERDSchemaLegend } from "./ERDSchemaLegend";
-import {
-  ConstraintType,
-  type Constraint,
-  type Index,
-  type Trigger,
-} from "@/types/tableStructure";
 
 const DEFAULT_SCHEMA = "public";
 const PARSE_DEBOUNCE_MS = 500;
-
-const relationToCardinality = (relation?: string | null): "1" | "n" => {
-  if (!relation) return "1";
-  const normalized = relation.toLowerCase();
-  if (
-    normalized.includes("*") ||
-    normalized.includes("n") ||
-    normalized.includes("many")
-  ) {
-    return "n";
-  }
-  return "1";
-};
 
 interface ERDPanelProps {
   connectionId: string;
@@ -105,6 +85,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const editorRef = useRef<CodeEditorRef>(null);
   const dbmlWorkerRef = useRef<Worker | null>(null);
   const diagramContainerRef = useRef<HTMLDivElement>(null);
+  // Monotonic generation counters used to drop stale results when the user
+  // changes selection or types another character before the previous request
+  // completes. See fixes for the worker race + loadSchemasData cancellation.
+  const loadGenRef = useRef(0);
+  const parseGenRef = useRef(0);
 
   // Local view ID - each ERD tab tracks its own view instead of global activeViewId
   const [localViewId, setLocalViewId] = useState<string | null>(null);
@@ -165,7 +150,14 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
 
   useEffect(() => {
     if (lastConnectionRef.current !== connectionId) {
+      const previousConnectionId = lastConnectionRef.current;
       lastConnectionRef.current = connectionId;
+      // Drop any cached DBML for the *outgoing* connection. Connection IDs
+      // can be recycled (delete + recreate, profile re-save) and we don't
+      // want a stale entry served to the next user of that ID.
+      if (previousConnectionId) {
+        erdCache.clear(previousConnectionId);
+      }
       const resetSchemas = schemasProp?.length ? schemasProp.slice() : schema ? [schema] : [];
       setSelectedSchemasState(resetSchemas);
       skipParseNextRef.current = true;
@@ -196,6 +188,11 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   const loadSchemasData = useCallback(
     async (schemaList: string[], options?: { force?: boolean }) => {
       if (!connectionId) return;
+      // Bump generation; any in-flight previous load becomes stale and will
+      // bail out at the next await checkpoint.
+      const myGen = ++loadGenRef.current;
+      const isStale = () => myGen !== loadGenRef.current;
+
       if (schemaList.length === 0) {
         setTables([]);
         setRelationships([]);
@@ -207,6 +204,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         connectionId,
         database: targetDatabase,
         schema: schemaList[0] ?? DEFAULT_SCHEMA,
+        // Pass the full list — without it, a single-schema view for "public"
+        // and a multi-schema view for ["public", "billing"] would collide on
+        // the primary schema and share node positions / viewport.
+        schemas: schemaList,
         name: `${schemaList.join(", ")} @ ${targetDatabase}`,
       });
       setLocalViewId(viewId);
@@ -242,6 +243,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         const perSchema = await Promise.all(
           schemaList.map((s) => databaseService.listTables(connectionId, targetDatabase, s)),
         );
+        if (isStale()) return;
         const baseTables = perSchema
           .flat()
           .filter((t) => t.kind === "Table" && !t.isPartitioned);
@@ -294,16 +296,22 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
               },
             );
             collected.push(struct);
-            // Progressive render: append as each arrives.
-            setTables((prev) => [...prev, struct]);
+            // Progressive render: append as each arrives — but only if we're
+            // still the current load. Otherwise this would pollute a newer
+            // selection's table list.
+            if (!isStale()) {
+              setTables((prev) => [...prev, struct]);
+            }
             return struct;
           },
           5,
         );
+        if (isStale()) return;
 
         const result = await dbmlService.schemaToDBML(collected, {
           databaseType: connection?.db_type,
         });
+        if (isStale()) return;
 
         skipParseNextRef.current = true;
         setDbmlDocument(result.dbml);
@@ -317,12 +325,13 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           relationshipCount: result.metadata.relationshipCount,
         });
       } catch (err) {
+        if (isStale()) return;
         logger.error("Failed to load ERD schemas", err);
         setError(err instanceof Error ? err.message : "Failed to load schema metadata.");
         setTables([]);
         setRelationships([]);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
     },
     [connectionId, targetDatabase, ensureView, connection?.db_type, updateView],
@@ -364,9 +373,32 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       const nodesBounds = getNodesBounds(allNodes);
 
       const PADDING = 50;
-      const imageWidth = Math.ceil(nodesBounds.width + PADDING * 2);
-      const imageHeight = Math.ceil(nodesBounds.height + PADDING * 2);
+      const baseWidth = Math.ceil(nodesBounds.width + PADDING * 2);
+      const baseHeight = Math.ceil(nodesBounds.height + PADDING * 2);
 
+      // Browsers cap canvas size — Safari at 4096 × 4096 by default,
+      // Chrome around 16,384 × 16,384. With pixelRatio 2 the effective
+      // pixel count doubles, so we clamp pixelRatio so width × pixelRatio
+      // and height × pixelRatio stay below a portable safe ceiling. PNG
+      // exports also fall back to 1:1 when even pixelRatio 1 would exceed
+      // the limit, and we surface a clearer error to the user.
+      const SAFE_MAX_DIMENSION = 8192;
+      const largestSide = Math.max(baseWidth, baseHeight);
+      const maxRatio =
+        largestSide > 0
+          ? Math.max(1, Math.floor(SAFE_MAX_DIMENSION / largestSide))
+          : 2;
+      const pixelRatio = format === "png" ? Math.min(2, maxRatio) : 1;
+
+      if (format === "png" && largestSide > SAFE_MAX_DIMENSION) {
+        toast.error(
+          `Diagram is too large to export as PNG (${baseWidth}×${baseHeight}px). Try SVG or zoom out.`,
+        );
+        return;
+      }
+
+      const imageWidth = baseWidth;
+      const imageHeight = baseHeight;
       const viewport = getViewportForBounds(
         nodesBounds,
         imageWidth,
@@ -380,7 +412,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
       const dataUrl = await exportFn(viewportEl, {
         backgroundColor: "white",
         quality: 1,
-        pixelRatio: 2,
+        pixelRatio,
         width: imageWidth,
         height: imageHeight,
         style: {
@@ -498,300 +530,10 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
     [localViewId, saveViewport],
   );
 
-  type ParserField = {
-    name: string;
-    type?: { type_name?: string; name?: string };
-    not_null?: boolean;
-    pk?: boolean;
-    dbdefault?: { value?: unknown };
-    note?: string | { text?: string };
-  };
-
-  type ParserTable = {
-    name: string;
-    fields: ParserField[];
-    note?: string | { text?: string };
-  };
-
-  type ParserEndpoint = {
-    relation?: string;
-    schemaName?: string | null;
-    tableName: string;
-    fieldNames: string[];
-  };
-
-  type ParserRef = {
-    name?: string | null;
-    onDelete?: string;
-    onUpdate?: string;
-    endpoints?: ParserEndpoint[];
-  };
-
-  type ParserSchema = {
-    name?: string;
-    tables: ParserTable[];
-    refs?: ParserRef[];
-  };
-
-  const convertProjectToStructures = useCallback(
-    (
-      dbml: string,
-    ): { tables: TableStructure[]; relationships: DBMLRelationship[] } => {
-      const project = Parser.parse(dbml, "dbml");
-      const schemas = project.schemas as unknown as ParserSchema[];
-      const derivedTables: TableStructure[] = [];
-      const relationships: DBMLRelationship[] = [];
-      const foreignKeyMap = new Map<string, ForeignKeyInfo[]>();
-      const databaseName =
-        typeof project.name === "string" && project.name.length > 0
-          ? project.name
-          : targetDatabase;
-
-      const getTableKey = (
-        schemaName: string | null | undefined,
-        tableName: string,
-      ) => `${(schemaName ?? DEFAULT_SCHEMA).toLowerCase()}::${tableName}`;
-
-      schemas.forEach((schemaEntry) => {
-        const schemaName = schemaEntry.name ?? DEFAULT_SCHEMA;
-
-        schemaEntry.tables.forEach((table) => {
-          let columns: ColumnMeta[] = table.fields.map((field, index) => {
-            let defaultValue: string | null = null;
-            if (field.dbdefault && field.dbdefault.value != null) {
-              const rawDefault = field.dbdefault.value;
-              if (typeof rawDefault === "string") {
-                defaultValue = rawDefault;
-              } else if (
-                typeof rawDefault === "number" ||
-                typeof rawDefault === "boolean"
-              ) {
-                defaultValue = String(rawDefault);
-              } else {
-                defaultValue = JSON.stringify(rawDefault);
-              }
-            }
-
-            return {
-              name: field.name,
-              db_type: field.type?.type_name ?? field.type?.name ?? "text",
-              nullable: field.not_null !== true,
-              default: defaultValue,
-              is_pk: field.pk === true,
-              is_fk: false,
-              ordinal: index,
-              precision: null,
-              scale: null,
-              comment:
-                typeof field.note === "string"
-                  ? field.note
-                  : field.note?.text ?? null,
-            } satisfies ColumnMeta;
-          });
-
-          // Extract primary keys from indexes if present
-          let primaryKeys: string[] = [];
-
-          // First check if columns are directly marked as PKs
-          const directPks = columns
-            .filter((column) => column.is_pk)
-            .map((column) => column.name);
-
-          if (directPks.length > 0) {
-            primaryKeys = directPks;
-          } else {
-            // Check for indexes in the table object (DBML parser structure)
-            const tableObj = table as any;
-
-            // Try different possible locations for indexes in DBML AST
-            // DBML parser stores indexes as an array on the table
-            if (tableObj.indexes && Array.isArray(tableObj.indexes)) {
-              // Look for index with pk setting
-              for (const idx of tableObj.indexes) {
-                // Check if this index has a pk property in its settings
-                const hasPkSetting =
-                  idx.settings &&
-                  (idx.settings.pk === true ||
-                    idx.settings.primary === true ||
-                    idx.settings.primaryKey === true);
-
-                // Check various ways DBML might mark primary keys
-                const isPrimaryKey =
-                  idx.pk === true ||
-                  idx.primary === true ||
-                  idx.type === "pk" ||
-                  hasPkSetting ||
-                  (idx.unique === true && idx.name?.includes("pkey"));
-
-                if (isPrimaryKey) {
-                  // Get column names from the index
-                  if (idx.columns && Array.isArray(idx.columns)) {
-                    primaryKeys = idx.columns.map((col: any) => {
-                      // DBML parser stores column references as objects with 'value' property
-                      if (typeof col === "object" && col.value) {
-                        return col.value;
-                      }
-                      if (typeof col === "string") {
-                        return col;
-                      }
-                      if (typeof col === "object" && col.name) {
-                        return col.name;
-                      }
-                      if (typeof col === "object" && col.column) {
-                        return col.column.name || col.column;
-                      }
-                      return col;
-                    });
-                    break;
-                  }
-                }
-              }
-            }
-
-            // Also check if there's an indexes array at the schema level
-            // that references this table
-            const schemaIndexes = (schemaEntry as any).indexes;
-            if (schemaIndexes && Array.isArray(schemaIndexes)) {
-              const tablePkIndex = schemaIndexes.find(
-                (idx: any) =>
-                  idx.tableName === table.name &&
-                  (idx.pk === true || idx.primary === true),
-              );
-              if (tablePkIndex && tablePkIndex.columns) {
-                primaryKeys = tablePkIndex.columns.map((c: any) =>
-                  typeof c === "string" ? c : c.name,
-                );
-              }
-            }
-          }
-
-          // Mark columns as PKs if they're in the primaryKeys list
-          if (primaryKeys.length > 0) {
-            columns = columns.map((col) => ({
-              ...col,
-              is_pk: primaryKeys.includes(col.name),
-            }));
-          }
-
-          const tableStructure: TableStructure = {
-            name: table.name,
-            schema: schemaName,
-            database: databaseName,
-            owner: undefined,
-            comment:
-              typeof table.note === "string" ? table.note : table.note?.text,
-            rowCount: undefined,
-            size: undefined,
-            columns,
-            primaryKeys,
-            foreignKeys: [],
-            indexes: [] as Index[],
-            constraints: [] as Constraint[],
-            triggers: [] as Trigger[],
-            stats: undefined,
-          };
-
-          derivedTables.push(tableStructure);
-          foreignKeyMap.set(getTableKey(schemaName, table.name), []);
-        });
-
-        (schemaEntry.refs ?? []).forEach((ref, index) => {
-          if (!ref.endpoints || ref.endpoints.length < 2) return;
-
-          const [endpointA, endpointB] = ref.endpoints;
-          if (!endpointA || !endpointB) return;
-
-          let source = endpointA;
-          let target = endpointB;
-
-          const relationWeight = (endpoint: ParserEndpoint): number => {
-            const relation = (endpoint.relation ?? "").toLowerCase();
-            if (relation.includes("*")) return 2;
-            if (relation.includes("n")) return 2;
-            if (relation.includes("many")) return 2;
-            if (relation.includes("1")) return 1;
-            return 1;
-          };
-
-          if (relationWeight(endpointB) > relationWeight(endpointA)) {
-            source = endpointB;
-            target = endpointA;
-          }
-
-          const sourceSchema = source.schemaName ?? schemaName;
-          const targetSchema = target.schemaName ?? schemaName;
-
-          const sourceCardinality = relationToCardinality(source.relation);
-          const targetCardinality = relationToCardinality(target.relation);
-
-          const fkName =
-            typeof ref.name === "string" && ref.name.length > 0
-              ? ref.name
-              : `ref_${source.tableName}_${target.tableName}_${index + 1}`;
-
-          const fk: ForeignKeyInfo = {
-            name: fkName,
-            columns: source.fieldNames,
-            foreignTable: target.tableName,
-            foreignSchema: targetSchema,
-            foreignColumns: target.fieldNames,
-            onDelete: ref.onDelete,
-            onUpdate: ref.onUpdate,
-          };
-
-          const key = getTableKey(sourceSchema, source.tableName);
-          const existing = foreignKeyMap.get(key) ?? [];
-          foreignKeyMap.set(key, [...existing, fk]);
-
-          relationships.push({
-            id: `${sourceSchema}.${source.tableName}-${fkName}`,
-            name: fkName,
-            fromTable: source.tableName,
-            fromSchema: sourceSchema,
-            toTable: target.tableName,
-            toSchema: targetSchema,
-            fromColumns: source.fieldNames,
-            toColumns: target.fieldNames,
-            onDelete: ref.onDelete,
-            onUpdate: ref.onUpdate,
-            sourceCardinality,
-            targetCardinality,
-          });
-        });
-      });
-
-      derivedTables.forEach((table) => {
-        const key = `${table.schema.toLowerCase()}::${table.name}`;
-        const foreignKeys = foreignKeyMap.get(key) ?? [];
-        table.foreignKeys = foreignKeys;
-
-        const fkColumnNames = new Set(
-          foreignKeys.flatMap((fk) =>
-            fk.columns.map((column) => column.toLowerCase()),
-          ),
-        );
-        table.columns = table.columns.map((column, idx) => ({
-          ...column,
-          ordinal: idx,
-          is_fk: fkColumnNames.has(column.name.toLowerCase()),
-        }));
-
-        // Backfill constraint info for primary keys for parity with TableStructure
-        if (table.primaryKeys.length > 0) {
-          table.constraints.push({
-            name: `${table.name}_pkey`,
-            table_name: table.name,
-            constraint_type: ConstraintType.PrimaryKey,
-            definition: `PRIMARY KEY (${table.primaryKeys.join(", ")})`,
-            foreign_table: undefined,
-          });
-        }
-      });
-
-      return { tables: derivedTables, relationships };
-    },
-    [targetDatabase],
-  );
+  // Note: a previous version of this file kept a duplicate copy of the DBML
+  // → TableStructure conversion here. The worker (`dbmlParser.worker.ts`)
+  // owns the canonical implementation, so the in-component copy was dead
+  // code (~260 lines) and has been removed.
 
   useEffect(() => {
     if (skipParseNextRef.current) {
@@ -812,15 +554,21 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         return;
       }
 
-      // Set up one-time message handler for this parse operation
-      const handleWorkerMessage = (e: MessageEvent) => {
+      // Bump the parse generation; any in-flight prior parse becomes stale.
+      // We use single-slot `worker.onmessage` (replaces the prior handler in
+      // the same DOM slot) to guarantee at most one handler is attached at a
+      // time. The captured `myGen` lets a late message from a previous parse
+      // bail out before it overwrites the cache with a stale `dbmlDocument`.
+      const myGen = ++parseGenRef.current;
+      const sourceDbml = dbmlDocument;
+
+      worker.onmessage = (e: MessageEvent) => {
+        if (myGen !== parseGenRef.current) return; // superseded by a newer parse
         const output = e.data as {
           success: boolean;
           result?: { tables: TableStructure[]; relationships: DBMLRelationship[] };
           error?: string;
         };
-
-        worker.removeEventListener("message", handleWorkerMessage);
 
         if (output.success && output.result) {
           const { tables: parsedTables, relationships: parsedRelationships } = output.result;
@@ -829,15 +577,15 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
           setTables(parsedTables);
           setRelationships(parsedRelationships);
           setParseError(null);
-          
+
           if (localViewId) {
             updateView(localViewId, {
-              dbml: dbmlDocument,
+              dbml: sourceDbml,
               tableCount: parsedTables.length,
               relationshipCount: parsedRelationships.length,
             });
             erdCache.setSchemas(connectionId, targetDatabase, selectedSchemas, {
-              dbml: dbmlDocument,
+              dbml: sourceDbml,
               ast: null,
               metadata: {
                 tableCount: parsedTables.length,
@@ -855,8 +603,7 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         }
       };
 
-      worker.addEventListener("message", handleWorkerMessage);
-      worker.postMessage({ dbml: dbmlDocument, targetDatabase });
+      worker.postMessage({ dbml: sourceDbml, targetDatabase });
     }, PARSE_DEBOUNCE_MS);
 
     return () => {
@@ -865,7 +612,6 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
   }, [
     dbmlDocument,
     localViewId,
-    convertProjectToStructures,
     updateView,
     connectionId,
     targetDatabase,
@@ -915,14 +661,35 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
         let tableStartIndex = -1;
         let columnLineIndex = -1;
 
+        // DBML identifiers can be bare (\w+), double-quoted, single-quoted,
+        // or backtick-quoted. The previous \w+-only regex silently failed on
+        // schema/table names containing hyphens, dots, etc.
+        const IDENT = `(?:"[^"]+"|'[^']+'|\`[^\`]+\`|\\w+)`;
+        const tableLineRe = new RegExp(
+          `^\\s*Table\\s+(?:${IDENT}\\.)?(${IDENT})(?:\\s+as\\s+${IDENT})?\\s*\\{?\\s*$`,
+          "i",
+        );
+        const columnLineRe = new RegExp(`^\\s*(${IDENT})\\s+`);
+        const unquote = (id: string): string => {
+          if (id.length >= 2) {
+            const first = id[0];
+            const last = id[id.length - 1];
+            if (
+              (first === '"' && last === '"') ||
+              (first === "'" && last === "'") ||
+              (first === "`" && last === "`")
+            ) {
+              return id.slice(1, -1);
+            }
+          }
+          return id;
+        };
+
         // Find the table definition
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i] ?? "";
-          // Match "Table tableName" or "Table schema.tableName"
-          const tableMatch = line.match(
-            /^\s*Table\s+(?:\w+\.)?(\w+)\s*\{?\s*$/i,
-          );
-          if (tableMatch && tableMatch[1] === tableName) {
+          const tableMatch = line.match(tableLineRe);
+          if (tableMatch && unquote(tableMatch[1] ?? "") === tableName) {
             tableStartIndex = i;
             break;
           }
@@ -936,9 +703,8 @@ export const ERDPanel: React.FC<ERDPanelProps> = ({
             if (line.match(/^\s*Table\s+/i) || line.match(/^\s*\}\s*$/)) {
               break;
             }
-            // Match column definition (columnName type [options])
-            const columnMatch = line.match(/^\s*(\w+)\s+/);
-            if (columnMatch && columnMatch[1] === columnName) {
+            const columnMatch = line.match(columnLineRe);
+            if (columnMatch && unquote(columnMatch[1] ?? "") === columnName) {
               columnLineIndex = i;
               break;
             }

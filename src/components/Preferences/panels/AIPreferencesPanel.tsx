@@ -27,6 +27,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useByokStore } from "@/stores/byokStore";
+import { BYOK_ENABLED } from "@/ai/featureFlags";
 import { useAcpStore } from "@/stores/acpStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { AcpService } from "@/services/acpService";
@@ -184,17 +185,28 @@ export default function AIPreferencesPanel() {
     [availableAgents],
   );
 
+  // If BYOK has been disabled but a previous session persisted
+  // `runtimeMode = "byok"`, snap back to ACP so the UI doesn't show a
+  // selected radio for an option that isn't rendered.
+  useEffect(() => {
+    if (!BYOK_ENABLED && runtimeMode === "byok") {
+      setRuntimeMode("acp");
+    }
+  }, [runtimeMode, setRuntimeMode]);
+
   // Auto-connect for providers that don't require an API key
   useEffect(() => {
+    if (!BYOK_ENABLED) return;
     if (runtimeMode !== "byok" || !providerId || !modelId) return;
     const providerConfig = PROVIDER_CONFIGS[providerId];
     if (!providerConfig.requiresApiKey && !session) {
-      initSession();
+      void initSession();
     }
   }, [runtimeMode, providerId, modelId, session, initSession]);
 
   // Auto-fetch models when provider is selected and conditions are met
   useEffect(() => {
+    if (!BYOK_ENABLED) return;
     if (!providerId) return;
     const providerConfig = PROVIDER_CONFIGS[providerId];
     if (!providerConfig.listModels) return;
@@ -211,7 +223,7 @@ export default function AIPreferencesPanel() {
     session.modelId === modelId;
 
   const handleConnect = useCallback(() => {
-    initSession(apiKey);
+    void initSession(apiKey);
   }, [initSession, apiKey]);
 
   const handleFetchModels = useCallback(() => {
@@ -595,7 +607,8 @@ export default function AIPreferencesPanel() {
           )}
         </section>
 
-        {/* SDK Agent */}
+        {/* SDK Agent (BYOK) — gated by the BYOK_ENABLED feature flag. */}
+        {BYOK_ENABLED && (
         <section className="space-y-3">
           <div
             className="flex items-center gap-2.5 cursor-pointer select-none"
@@ -827,6 +840,7 @@ export default function AIPreferencesPanel() {
             </div>
           )}
         </section>
+        )}
 
         {/* Behavior */}
         <section className="space-y-3">
@@ -844,8 +858,8 @@ export default function AIPreferencesPanel() {
                   Skip Approval Gate
                 </Label>
                 <p className="text-[11px] text-muted-foreground">
-                  Auto-approve approval-gated `crud.stage` for ACP and BYOK. AI
-                  still cannot commit DB changes.
+                  Auto-approve approval-gated `crud.stage` commands. AI still
+                  cannot commit DB changes.
                 </p>
               </div>
             </div>
@@ -855,25 +869,29 @@ export default function AIPreferencesPanel() {
             />
           </div>
 
-          <div className="flex items-center justify-between py-3 border rounded-xl px-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
-                <IconWand className="h-4 w-4" />
+          {/* Include Schema Context only affects the BYOK send path —
+              hide while BYOK is gated off so the toggle isn't a no-op. */}
+          {BYOK_ENABLED && (
+            <div className="flex items-center justify-between py-3 border rounded-xl px-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+                  <IconWand className="h-4 w-4" />
+                </div>
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-medium">
+                    Include Schema Context
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Send database schema with each message
+                  </p>
+                </div>
               </div>
-              <div className="space-y-0.5">
-                <Label className="text-xs font-medium">
-                  Include Schema Context
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  Send database schema with each message
-                </p>
-              </div>
+              <Switch
+                checked={includeSchemaContext}
+                onCheckedChange={setIncludeSchemaContext}
+              />
             </div>
-            <Switch
-              checked={includeSchemaContext}
-              onCheckedChange={setIncludeSchemaContext}
-            />
-          </div>
+          )}
         </section>
       </div>
     </div>

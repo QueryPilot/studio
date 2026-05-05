@@ -785,6 +785,15 @@ class VaultStorageService {
 
   async storeApiKey(provider: string, key: string): Promise<void> {
     await this.ensureInitialized();
+    // The flush in flushPendingChanges() silently bails when the keychain is
+    // unreachable — surface that here so the UI can warn the user instead of
+    // showing "Connected" while the key is actually being dropped on the
+    // floor.
+    if (!this.keychainAccessible) {
+      throw new Error(
+        "Keychain unavailable — API key cannot be saved. Restart the app or check system keychain access.",
+      );
+    }
     this.apiKeysCache[provider] = key;
     this.apiKeysDirty = true;
     this.scheduleSave();

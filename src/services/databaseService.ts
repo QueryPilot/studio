@@ -21,7 +21,7 @@ import type {
 import type { ObjectDefinitionType } from "@/adapters/types";
 import { ConstraintType, TableKind } from "@/services/backend";
 import { IntrospectionService } from "./introspectionService";
-import { getSqlAdapterForConnection } from "@/adapters";
+import { getSqlAdapterForConnection, clearAdapter } from "@/adapters";
 import { TrinoAdapter } from "@/adapters/dialects/TrinoAdapter";
 import { useRuntimeDatabasesStore } from "@/stores/runtimeDatabasesStore";
 
@@ -425,6 +425,9 @@ class DatabaseService {
 
       this.activeConnections.delete(connectionId);
       useRuntimeDatabasesStore.getState().clear(connectionId);
+      // Drop the cached frontend adapter so a future reconnect with a
+      // different dbType doesn't reuse the wrong dialect.
+      clearAdapter(connectionId);
     } catch (error) {
       logger.error("Failed to disconnect from database:", error);
       throw error;
@@ -465,6 +468,7 @@ class DatabaseService {
     // The backend will clean up idle connections eventually
     this.activeConnections.delete(connectionId);
     useRuntimeDatabasesStore.getState().clear(connectionId);
+    clearAdapter(connectionId);
 
     if (!result) {
       logger.warn(

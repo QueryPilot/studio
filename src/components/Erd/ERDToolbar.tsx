@@ -396,11 +396,11 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                   onLayoutDirectionChange?.("LR");
                 }}
               >
-                <IconArrowsUpDown />
+                <IconArrowsRightLeft />
               </Button>
             }
           />
-          <TooltipContent>Vertical Layout</TooltipContent>
+          <TooltipContent>Horizontal Layout</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
@@ -413,11 +413,11 @@ export const ERDToolbar: React.FC<ERDToolbarProps> = ({
                   onLayoutDirectionChange?.("TB");
                 }}
               >
-                <IconArrowsRightLeft />
+                <IconArrowsUpDown />
               </Button>
             }
           />
-          <TooltipContent>Horizontal Layout</TooltipContent>
+          <TooltipContent>Vertical Layout</TooltipContent>
         </Tooltip>
         {/* Divider */}
         <div className="h-5 w-px bg-border mx-0.5" />

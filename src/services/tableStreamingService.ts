@@ -537,15 +537,23 @@ export interface StreamingTableResult {
   ipcSendMs?: number;
 }
 
-class TableStreamingService {
-  private abortController: AbortController | null = null;
-  private generation = 0;
-  private accumulatedRows: RawCellValue[][] = [];
-  private columns?: ColumnMeta[];
-  private isStreaming = false;
+type TabStreamState = {
+  abortController: AbortController;
+  accumulatedRows: RawCellValue[][];
+  columns?: ColumnMeta[];
+};
 
-  isStreamingActive(): boolean {
-    return this.isStreaming;
+class TableStreamingService {
+  private state = new Map<string, TabStreamState>();
+  private generations = new Map<string, number>();
+
+  /**
+   * @param tabId If provided, returns whether THAT tab is streaming.
+   *   If omitted, returns whether ANY tab is streaming.
+   */
+  isStreamingActive(tabId?: string): boolean {
+    if (tabId !== undefined) return this.state.has(tabId);
+    return this.state.size > 0;
   }
 
   async streamQuery(
@@ -563,25 +571,34 @@ class TableStreamingService {
       effectiveDatabase?: string;
     },
   ): Promise<StreamingTableResult> {
-    this.cancel(); // Abort any previous query
+    this.cancel(tabId); // Abort previous query for THIS tab only
     const collectRows = options?.collectRows ?? true;
 
     const controller = new AbortController();
-    this.abortController = controller;
-    const gen = this.generation;
+    const gen = (this.generations.get(tabId) ?? 0) + 1;
+    this.generations.set(tabId, gen);
+
+    const tabState: TabStreamState = {
+      abortController: controller,
+      accumulatedRows: [],
+      columns: undefined,
+    };
+    this.state.set(tabId, tabState);
+
+    const isStale = () => gen !== this.generations.get(tabId);
+    const releaseTab = () => {
+      if (this.state.get(tabId) === tabState) {
+        this.state.delete(tabId);
+      }
+    };
 
     return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        reject(new DOMException("Query cancelled", "AbortError"));
+      };
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+
       try {
-        this.isStreaming = true;
-        this.accumulatedRows = [];
-        this.columns = undefined;
-
-        // Reject the promise when cancelled via abort
-        const onAbort = () => {
-          reject(new DOMException("Query cancelled", "AbortError"));
-        };
-        controller.signal.addEventListener("abort", onAbort, { once: true });
-
         void queryStreamClient.streamWithCallbacks(
           {
             connId: connectionId,
@@ -596,23 +613,22 @@ class TableStreamingService {
           },
           {
             onStarted: (columns, estimatedRows) => {
-              if (gen !== this.generation) return; // stale — ignore
-              this.columns = mapBackendColumnsToColumnMeta(columns);
+              if (isStale()) return; // superseded by another query on this tab
+              tabState.columns = mapBackendColumnsToColumnMeta(columns);
               if (onProgress) {
                 onProgress({
                   rowsFetched: 0,
                   totalRows: estimatedRows,
                   percentage: 0,
-                  columns: this.columns,
+                  columns: tabState.columns,
                   started: true,
                 });
               }
             },
             onBatch: (batch, totalSoFar) => {
-              if (gen !== this.generation) return; // stale — ignore
-              // BigInt→string normalization now happens in the Web Worker (streamDecode.worker.ts)
+              if (isStale()) return;
               if (collectRows) {
-                this.accumulatedRows.push(...batch.rows);
+                tabState.accumulatedRows.push(...batch.rows);
               }
               if (onProgress) {
                 onProgress({
@@ -623,17 +639,15 @@ class TableStreamingService {
               }
             },
             onSuccess: (streamResult) => {
-              if (gen !== this.generation) return; // stale — ignore
-              // queryStreamClient guarantees all onBatch callbacks have completed
-              // before calling onSuccess (via pendingDecode chain). Resolve immediately.
+              if (isStale()) return;
               controller.signal.removeEventListener("abort", onAbort);
-              this.isStreaming = false;
+              releaseTab();
 
               const finalResult: StreamingTableResult = {
                 columns: mapBackendColumnsToColumnMeta(
                   streamResult.columns,
                 ),
-                rows: collectRows ? this.accumulatedRows : [],
+                rows: collectRows ? tabState.accumulatedRows : [],
                 isComplete: true,
                 totalRows: streamResult.totalRows,
                 executionTimeMs: streamResult.executionTimeMs,
@@ -655,9 +669,9 @@ class TableStreamingService {
               resolve(finalResult);
             },
             onError: (err) => {
-              if (gen !== this.generation) return; // stale — ignore
+              if (isStale()) return;
               controller.signal.removeEventListener("abort", onAbort);
-              this.isStreaming = false;
+              releaseTab();
               // appendOverrideHint always throws — catches the enriched error
               try {
                 appendOverrideHint(err, tabId);
@@ -668,21 +682,34 @@ class TableStreamingService {
           },
         );
       } catch (error) {
-        this.isStreaming = false;
+        controller.signal.removeEventListener("abort", onAbort);
+        releaseTab();
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
   }
 
-  cancel(): void {
-    this.generation++;
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
+  /**
+   * @param tabId If provided, cancels only that tab's stream.
+   *   If omitted, cancels every active stream (use sparingly — only for
+   *   global teardown like sign-out, not for per-tab cancellation).
+   */
+  cancel(tabId?: string): void {
+    if (tabId !== undefined) {
+      this.generations.set(
+        tabId,
+        (this.generations.get(tabId) ?? 0) + 1,
+      );
+      const s = this.state.get(tabId);
+      if (s) {
+        s.abortController.abort();
+        this.state.delete(tabId);
+      }
+      return;
     }
-    this.isStreaming = false;
-    this.accumulatedRows = [];
-    this.columns = undefined;
+    // Cancel every active stream
+    const tabIds = Array.from(this.state.keys());
+    for (const id of tabIds) this.cancel(id);
   }
 }
 

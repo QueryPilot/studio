@@ -15,7 +15,19 @@ export type ViewportState = {
 interface EnsureViewInput {
   connectionId: string;
   database?: string;
+  /**
+   * Primary schema. Used as a back-compat fallback when `schemas` is
+   * omitted, and as the singular `schema` field stored on the view for
+   * legacy callers (e.g. fitting in name placeholders).
+   */
   schema: string;
+  /**
+   * Full list of schemas the view should render. When provided, view
+   * identity is keyed on the *sorted joined list* — so a view for
+   * `["public"]` and a view for `["public", "billing"]` do not collide
+   * even though their primary schema is the same.
+   */
+  schemas?: string[];
   name?: string;
   isTemporary?: boolean;
 }
@@ -64,6 +76,7 @@ interface ErdStoreState {
     connectionId: string,
     database: string | undefined,
     schema: string,
+    schemas?: string[],
   ) => ErdView | null;
   getActiveView: () => ErdView | null;
   getViewsForConnection: (connectionId: string, database?: string) => ErdView[];
@@ -82,6 +95,19 @@ const DEFAULT_LAYOUT_DIRECTION: ErdView["layoutDirection"] = "LR";
 const makeConnectionKey = (connectionId: string, database?: string): string =>
   `${connectionId}::${database ?? "__default__"}`;
 
+/**
+ * Identity for a view across multi-schema selections. We sort+join the schema
+ * list so `["public", "billing"]` and `["billing", "public"]` collapse to the
+ * same view. When the caller doesn't pass a list (legacy single-schema flow)
+ * the singular schema string acts as the identity.
+ */
+const makeSchemaKey = (schema: string, schemas?: string[]): string => {
+  if (schemas && schemas.length > 0) {
+    return schemas.slice().sort().join("|");
+  }
+  return schema;
+};
+
 export const useErdStore = create<ErdStoreState>()(
   persist(
     (set, get) => ({
@@ -89,8 +115,8 @@ export const useErdStore = create<ErdStoreState>()(
       connectionViewIds: {},
       activeViewId: null,
 
-      ensureView: ({ connectionId, database, schema, name, isTemporary }) => {
-        const existing = get().findView(connectionId, database, schema);
+      ensureView: ({ connectionId, database, schema, schemas, name, isTemporary }) => {
+        const existing = get().findView(connectionId, database, schema, schemas);
         if (existing) {
           return existing.id;
         }
@@ -112,7 +138,10 @@ export const useErdStore = create<ErdStoreState>()(
           nodePositions: {},
           viewport: undefined,
           layoutDirection: DEFAULT_LAYOUT_DIRECTION,
-          selectedSchemas: undefined,
+          // Persist the schema list so view restoration can rehydrate the
+          // multi-schema selection rather than collapsing to the primary.
+          selectedSchemas:
+            schemas && schemas.length > 0 ? schemas.slice() : undefined,
           hasManualPositions: false,
           isTemporary,
           createdAt: timestamp,
@@ -229,13 +258,19 @@ export const useErdStore = create<ErdStoreState>()(
         set({ activeViewId: viewId });
       },
 
-      findView: (connectionId, database, schema) => {
+      findView: (connectionId, database, schema, schemas) => {
         const connectionKey = makeConnectionKey(connectionId, database);
+        const targetKey = makeSchemaKey(schema, schemas);
         const { connectionViewIds, views } = get();
         const viewIds = connectionViewIds[connectionKey] ?? [];
         for (const id of viewIds) {
           const view = views[id];
-          if (view && view.schema === schema) {
+          if (!view) continue;
+          // Compare on the same key the caller asked for: if `schemas` was
+          // passed, compare against the view's stored selectedSchemas;
+          // otherwise fall back to the legacy single-schema match.
+          const viewKey = makeSchemaKey(view.schema, view.selectedSchemas);
+          if (viewKey === targetKey) {
             return view;
           }
         }

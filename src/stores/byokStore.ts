@@ -41,7 +41,7 @@ interface BYOKState {
   setProvider: (id: ProviderId) => void;
   setModel: (id: string) => void;
   setApiKey: (key: string) => void;
-  initSession: (apiKey?: string) => void;
+  initSession: (apiKey?: string) => Promise<void>;
   fetchModels: () => Promise<void>;
   sendMessage: (
     content: string,
@@ -119,23 +119,46 @@ export const useByokStore = create<BYOKState>()(
         set((state) => ({
           apiKeys: { ...state.apiKeys, [providerId]: key },
         }));
-        // Persist to encrypted vault
-        void vaultStorage.storeApiKey(providerId, key);
+        // Persist to encrypted vault. storeApiKey now throws when the
+        // keychain is unreachable; surface that as `error` instead of
+        // silently dropping the key.
+        void vaultStorage.storeApiKey(providerId, key).catch((err: unknown) => {
+          set({
+            error:
+              err instanceof Error ? err.message : "Failed to save API key",
+          });
+        });
       },
 
-      initSession: (apiKeyArg) => {
+      initSession: async (apiKeyArg) => {
         const { providerId, modelId, apiKeys } = get();
         if (!providerId || !modelId) return;
         const key = apiKeyArg ?? apiKeys[providerId] ?? "";
         const config = PROVIDER_CONFIGS[providerId];
         if (config.requiresApiKey && !key) return;
+
         if (apiKeyArg !== undefined) {
           set((state) => ({
             apiKeys: { ...state.apiKeys, [providerId]: apiKeyArg },
           }));
-          // Persist to encrypted vault
-          void vaultStorage.storeApiKey(providerId, apiKeyArg);
+          // Await persistence so we can refuse to establish a session if the
+          // keychain is unreachable. Otherwise the UI shows "Connected" while
+          // the key is silently dropped — and on next launch the user has to
+          // re-enter it without knowing why.
+          try {
+            await vaultStorage.storeApiKey(providerId, apiKeyArg);
+          } catch (err) {
+            set({
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Failed to save API key",
+              session: null,
+            });
+            return;
+          }
         }
+
         const model = createModel(providerId, modelId, key || undefined);
         set({
           session: { providerId, modelId, provider: model },

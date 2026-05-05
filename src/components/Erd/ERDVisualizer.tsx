@@ -717,7 +717,12 @@ const LINE_STYLES_CACHE = {
   },
 } as const;
 
-// Edge path cache for better performance during pan/zoom
+// Edge path cache for better performance during pan/zoom.
+// The cache key includes the edge `id` so cache slots cannot collide across
+// edges or across ERDVisualizer instances. Without that, two ERD tabs with
+// edges that happen to land on the same rounded coordinates would read each
+// other's paths, and the 500-entry cap would let one tab evict the other's
+// entries entirely.
 const edgePathCache = new Map<string, [string, number, number]>();
 
 const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
@@ -747,7 +752,7 @@ const ForeignKeyEdgeComponent: React.FC<EdgeProps<any>> = ({
   const ry = Math.round(sourceY * 10) / 10;
   const tx = Math.round(targetX * 10) / 10;
   const ty = Math.round(targetY * 10) / 10;
-  const cacheKey = `${rx}-${ry}-${tx}-${ty}-${sourcePosition}-${targetPosition}`;
+  const cacheKey = `${id}|${rx}-${ry}-${tx}-${ty}-${sourcePosition}-${targetPosition}`;
 
   let edgePath: string;
   let labelX: number;
@@ -1073,6 +1078,10 @@ export const ERDVisualizer = React.forwardRef<
     const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
     const [, setHoveredColumn] = useState<string | null>(null);
     const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
+    // Scoped container ref so search highlight queries only this instance's
+    // nodes — `document.querySelectorAll` would otherwise touch nodes in
+    // other ERD tabs that are still mounted (just hidden via `className`).
+    const containerRef = useRef<HTMLDivElement | null>(null);
     const fitAppliedRef = useRef(false);
     const isInitialMountRef = useRef(true);
     const initialViewportAppliedRef = useRef(false);
@@ -1953,7 +1962,8 @@ export const ERDVisualizer = React.forwardRef<
       const instance = flowInstanceRef.current;
       if (!instance) return;
 
-      const allNodeEls = document.querySelectorAll(".react-flow__node");
+      const root = containerRef.current ?? document;
+      const allNodeEls = root.querySelectorAll(".react-flow__node");
 
       if (!searchQuery.trim()) {
         // Clear all search dimming
@@ -2000,6 +2010,7 @@ export const ERDVisualizer = React.forwardRef<
 
     return (
       <div
+        ref={containerRef}
         className={`h-full w-full ${isInPerformanceMode ? "erd-dragging" : ""}`}
         onClick={(e) => {
           // Only dismiss if clicking directly on the wrapper, not on ReactFlow elements

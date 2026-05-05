@@ -79,6 +79,7 @@ import { QueryBlock } from "./QueryBlock";
 import { buildFallbackQueryRunCommands } from "./sqlFallbackActions";
 import { useAiCommandPermissionStore } from "@/stores/aiCommandPermissionStore";
 import { useByokStore } from "@/stores/byokStore";
+import { BYOK_ENABLED } from "@/ai/featureFlags";
 import { useWorkspaceBundleStore } from "@/stores/workspaceBundleStore";
 import { executeCommand } from "@/services/aiCommandExecutor";
 
@@ -284,6 +285,22 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
     void loadRecentSessions(connectionId);
   }, [loadRecentSessions, connectionId]);
 
+  // Reset BYOK in-memory chat history when the user switches connections.
+  // The ACP path is already connection-scoped via loadRecentSessions, but
+  // BYOK keeps `messages` on a singleton store — without this clear, the
+  // model would see schema for connection B but conversation history from
+  // connection A and produce confusingly cross-wired answers.
+  const byokRuntimeMode = useByokStore.getState().runtimeMode;
+  const lastConnectionForByokRef = useRef(connectionId);
+  useEffect(() => {
+    if (!BYOK_ENABLED) return;
+    if (lastConnectionForByokRef.current === connectionId) return;
+    lastConnectionForByokRef.current = connectionId;
+    if (byokRuntimeMode === "byok") {
+      useByokStore.getState().clearHistory();
+    }
+  }, [connectionId, byokRuntimeMode]);
+
   // Proactively warmup agent on mount and when switching agents
   // This creates a session immediately so sending messages is instant
   const selectedAgentId = useAcpStore((s) => s.selectedAgentId);
@@ -297,7 +314,9 @@ export function AIPanel({ connectionId, onClose, className }: AIPanelProps) {
   const byokSendMessage = useByokStore((s) => s.sendMessage);
   const byokCancelGeneration = useByokStore((s) => s.cancelGeneration);
   const byokClearHistory = useByokStore((s) => s.clearHistory);
-  const isByok = runtimeMode === "byok";
+  // Single gate for the entire BYOK feature. When BYOK_ENABLED is false,
+  // every `if (isByok)` branch below short-circuits to ACP behaviour.
+  const isByok = BYOK_ENABLED && runtimeMode === "byok";
   const effectiveIsStreaming = isByok ? byokIsStreaming : isStreaming;
 
   useEffect(() => {
@@ -573,17 +592,20 @@ ${batchResult}`;
     setInputValue("");
     inputRef.current?.clear();
 
-    // Capture and clear pending images
-    const imagesToSend = pendingImages.map((img) => ({
+    // Capture pending images. We DON'T revoke their object URLs or clear
+    // pendingImages yet — if the send throws, the catch restores the input
+    // so the user can retry, and we want their attachments to come back too.
+    const imagesAtSendTime = pendingImages;
+    const imagesToSend = imagesAtSendTime.map((img) => ({
       data: img.data,
       mimeType: img.mimeType,
     }));
-    revokeImagePreviews(pendingImages);
     setPendingImages([]);
 
     focusInput();
     scrollToBottom("auto");
 
+    let sendSucceeded = false;
     try {
       if (isByok) {
         // BYOK path: route through AI SDK
@@ -596,6 +618,7 @@ ${batchResult}`;
         const { toolContext, schemaContext } = buildByokRuntimeContext();
 
         await byokSendMessage(content, toolContext, schemaContext);
+        sendSucceeded = true;
         return;
       }
 
@@ -622,11 +645,28 @@ ${batchResult}`;
         contextJson,
         imagesToSend.length > 0 ? imagesToSend : undefined,
       );
+      sendSucceeded = true;
     } catch (err) {
       console.error("Failed to send:", err);
       setError(err instanceof Error ? err.message : "Failed to send message");
       setInputValue(content); // Restore input on error
       inputRef.current?.setText(content);
+      // Restore the user's image attachments so they don't have to re-pick.
+      // Merge instead of overwrite — the user may have started picking new
+      // images while the send was in flight, and we don't want to clobber
+      // those.
+      if (imagesAtSendTime.length > 0) {
+        setPendingImages((current) =>
+          current.length === 0
+            ? imagesAtSendTime
+            : [...imagesAtSendTime, ...current],
+        );
+      }
+    } finally {
+      // Only revoke object URLs if the send actually consumed them.
+      if (sendSucceeded && imagesAtSendTime.length > 0) {
+        revokeImagePreviews(imagesAtSendTime);
+      }
     }
   }, [
     inputValue,
@@ -744,6 +784,11 @@ ${batchResult}`;
     autoFeedbackDepthRef.current = 0;
     sentAutoFeedbackSignaturesRef.current.clear();
     autoFeedbackInFlightRef.current = false;
+    // Without these resets the previous conversation's per-query correction
+    // attempt counts persist into the new one — any query that hit the cap
+    // would silently refuse to self-correct again with no UI feedback.
+    correctionAttemptsRef.current.clear();
+    setCorrectingQuery(null);
     setAttachedContext(null);
     focusInput();
     scrollToBottom("auto");

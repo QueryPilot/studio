@@ -7,6 +7,7 @@ import {
   type ConnectionProfile,
   DbType,
 } from "@/types/connection";
+import { clearAdapter } from "@/adapters";
 
 // Track inflight fetch to deduplicate concurrent calls
 let inflightFetch: Promise<void> | null = null;
@@ -182,6 +183,9 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       set((state) => ({
         connections: state.connections.filter((conn) => conn.profile.id !== id),
       }));
+      // Drop the cached adapter so a recycled connectionId can't accidentally
+      // reuse a stale adapter from the deleted profile.
+      clearAdapter(id);
     } catch (err) {
       const error =
         err instanceof Error ? err.message : "Failed to delete connection";

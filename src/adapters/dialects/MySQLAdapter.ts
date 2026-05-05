@@ -130,8 +130,24 @@ export class MySQLAdapter extends SqlAdapter {
     return false;
   }
 
-  // escapeString: inherits standard SQL '' doubling from base class
-  // This works in all MySQL sql_modes including NO_BACKSLASH_ESCAPES
+  /**
+   * MySQL string escaping must double both single quotes AND backslashes.
+   *
+   * In MySQL's default sql_mode, `\` is an escape character — so an input
+   * value of `O\` interpolated as `'O\'` parses as an open quote followed
+   * by an escaped quote, leaving the string unterminated and bleeding into
+   * whatever follows. Doubling the backslash to `\\` produces a single
+   * literal `\` after parsing.
+   *
+   * Caveat: under NO_BACKSLASH_ESCAPES mode the doubled `\\` parses as two
+   * literal backslashes, which is the wrong value for an exact match — but
+   * that's only a correctness issue for identifiers containing backslashes,
+   * not a security one. The base class single-quote-only escape was an
+   * actual injection vector and is the more important risk.
+   */
+  protected escapeString(value: string): string {
+    return value.replace(/\\/g, "\\\\").replace(/'/g, "''");
+  }
 
   // ─────────────────────────────────────────────────────────────────
   // DDL Operations - MySQL syntax

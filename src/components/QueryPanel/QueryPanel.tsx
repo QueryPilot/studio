@@ -58,7 +58,6 @@ import {
 import { parseShowplanSet, SET_COMMAND_MAP, type ShowplanFormat } from "./showplan-state-tracker";
 import { useQueryVariables } from "./Variables/useQueryVariables";
 import { substituteVariables, substituteStatementVariables } from "@/lib/queryVariables/substitution";
-import { parseVariables } from "@/lib/queryVariables";
 import { useTabStateStore } from "@/stores/tabStateStore";
 
 interface QueryPanelProps {
@@ -309,6 +308,11 @@ export const QueryPanel = memo(function QueryPanel({
         };
       }
 
+      // Captured by the success branch; fired in finally AFTER
+      // isExecutingRef is cleared so the recursive call isn't rejected by
+      // the "already executing" guard.
+      let scheduleAutoRefresh: (() => void) | null = null;
+
       if (isSingleRun) {
         isExecutingRef.current = true;
         cancelRequestedRef.current = false;
@@ -406,11 +410,13 @@ export const QueryPanel = memo(function QueryPanel({
       if (isSingleRun) {
         setIsExecuting(true);
         setExecutionStatus("executing");
-      }
-      setIsStreaming(true);
-      if (isSingleRun) {
+        setIsStreaming(true);
         setExecutionStatus("streaming");
       }
+      // In batch mode, isStreaming is owned by executeBatchScript and
+      // stays true across all sub-statements. Toggling per-statement
+      // here caused the DuckDB progress strip to flicker on/off between
+      // statements.
       if (isSingleRun) {
         setResult(null);
       } else {
@@ -691,12 +697,16 @@ export const QueryPanel = memo(function QueryPanel({
             if (lastSelectQuery) {
               setRefreshActionQuery(lastSelectQuery);
               toast.info("Data modified - Refreshing results...");
-              setTimeout(() => {
+              // Defer until finally has cleared isExecutingRef. Using a
+              // setTimeout(N) here was a near-miss race: the recursive call
+              // can fire before the outer finally runs on slow machines and
+              // get silently rejected by the "already executing" guard.
+              scheduleAutoRefresh = () => {
                 void executeSingleStatement(lastSelectQuery, {
                   runContext: "single",
                   suppressAutoRefresh: true,
                 });
-              }, 100);
+              };
             }
           }
         }
@@ -873,8 +883,15 @@ export const QueryPanel = memo(function QueryPanel({
         if (isSingleRun) {
           isExecutingRef.current = false;
           setIsExecuting(false);
+          setIsStreaming(false);
         }
-        setIsStreaming(false);
+        // Now that isExecutingRef is cleared, the recursive auto-refresh
+        // call won't be rejected by the in-flight guard. queueMicrotask
+        // runs after the current sync stack so the caller's await chain
+        // unwinds before the refresh starts.
+        if (scheduleAutoRefresh) {
+          queueMicrotask(scheduleAutoRefresh);
+        }
       }
     },
     [
@@ -999,7 +1016,19 @@ export const QueryPanel = memo(function QueryPanel({
           },
         });
 
-        setShowplanMode(orchestrationResult.finalShowplanState);
+        const wasCancelled = orchestrationResult.cancelled;
+        const wasRolledBack =
+          orchestrationResult.transactionOutcome === "rolled_back" ||
+          orchestrationResult.transactionOutcome === "begin_failed";
+        // If the batch was cancelled or rolled back the matching `SET ...
+        // OFF` never ran on the server, but the tracker's last in-memory
+        // value still reflects the SHOWPLAN format that was active. Surface
+        // null so the UI doesn't pin itself in SHOWPLAN mode forever.
+        setShowplanMode(
+          wasCancelled || wasRolledBack
+            ? null
+            : orchestrationResult.finalShowplanState,
+        );
 
         const lastResult =
           orchestrationResult.statementResults[
@@ -1008,7 +1037,6 @@ export const QueryPanel = memo(function QueryPanel({
         if (lastResult) {
           setResult(lastResult.result);
         }
-        const wasCancelled = orchestrationResult.cancelled;
         setExecutionStatus(wasCancelled ? "cancelled" : "success");
 
         if (!wasCancelled) {
@@ -1049,35 +1077,47 @@ export const QueryPanel = memo(function QueryPanel({
   );
 
   /**
-   * Determine the 0-based statement index of `stmtSql` within the full editor content.
-   * Used in per-stmt mode so we look up the right variable values.
+   * Determine the 0-based statement index of `stmtSql` within the full editor
+   * content. Used in per-stmt mode so we look up the right variable values.
+   *
+   * Prefers the editor's cursor position when available — counting semicolons
+   * up to the cursor uniquely identifies the targeted statement even when
+   * earlier statements contain identical text. The legacy `indexOf` fallback
+   * is kept for the cases where no cursor is available (e.g. running an
+   * arbitrary selection or programmatic invocation).
    */
   const findStatementIndex = useCallback(
     (stmtSql: string): number => {
       const fullSql = editorRef.current?.getValue() ?? queryRef.current;
-      const { variables } = parseVariables(fullSql, { scope: variableScope });
-      const stmtRanges = new Set<number>();
-      for (const v of variables) {
-        stmtRanges.add(v.statementIndex);
+
+      const countStatementsBefore = (text: string, until: number): number => {
+        let stmtIdx = 0;
+        let inStr = false;
+        const limit = Math.min(until, text.length);
+        for (let i = 0; i < limit; i++) {
+          const ch = text[i];
+          if (ch === "'") inStr = !inStr;
+          if (!inStr && ch === ";") stmtIdx++;
+        }
+        return stmtIdx;
+      };
+
+      const cursorPos = editorRef.current?.getCursorPosition();
+      if (
+        cursorPos != null &&
+        cursorPos >= 0 &&
+        cursorPos <= fullSql.length
+      ) {
+        return countStatementsBefore(fullSql, cursorPos);
       }
 
       const trimmed = stmtSql.trim().replace(/;\s*$/, "");
       const fullTrimmed = fullSql.trim();
       const pos = fullTrimmed.indexOf(trimmed);
       if (pos === -1) return 0;
-
-      let stmtIdx = 0;
-      let i = 0;
-      let inStr = false;
-      while (i < pos && i < fullTrimmed.length) {
-        const ch = fullTrimmed[i];
-        if (ch === "'") inStr = !inStr;
-        if (!inStr && ch === ";") stmtIdx++;
-        i++;
-      }
-      return stmtIdx;
+      return countStatementsBefore(fullTrimmed, pos);
     },
-    [queryRef, variableScope],
+    [queryRef],
   );
 
   /**
@@ -1233,8 +1273,9 @@ export const QueryPanel = memo(function QueryPanel({
         void BackendAPI.duckdbInterruptQuery(effectiveConnectionId, tabId);
       }
 
-      // Cancel backend streaming — rejects the streamQuery promise with AbortError
-      tableStreamingService.cancel();
+      // Cancel backend streaming for THIS tab — rejects the streamQuery promise
+      // with AbortError. Other tabs' streams are unaffected.
+      tableStreamingService.cancel(tabId);
 
       if (!isBatchExecuting) {
         isExecutingRef.current = false;

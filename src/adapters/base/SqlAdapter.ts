@@ -6,6 +6,7 @@
  */
 
 import { queryStreamClient } from "@/services/queryStreamClient";
+import { mapBackendColumnsToColumnMeta } from "@/services/tableDataTransform";
 import { DbType } from "@/types/connection";
 import type {
   ColumnDefinitionInput,
@@ -80,22 +81,11 @@ export abstract class SqlAdapter implements DatabaseAdapter {
       },
     );
 
+    // The backend serializes columns with serde camelCase, so reading
+    // `c.db_type`, `c.primary_key`, `c.default_value` here yielded undefined
+    // at runtime. mapBackendColumnsToColumnMeta normalizes both casings.
     return {
-      columns: result.columns.map((c, index) => ({
-        name: c.name,
-        db_type: c.db_type,
-        nullable: c.nullable,
-        default: c.default_value ?? null,
-        is_pk: c.primary_key,
-        is_fk: false,
-        ordinal: index,
-        precision: c.precision ?? null,
-        scale: c.scale ?? null,
-        comment: c.comment ?? null,
-        type_oid: c.type_oid,
-        type_category: c.type_category,
-        enum_values: c.enum_values,
-      })),
+      columns: mapBackendColumnsToColumnMeta(result.columns),
       rows,
       rowCount: result.totalRows,
     };
@@ -437,7 +427,17 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     const colName = this.quoteIdentifier(columnName);
     const statements: string[] = [];
 
-    if (changes.dataType && this.dbType === "PostgreSQL") {
+    // PostgreSQL-family dialects (PostgreSQL, DuckDB, MotherDuck) support
+    // ALTER COLUMN ... TYPE ... USING. The previous string compare to
+    // "PostgreSQL" silently excluded DuckDB even though DuckDBAdapter
+    // extends PostgreSQLAdapter and inherits this method, leaving DuckDB
+    // type changes that need an explicit cast to fail.
+    const usesPgUsingCast =
+      this.dbType === DbType.PostgreSQL ||
+      this.dbType === DbType.DuckDB ||
+      this.dbType === DbType.MotherDuck;
+
+    if (changes.dataType && usesPgUsingCast) {
       // PostgreSQL: drop default before type change to avoid cast errors on the default value,
       // then change the type with USING for explicit casts, then restore the default.
       const hadDefault = changes.previousDefault != null && changes.previousDefault !== "";
@@ -486,7 +486,7 @@ export abstract class SqlAdapter implements DatabaseAdapter {
     }
 
     // Handle default value changes (skip if already handled above for PostgreSQL type change)
-    if (changes.defaultValue !== undefined && !(changes.dataType && this.dbType === "PostgreSQL")) {
+    if (changes.defaultValue !== undefined && !(changes.dataType && usesPgUsingCast)) {
       if (changes.defaultValue === null) {
         statements.push(
           `ALTER TABLE ${table} ALTER COLUMN ${colName} DROP DEFAULT`,

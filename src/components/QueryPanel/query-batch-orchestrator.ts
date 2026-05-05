@@ -80,16 +80,26 @@ export async function orchestrateRunAllExecution({
     "none";
 
   if (runPlan.shouldAutoWrap && runPlan.transactionCommands) {
-    const beginResult = await executeStatement(runPlan.transactionCommands.begin, {
-      internalTxnStep: true,
-    });
-
-    if (beginResult.success) {
+    // Oracle has no explicit BEGIN — its driver auto-starts a transaction on
+    // the first DML/DDL statement. transactionCommands.begin is therefore
+    // an empty string for Oracle; sending it would yield "empty SQL" errors
+    // and incorrectly mark the batch as begin_failed. The implicit
+    // transaction is still finalized by COMMIT/ROLLBACK below.
+    const beginSql = runPlan.transactionCommands.begin.trim();
+    if (beginSql.length === 0) {
       transactionStarted = true;
     } else {
-      batchFailed = true;
-      skipReason = "Skipped due transaction start failure";
-      transactionOutcome = "begin_failed";
+      const beginResult = await executeStatement(beginSql, {
+        internalTxnStep: true,
+      });
+
+      if (beginResult.success) {
+        transactionStarted = true;
+      } else {
+        batchFailed = true;
+        skipReason = "Skipped due transaction start failure";
+        transactionOutcome = "begin_failed";
+      }
     }
   }
 

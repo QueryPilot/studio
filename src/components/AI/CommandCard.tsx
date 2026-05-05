@@ -464,6 +464,11 @@ function CommandCardInner({
   const [expanded, setExpanded] = useState(shouldAutoExpand);
   const [showParamDetails, setShowParamDetails] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  // When true, render result as plain text (escaped) rather than markdown.
+  // Raw exception messages can include markdown that Streamdown will render
+  // as styled content / links (rehype-sanitize allows valid HTTPS URLs),
+  // letting an attacker-controlled error string influence the UI.
+  const [resultIsError, setResultIsError] = useState(false);
   const [localState, setLocalState] = useState<CommandState>("pending");
 
   // Track staged CRUD command state
@@ -533,11 +538,13 @@ function CommandCardInner({
       setLocalState(finalState);
       setCommandState(command.id, finalState);
       approveCommand(command.id);
+      setResultIsError(!execResult.success);
       onResult?.(formatted);
     } catch (error) {
       // Handle unexpected errors (network issues, etc.)
       const errorMessage = error instanceof Error ? error.message : String(error);
       setResult(`**Error:** ${errorMessage}`);
+      setResultIsError(true);
       setLocalState("failed");
       setCommandState(command.id, "failed");
       onResult?.(`**Error:** ${errorMessage}`);
@@ -616,12 +623,15 @@ function CommandCardInner({
       if (unstageResult.success) {
         setStagedCommandId(null);
         setResult("**Unstaged** - Change removed from staging area.");
+        setResultIsError(false);
       } else {
         setResult(`**Unstage failed:** ${unstageResult.error}`);
+        setResultIsError(true);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       setResult(`**Unstage error:** ${errorMessage}`);
+      setResultIsError(true);
     } finally {
       setIsUnstaging(false);
     }
@@ -718,7 +728,13 @@ function CommandCardInner({
         {result && (
           <div className="px-3 pb-3 text-xs border-t border-border/50">
             <div className="pt-2 prose prose-sm dark:prose-invert max-w-none text-[11px] leading-relaxed">
-              <Streamdown className="select-text">{result}</Streamdown>
+              {resultIsError ? (
+                <pre className="select-text whitespace-pre-wrap break-words text-destructive font-mono text-[11px]">
+                  {result}
+                </pre>
+              ) : (
+                <Streamdown className="select-text">{result}</Streamdown>
+              )}
             </div>
           </div>
         )}
@@ -905,10 +921,11 @@ export function CommandList({
           return false;
         }
 
-        // Keep `skipApprovalGate` in dependency-driven recomputation so toggling
-        // the preference auto-runs newly eligible pending commands.
+        // When the user has explicitly opted into bypassing the approval gate,
+        // auto-execute every eligible command. Otherwise only auto-execute
+        // commands the safelist (`shouldAutoApprove`) marks as safe by name.
         if (approvalBypassEnabled) {
-          return shouldAutoApprove(c.name);
+          return true;
         }
 
         return shouldAutoApprove(c.name);

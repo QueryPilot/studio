@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { DbType, type DatabaseParadigm } from '@/types/connection';
 import type {
-  BaseAdapter,
+  CapabilityAdapter,
   AdapterCapability,
   ConnectionTestResult,
   DocumentQueryable,
@@ -28,7 +28,7 @@ import type {
 } from '../types/mongodb';
 import type { DocumentOperation, DocumentResult } from '../types/ipc';
 
-export class MongoDBAdapter implements BaseAdapter, DocumentQueryable {
+export class MongoDBAdapter implements CapabilityAdapter, DocumentQueryable {
   readonly connectionId: string;
   readonly dbType: DbType = DbType.MongoDB;
   readonly paradigm: DatabaseParadigm = 'document';

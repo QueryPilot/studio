@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { DbType, type DatabaseParadigm } from '@/types/connection';
 import type {
-  BaseAdapter,
+  CapabilityAdapter,
   AdapterCapability,
   ConnectionTestResult,
   RichKeyValueOperable,
@@ -17,7 +17,7 @@ import type {
 } from '../types/redis';
 import type { KeyValueOperation, KeyValueResult } from '../types/ipc';
 
-export class RedisAdapter implements BaseAdapter, RichKeyValueOperable {
+export class RedisAdapter implements CapabilityAdapter, RichKeyValueOperable {
   readonly connectionId: string;
   readonly dbType: DbType = DbType.Redis;
   readonly paradigm: DatabaseParadigm = 'keyvalue';

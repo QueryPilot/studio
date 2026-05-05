@@ -50,11 +50,26 @@ export type AdapterCapability =
   | 'keyvalue-operable'
   | 'rich-keyvalue-operable';
 
-export interface BaseAdapter {
+/**
+ * Renamed from BaseAdapter to CapabilityAdapter to avoid the name collision
+ * with `types.ts`'s `BaseAdapter`. The two abstractions describe different
+ * things:
+ *   - `types.ts` `BaseAdapter`: minimal runtime instance (connectionId,
+ *     dbType, paradigm). What every adapter actually implements today.
+ *   - `capabilities.ts` `CapabilityAdapter`: a richer RPC-style contract
+ *     including `getCapabilities()` and lifecycle methods. Currently only
+ *     adopted by MongoDB and Redis adapters; SQL adapters are not yet
+ *     migrated.
+ *
+ * Re-exporting both as `BaseAdapter` from `@/adapters` would create a
+ * silent collision where importers could resolve to either type depending
+ * on bundler order.
+ */
+export interface CapabilityAdapter {
   readonly connectionId: string;
   readonly dbType: DbType;
   readonly paradigm: DatabaseParadigm;
-  
+
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   testConnection(): Promise<ConnectionTestResult>;
@@ -71,7 +86,7 @@ export interface ConnectionTestResult {
 
 // ============ SQL ============
 
-export interface SqlQueryable extends BaseAdapter {
+export interface SqlQueryable extends CapabilityAdapter {
   executeQuery(sql: string): Promise<CapabilityQueryResult>;
   executeStatement(sql: string): Promise<number>;
 }
@@ -88,7 +103,7 @@ export interface CapabilityColumnMeta {
 
 // ============ Schema Introspection ============
 
-export interface SchemaIntrospectable extends BaseAdapter {
+export interface SchemaIntrospectable extends CapabilityAdapter {
   getDatabases(): Promise<DatabaseInfo[]>;
   getSchemas(database: string): Promise<SchemaInfo[]>;
   getTables(database: string, schema?: string): Promise<TableInfo[]>;
@@ -126,7 +141,7 @@ export interface IndexInfo {
 
 // ============ Document ============
 
-export interface DocumentQueryable extends BaseAdapter {
+export interface DocumentQueryable extends CapabilityAdapter {
   findDocuments(
     collection: string,
     filter: object,
@@ -206,7 +221,7 @@ export interface DocumentQueryable extends BaseAdapter {
 
 // ============ Key-Value ============
 
-export interface KeyValueOperable extends BaseAdapter {
+export interface KeyValueOperable extends CapabilityAdapter {
   getKey(key: string): Promise<RedisValue | null>;
   setKey(key: string, value: RedisValue, options?: SetOptions): Promise<void>;
   deleteKeys(keys: string[]): Promise<number>;
@@ -258,22 +273,22 @@ export interface RichKeyValueOperable extends KeyValueOperable {
 
 // ============ Type Guards ============
 
-export function isSqlQueryable(adapter: BaseAdapter): adapter is SqlQueryable {
+export function isSqlQueryable(adapter: CapabilityAdapter): adapter is SqlQueryable {
   return adapter.getCapabilities().includes('sql-queryable');
 }
 
-export function isSchemaIntrospectable(adapter: BaseAdapter): adapter is SchemaIntrospectable {
+export function isSchemaIntrospectable(adapter: CapabilityAdapter): adapter is SchemaIntrospectable {
   return adapter.getCapabilities().includes('schema-introspectable');
 }
 
-export function isDocumentQueryable(adapter: BaseAdapter): adapter is DocumentQueryable {
+export function isDocumentQueryable(adapter: CapabilityAdapter): adapter is DocumentQueryable {
   return adapter.getCapabilities().includes('document-queryable');
 }
 
-export function isKeyValueOperable(adapter: BaseAdapter): adapter is KeyValueOperable {
+export function isKeyValueOperable(adapter: CapabilityAdapter): adapter is KeyValueOperable {
   return adapter.getCapabilities().includes('keyvalue-operable');
 }
 
-export function isRichKeyValueOperable(adapter: BaseAdapter): adapter is RichKeyValueOperable {
+export function isRichKeyValueOperable(adapter: CapabilityAdapter): adapter is RichKeyValueOperable {
   return adapter.getCapabilities().includes('rich-keyvalue-operable');
 }

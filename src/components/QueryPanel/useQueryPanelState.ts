@@ -306,10 +306,15 @@ export function useQueryPanelState({
       if (persistTimerRef.current) {
         clearTimeout(persistTimerRef.current);
         persistTimerRef.current = null;
+        // Flush — without this, closing a tab within the 1s debounce
+        // window discards the user's last edit.
+        updateTabMetadata(panelId, tabId, { sql: queryRef.current });
       }
     };
   }, [
     tabId,
+    panelId,
+    updateTabMetadata,
     setQueryState,
     effectiveConnectionId,
     database,

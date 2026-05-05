@@ -89,6 +89,12 @@ const pendingAdapters = new Map<string, Promise<BaseAdapter>>();
 /**
  * Get adapter for any database type (SQL, Document, or KeyValue)
  * Returns BaseAdapter - use type guards to access paradigm-specific methods
+ *
+ * Cache invalidation: a cached adapter is reused only when its `dbType`
+ * matches the requested one. If a connection is reconnected with a different
+ * dbType (e.g. swapping a profile from MySQL → MariaDB, or DuckDB →
+ * MotherDuck), the stale adapter is evicted and rebuilt rather than silently
+ * returning the wrong dialect.
  */
 export async function getAdapter(
   connectionId: string,
@@ -96,7 +102,12 @@ export async function getAdapter(
 ): Promise<BaseAdapter> {
   const cached = adapterCache.get(connectionId);
   if (cached) {
-    return cached;
+    if (cached.dbType === dbType) {
+      return cached;
+    }
+    // Stale cache from a prior connection lifecycle — evict and rebuild.
+    adapterCache.delete(connectionId);
+    pendingAdapters.delete(connectionId);
   }
 
   // Deduplicate concurrent calls for the same connection
@@ -155,7 +166,9 @@ export async function getSqlAdapter(
 }
 
 /**
- * Get the database type for a connection from the store
+ * Get the database type for a connection from the store.
+ * Throws when the connection is not registered — defaulting to PostgreSQL
+ * silently masked bugs where callers held onto stale connection IDs.
  */
 export function getConnectionDbType(connectionId: string): DbType {
   const store = useConnectionStore.getState();
@@ -163,9 +176,17 @@ export function getConnectionDbType(connectionId: string): DbType {
     (c) => c.profile.id === connectionId,
   );
   if (!connection) {
-    return DbType.PostgreSQL; // Default fallback
+    throw new Error(
+      `Unknown connection ${connectionId} — no entry in connection store. ` +
+        `The connection may have been removed or never registered.`,
+    );
   }
-  return connection.profile.db_type || DbType.PostgreSQL;
+  if (!connection.profile.db_type) {
+    throw new Error(
+      `Connection ${connectionId} has no db_type — cannot select adapter.`,
+    );
+  }
+  return connection.profile.db_type;
 }
 
 /**
