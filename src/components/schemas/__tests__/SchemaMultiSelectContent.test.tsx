@@ -40,20 +40,21 @@ describe("SchemaMultiSelectContent", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it("sets primary when clicking a schema label", async () => {
-    const onApply = vi.fn();
+  it("marks the first selected schema as primary", () => {
     render(
       <SchemaMultiSelectContent
         connectionId="c"
         database="d"
         initialSchemas={["public", "reporting"]}
-        onApply={onApply}
+        onApply={vi.fn()}
         scopeLabel="This tab"
       />,
     );
-    // Click "reporting" label to make it primary
-    fireEvent.click(screen.getByTitle("Click to set as primary"));
-    expect(onApply).toHaveBeenCalledWith(["reporting", "public"]);
+    // Primary is the first row; reordering is done via drag
+    expect(
+      screen.getAllByTitle("Primary schema — drag to reorder"),
+    ).toHaveLength(1);
+    expect(screen.getByTitle("reporting")).toBeInTheDocument();
   });
 
   it("renders footerSlot", async () => {

@@ -8,6 +8,9 @@ export default defineConfig({
     globals: true,
     environment: "jsdom", // Use jsdom for React component testing
     setupFiles: ["./src/test-utils/setup.ts"],
+    // Node >= 25 ships a global `localStorage` that shadows jsdom's and is
+    // undefined without --localstorage-file. Disable it so jsdom's is used.
+    execArgv: ["--no-experimental-webstorage"],
     include: ["src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     exclude: ["node_modules", "dist", "src-tauri", "**/backup/**"],
     coverage: {
