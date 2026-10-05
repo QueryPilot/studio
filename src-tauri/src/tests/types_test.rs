@@ -1,3 +1,6 @@
+// Float literals here exercise formatting, not math constants.
+#![allow(clippy::approx_constant)]
+
 use crate::types::*;
 use serde_json::json;
 
