@@ -117,6 +117,12 @@ import { usePanelFocusStore } from "@/stores/panelFocusStore";
 import type { TableCreatePayload } from "@/types/crud";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ContextMenu,
@@ -4862,6 +4868,77 @@ export const ConnectionSection = forwardRef<
                           <IconEye className="h-3 w-3 mr-1" />
                           Create View
                         </Button>
+                        {dbType === DbType.DuckDB && (
+                          <>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                render={
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full text-xs h-6"
+                                  />
+                                }
+                              >
+                                <IconFileImport className="h-3 w-3 mr-1" />
+                                Import Data
+                                <IconChevronDown className="h-3 w-3 ml-auto" />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem
+                                  disabled={isAddingDuckDbFile}
+                                  onClick={() => {
+                                    void handleOpenDuckDbAddFileDialog();
+                                  }}
+                                >
+                                  <IconFileImport className="h-3.5 w-3.5 mr-2" />
+                                  From File...
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setDuckDbImportUrlDialogOpen(true);
+                                  }}
+                                >
+                                  <IconLink className="h-3.5 w-3.5 mr-2" />
+                                  From URL...
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                render={
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full text-xs h-6"
+                                  />
+                                }
+                              >
+                                <IconDatabase className="h-3 w-3 mr-1" />
+                                Attach Database
+                                <IconChevronDown className="h-3 w-3 ml-auto" />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setDuckDbAttachDialogOpen(true);
+                                  }}
+                                >
+                                  <IconDatabase className="h-3.5 w-3.5 mr-2" />
+                                  Database file...
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setDuckDbAttachCatalogDialogOpen(true);
+                                  }}
+                                >
+                                  <IconLink className="h-3.5 w-3.5 mr-2" />
+                                  Catalog...
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
